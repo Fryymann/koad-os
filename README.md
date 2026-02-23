@@ -37,8 +37,9 @@ The Agnostic AI Coding Agent Framework.
    ```
 
 ## Core Mandate
-- **Boot**: `koad boot --project` (Ingests persona + recent memory + active project state)
+- **Boot**: `koad boot` (Ingests persona + recent memory + active reflections)
 - **Scan**: `koad scan` (Registers the current directory as a project in the database)
+- **Ponder**: `koad ponder` (Records a personal reflection in the Persona Journal)
 - **Publish**: `koad publish` (Stages, commits, and pushes KoadOS to GitHub)
 - **Saveup**: `koad saveup "summary" --auto` (Archives session and auto-harvests facts from successful actions)
 - **Remember**: `koad remember fact/learning "<text>"` (Updates global memory)

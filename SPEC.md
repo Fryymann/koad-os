@@ -49,6 +49,10 @@
 - **Purpose**: Appends knowledge to the persistent memory ledger.
 - **Categories**: `fact` (immutable truth), `learning` (session lesson).
 
+### `koad ponder "<text>" [--tags "<tags>"]`
+- **Purpose**: Record a personal reflection or interpretation (Persona Journaling).
+- **Persistence**: Entries are stored in the database under the `pondering` category and are automatically surfaced during the `koad boot` sequence.
+
 ### `koad sync <source>`
 - **Purpose**: Triggers data synchronization from external platforms.
 - **Sources**: 
