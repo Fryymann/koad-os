@@ -37,10 +37,12 @@ The Agnostic AI Coding Agent Framework.
    ```
 
 ## Core Mandate
-- **Boot**: `koad boot --project` (Ingests persona + recent memory + project snapshot)
+- **Boot**: `koad boot --project` (Ingests persona + recent memory + active project state)
+- **Scan**: `koad scan` (Registers the current directory as a project in the database)
+- **Saveup**: `koad saveup "summary" --auto` (Archives session and auto-harvests facts from successful actions)
 - **Remember**: `koad remember fact/learning "<text>"` (Updates global memory)
-- **Harvest**: `koad harvest <path>` (PM only: Pulls learnings from developer docs)
 - **Skill**: `koad skill run <path>` (Dispatches automation)
+- **Gcloud**: `koad gcloud audit` (Performs operational checks and broadcasts to Notion stream)
 
 ## Principles
 - **Simplicity first**: Minimal abstractions, maximum speed.

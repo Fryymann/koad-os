@@ -1,4 +1,11 @@
 koad.json
+koad.db
 core/rust/target/
 legacy/
 SESSION_LOG.md
+bin/koad
+.crates.toml
+.crates2.json
+NOTION_INDEX.md
+*.db
+*.log

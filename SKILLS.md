@@ -17,7 +17,7 @@ Skills are specialized scripts that extend KoadOS functionality. Each coding age
 import subprocess
 
 # Add a fact via the CLI
-subprocess.run(["koad", "fact", "New skill deployed."])
+subprocess.run(["koad", "remember", "fact", "New skill deployed."])
 ```
 
 ## Running Skills
@@ -30,4 +30,4 @@ Example:
 ## Guidelines
 - **Simplicity**: Favor single-file scripts when possible.
 - **Native Tech**: Use system-native interpreters (Python, Node, Bash).
-- **Persistence**: Use `koad fact` to save results of skill execution to long-term memory.
+- **Persistence**: Use `koad remember fact` to save results of skill execution to long-term memory.
