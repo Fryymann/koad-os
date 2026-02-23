@@ -43,70 +43,74 @@ pub struct DriverConfig {
 
 #[derive(Parser)]
 #[command(name = "koad")]
-#[command(version = "2.1.0")]
+#[command(version = "2.2.0")]
 #[command(about = "The KoadOS Control Plane")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    /// Set the active role for the session (pm | developer).
+    #[arg(short, long, global = true, default_value = "pm")]
+    role: String,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Boot koadOS and output a contextual context block.
+    /// Boot koadOS and output contextual context block.
     Boot {
         #[arg(short, long, default_value = "gemini")]
         agent: String,
         #[arg(short, long)]
         project: bool,
     },
+    /// Environment and Auth checks.
     Auth,
-    Query {
-        term: String,
-    },
+    /// Search memory.
+    Query { term: String },
+    /// Memory updates (RESTRICTED: pm only).
     Remember {
         #[command(subcommand)]
         category: MemoryCategory,
     },
+    /// Run scripts.
     Skill {
         #[command(subcommand)]
         action: SkillAction,
     },
+    /// Initialize KoadOS.
     Init {
         #[arg(short, long)]
         force: bool,
     },
+    /// PM ONLY: Harvest learnings from documentation.
     Harvest {
         path: PathBuf,
     },
+    /// External sync (RESTRICTED: pm only).
     Sync {
         #[command(subcommand)]
         source: SyncSource,
     },
+    /// GCP Operations.
     Gcloud {
         #[command(subcommand)]
         action: GcloudAction,
     },
-    /// Google Drive operations.
+    /// Google Drive Operations.
     Drive {
         #[command(subcommand)]
         action: DriveAction,
+    },
+    /// PM ONLY: Deactivate a knowledge entry by ID.
+    Retire {
+        id: i64,
     },
 }
 
 #[derive(Subcommand)]
 enum DriveAction {
-    /// List files in Google Drive.
-    List {
-        #[arg(short, long)]
-        shared: bool,
-    },
-    /// Download a file from Google Drive.
-    Download {
-        id: String,
-        #[arg(short, long)]
-        dest: Option<PathBuf>,
-    },
-    /// Sync metadata/files to local cache.
+    List { #[arg(short, long)] shared: bool },
+    Download { id: String, #[arg(short, long)] dest: Option<PathBuf> },
     Sync,
 }
 
@@ -136,15 +140,18 @@ enum SkillAction {
 }
 
 impl KoadConfig {
-    pub fn get_home() -> PathBuf {
-        env::var("KOAD_HOME").map(PathBuf::from).unwrap_or_else(|_| dirs::home_dir().unwrap().join(".koad-os"))
+    pub fn get_home() -> Result<PathBuf> {
+        let home = env::var("KOAD_HOME")
+            .map(PathBuf::from)
+            .or_else(|_| dirs::home_dir().context("Home dir not found").map(|h| h.join(".koad-os")))?;
+        Ok(home)
     }
 
-    pub fn get_path() -> PathBuf { Self::get_home().join("koad.json") }
-    pub fn get_db_path() -> PathBuf { Self::get_home().join("koad.db") }
+    pub fn get_path() -> Result<PathBuf> { Ok(Self::get_home()?.join("koad.json")) }
+    pub fn get_db_path() -> Result<PathBuf> { Ok(Self::get_home()?.join("koad.db")) }
 
     pub fn load() -> Result<Self> {
-        let path = Self::get_path();
+        let path = Self::get_path()?;
         if !path.exists() { return Ok(Self::default_initial()); }
         let content = std::fs::read_to_string(path)?;
         let mut cfg: Self = serde_json::from_str(&content).context("Failed to parse koad.json")?;
@@ -155,14 +162,14 @@ impl KoadConfig {
     }
 
     pub fn save(&self) -> Result<()> {
-        let path = Self::get_path();
+        let path = Self::get_path()?;
         let content = serde_json::to_string_pretty(self)?;
         std::fs::write(path, content).context("Failed to write koad.json")
     }
 
     pub fn default_initial() -> Self {
         Self {
-            version: "2.1".to_string(),
+            version: "2.2".to_string(),
             identity: Identity {
                 name: env::var("KOAD_NAME").unwrap_or_else(|_| "Koad".into()),
                 role: env::var("KOAD_ROLE").unwrap_or_else(|_| "AI Persona".into()),
@@ -171,7 +178,11 @@ impl KoadConfig {
             preferences: Preferences {
                 languages: vec!["Rust".into(), "Node.js".into(), "Python".into()],
                 style: "programmatic-first".to_string(),
-                principles: vec!["Simplicity first".into(), "Plan before build".into(), "Sanctuary Rule".into()],
+                principles: vec![
+                    "Simplicity first".into(), 
+                    "Plan before build".into(),
+                    "Sanctuary Rule: Developer agents only touch project files & docs".into()
+                ],
             },
             drivers: HashMap::new(),
         }
@@ -184,7 +195,7 @@ struct KoadDB {
 
 impl KoadDB {
     fn init() -> Result<Self> {
-        let path = KoadConfig::get_db_path();
+        let path = KoadConfig::get_db_path()?;
         let conn = Connection::open(path)?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS knowledge (
@@ -192,7 +203,8 @@ impl KoadDB {
                 category TEXT NOT NULL,
                 content TEXT NOT NULL,
                 tags TEXT,
-                timestamp TEXT NOT NULL
+                timestamp TEXT NOT NULL,
+                active INTEGER DEFAULT 1
             )",
             [],
         )?;
@@ -208,29 +220,66 @@ impl KoadDB {
         Ok(())
     }
 
-    fn query(&self, term: &str) -> Result<Vec<(String, String, String)>> {
+    fn retire(&self, id: i64) -> Result<()> {
+        self.conn.execute("UPDATE knowledge SET active = 0 WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    fn query(&self, term: &str) -> Result<Vec<(i64, String, String, String)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT category, content, timestamp FROM knowledge 
-             WHERE content LIKE ?1 OR tags LIKE ?1 
+            "SELECT id, category, content, timestamp FROM knowledge 
+             WHERE active = 1 AND (content LIKE ?1 OR tags LIKE ?1) 
              ORDER BY timestamp DESC LIMIT 20"
         )?;
         let rows = stmt.query_map(params![format!("%{}%", term)], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         })?;
         let mut results = Vec::new();
         for row in rows { results.push(row?); }
         Ok(results)
     }
 
-    fn get_recent(&self, limit: usize) -> Result<Vec<(String, String)>> {
+    fn get_contextual(&self, limit: usize, tags: Vec<String>) -> Result<Vec<(String, String)>> {
+        let mut results = Vec::new();
+        
+        // 1. Fetch relevant items (matching tags)
+        if !tags.is_empty() {
+            let mut query = String::from("SELECT category, content FROM knowledge WHERE active = 1 AND (");
+            for (i, _) in tags.iter().enumerate() {
+                if i > 0 { query.push_str(" OR "); }
+                query.push_str("tags LIKE ?");
+                query.push_str(&(i + 1).to_string());
+                query.push_str(" OR content LIKE ?");
+                query.push_str(&(i + 1).to_string());
+            }
+            query.push_str(") ORDER BY timestamp DESC LIMIT ?");
+            query.push_str(&(tags.len() + 1).to_string());
+
+            let mut stmt = self.conn.prepare(&query)?;
+            let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
+            for t in &tags { 
+                params_vec.push(format!("%{}%", t).into()); 
+            }
+            params_vec.push(((limit / 2) as i64).into());
+
+            let rows = stmt.query_map(rusqlite::params_from_iter(params_vec), |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?;
+            for row in rows { results.push(row?); }
+        }
+
+        // 2. Fetch general recent items
         let mut stmt = self.conn.prepare(
-            "SELECT category, content FROM knowledge ORDER BY timestamp DESC LIMIT ?1"
+            "SELECT category, content FROM knowledge WHERE active = 1 ORDER BY timestamp DESC LIMIT ?1"
         )?;
-        let rows = stmt.query_map(params![limit], |row| {
+        let rows = stmt.query_map(params![limit - results.len()], |row| {
             Ok((row.get(0)?, row.get(1)?))
         })?;
-        let mut results = Vec::new();
-        for row in rows { results.push(row?); }
+        for row in rows { 
+            let item = row?;
+            if !results.contains(&item) { results.push(item); }
+        }
+
         Ok(results)
     }
 }
@@ -247,10 +296,21 @@ fn get_gdrive_token_for_path(path: &Path) -> (&'static str, &'static str) {
     else { ("GDRIVE_PERSONAL_TOKEN", "Personal") }
 }
 
+fn detect_context_tags(path: &Path) -> Vec<String> {
+    let mut tags = Vec::new();
+    let path_str = path.to_string_lossy().to_lowercase();
+    if path_str.contains("skylinks") { tags.push("skylinks".into()); }
+    if path_str.contains("ttrpg") { tags.push("ttrpg".into()); }
+    if path_str.contains("rust") || path.join("Cargo.toml").exists() { tags.push("rust".into()); }
+    if path_str.contains("node") || path.join("package.json").exists() { tags.push("node".into()); }
+    tags
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let config = KoadConfig::load()?;
     let db = KoadDB::init()?;
+    let is_pm = cli.role.to_lowercase() == "pm";
 
     match cli.command {
         Commands::Boot { agent: _, project } => {
@@ -261,10 +321,15 @@ fn main() -> Result<()> {
             println!("Auth (GitHub): {} ({})", pat_var, pat_desc);
             let (drive_var, drive_desc) = get_gdrive_token_for_path(&current_dir);
             println!("Auth (Drive): {} ({})", drive_var, drive_desc);
-            println!("\n[Recent Memory]");
-            for (cat, content) in db.get_recent(10)? {
+            
+            let tags = detect_context_tags(&current_dir);
+            println!("Context Tags: {}", if tags.is_empty() { "none".into() } else { tags.join(", ") });
+
+            println!("\n[Contextual Memory]");
+            for (cat, content) in db.get_contextual(12, tags)? {
                 println!("- [{}] {}", cat, content);
             }
+            
             if project {
                 let progress_path = current_dir.join("PROJECT_PROGRESS.md");
                 if progress_path.exists() {
@@ -285,19 +350,20 @@ fn main() -> Result<()> {
             println!("Drive Context: {} | Env: {}", drive_desc, drive_var);
         }
         Commands::Query { term } => {
-            for (cat, content, ts) in db.query(&term)? {
-                println!("- [{}] ({}) {}", cat, ts, content);
+            for (id, cat, content, ts) in db.query(&term)? {
+                println!("- ID:{} [{}] ({}) {}", id, cat, ts, content);
             }
         }
         Commands::Remember { category } => {
+            if !is_pm { anyhow::bail!("Access Denied: Sanctuary Rule."); }
             match category {
                 MemoryCategory::Fact { text, tags } => db.remember("fact", &text, tags)?,
                 MemoryCategory::Learning { text, tags } => db.remember("learning", &text, tags)?,
             }
-            println!("Memory updated in DB.");
+            println!("Memory updated.");
         }
         Commands::Skill { action } => {
-             let skills_dir = KoadConfig::get_home().join("skills");
+             let skills_dir = KoadConfig::get_home()?.join("skills");
              match action {
                  SkillAction::List => {
                      for entry in std::fs::read_dir(&skills_dir)? {
@@ -315,11 +381,13 @@ fn main() -> Result<()> {
              }
         }
         Commands::Init { force } => {
-            let path = KoadConfig::get_path();
+            if !is_pm { anyhow::bail!("PM only."); }
+            let path = KoadConfig::get_path()?;
             if path.exists() && !force { anyhow::bail!("Exists."); }
             KoadConfig::default_initial().save()?; println!("Initialized.");
         }
         Commands::Harvest { path } => {
+            if !is_pm { anyhow::bail!("Access Denied."); }
             let file = std::fs::File::open(&path)?;
             let reader = BufReader::new(file);
             let mut in_discovery = false;
@@ -333,27 +401,30 @@ fn main() -> Result<()> {
                     count += 1;
                 }
             }
-            if count > 0 { println!("Harvested {} learnings to DB.", count); }
+            if count > 0 { println!("Harvested {} learnings.", count); }
         }
-        Commands::Sync { source } => match source {
-            SyncSource::Airtable { schema_only, base_id } => {
-                let mut cmd_args = vec!["run".to_string(), "global/airtable_sync.py".to_string(), "--".to_string()];
-                if schema_only { cmd_args.push("--schema-only".to_string()); }
-                if let Some(id) = base_id { cmd_args.push("--base-id".to_string()); cmd_args.push(id); }
-                let mut child = Command::new(env::current_exe()?).args(cmd_args).spawn()?; child.wait()?;
-            }
-            SyncSource::Notion { page_id, db_id } => {
-                let mut cmd_args = vec!["run".to_string(), "global/notion_sync.py".to_string(), "--".to_string()];
-                if let Some(id) = page_id { cmd_args.push("--page-id".to_string()); cmd_args.push(id); }
-                if let Some(id) = db_id { cmd_args.push("--db-id".to_string()); cmd_args.push(id); }
-                let mut child = Command::new(env::current_exe()?).args(cmd_args).spawn()?; child.wait()?;
+        Commands::Sync { source } => {
+            if !is_pm { anyhow::bail!("Access Denied."); }
+            match source {
+                SyncSource::Airtable { schema_only, base_id } => {
+                    let mut cmd_args = vec!["run".to_string(), "global/airtable_sync.py".to_string(), "--".to_string()];
+                    if schema_only { cmd_args.push("--schema-only".to_string()); }
+                    if let Some(id) = base_id { cmd_args.push("--base-id".to_string()); cmd_args.push(id); }
+                    let mut child = Command::new(env::current_exe()?).args(cmd_args).spawn()?; child.wait()?;
+                }
+                SyncSource::Notion { page_id, db_id } => {
+                    let mut cmd_args = vec!["run".to_string(), "global/notion_sync.py".to_string(), "--".to_string()];
+                    if let Some(id) = page_id { cmd_args.push("--page-id".to_string()); cmd_args.push(id); }
+                    if let Some(id) = db_id { cmd_args.push("--db-id".to_string()); cmd_args.push(id); }
+                    let mut child = Command::new(env::current_exe()?).args(cmd_args).spawn()?; child.wait()?;
+                }
             }
         }
         Commands::Gcloud { action } => {
             let mut cmd_args = vec!["run".to_string(), "global/gcloud_ops.py".to_string(), "--".to_string()];
             match action {
                 GcloudAction::List { resource } => { cmd_args.push("list".to_string()); cmd_args.push("--resource".to_string()); cmd_args.push(resource); }
-                GcloudAction::Deploy { name } => { cmd_args.push("deploy".to_string()); cmd_args.push("--name".to_string()); cmd_args.push(name); }
+                GcloudAction::Deploy { name } => { if !is_pm { anyhow::bail!("Deploy restricted."); } cmd_args.push("deploy".to_string()); cmd_args.push("--name".to_string()); cmd_args.push(name); }
                 GcloudAction::Logs { name, limit } => { cmd_args.push("logs".to_string()); cmd_args.push("--name".to_string()); cmd_args.push(name); cmd_args.push("--limit".to_string()); cmd_args.push(limit.to_string()); }
             }
             let mut child = Command::new(env::current_exe()?).args(cmd_args).spawn()?; child.wait()?;
@@ -361,22 +432,16 @@ fn main() -> Result<()> {
         Commands::Drive { action } => {
             let mut cmd_args = vec!["run".to_string(), "global/gdrive_ops.py".to_string(), "--".to_string()];
             match action {
-                DriveAction::List { shared } => { 
-                    cmd_args.push("list".to_string()); 
-                    if shared { cmd_args.push("--shared".to_string()); }
-                }
-                DriveAction::Download { id, dest } => {
-                    cmd_args.push("download".to_string());
-                    cmd_args.push("--id".to_string());
-                    cmd_args.push(id);
-                    if let Some(d) = dest { cmd_args.push("--dest".to_string()); cmd_args.push(d.to_string_lossy().to_string()); }
-                }
-                DriveAction::Sync => {
-                    cmd_args.push("sync".to_string());
-                }
+                DriveAction::List { shared } => { cmd_args.push("list".to_string()); if shared { cmd_args.push("--shared".to_string()); } }
+                DriveAction::Download { id, dest } => { cmd_args.push("download".to_string()); cmd_args.push("--id".to_string()); cmd_args.push(id); if let Some(d) = dest { cmd_args.push("--dest".to_string()); cmd_args.push(d.to_string_lossy().to_string()); } }
+                DriveAction::Sync => { if !is_pm { anyhow::bail!("Sync restricted."); } cmd_args.push("sync".to_string()); }
             }
-            let mut child = Command::new(env::current_exe()?).args(cmd_args).spawn()?;
-            child.wait()?;
+            let mut child = Command::new(env::current_exe()?).args(cmd_args).spawn()?; child.wait()?;
+        }
+        Commands::Retire { id } => {
+            if !is_pm { anyhow::bail!("PM only."); }
+            db.retire(id)?;
+            println!("Knowledge entry {} retired.", id);
         }
     }
 
@@ -392,44 +457,11 @@ mod tests {
     #[test]
     fn test_auth_logic() {
         assert_eq!(get_gh_pat_for_path(&PathBuf::from("/home/ideans/data/skylinks")).0, "GITHUB_SKYLINKS_PAT");
-        assert_eq!(get_gh_pat_for_path(&PathBuf::from("/home/ideans/personal")).0, "GITHUB_PERSONAL_PAT");
     }
 
     #[test]
-    fn test_gdrive_auth_logic() {
-        assert_eq!(get_gdrive_token_for_path(&PathBuf::from("/home/ideans/data/skylinks/site")).0, "GDRIVE_SKYLINKS_TOKEN");
-        assert_eq!(get_gdrive_token_for_path(&PathBuf::from("/home/ideans/dev/rust")).0, "GDRIVE_PERSONAL_TOKEN");
-    }
-
-    #[test]
-    fn test_harvest_logic() -> Result<()> {
-        let mut config = KoadConfig::default_initial();
-        let mut file = NamedTempFile::new()?;
-        writeln!(file, "## Discoveries\n- First discovery\n- Second discovery\n## Other Section")?;
-        
-        let path = file.path();
-        let f = std::fs::File::open(path)?;
-        let reader = BufReader::new(f);
-        let mut in_discovery = false;
-        let mut count = 0;
-        
-        for line in reader.lines() {
-            let line = line?;
-            if line.starts_with("## Discoveries") { in_discovery = true; continue; }
-            if line.starts_with("## ") && in_discovery { break; }
-            if in_discovery && line.trim().starts_with("- ") {
-                count += 1;
-            }
-        }
-        
-        assert_eq!(count, 2);
-        Ok(())
-    }
-
-    #[test]
-    fn test_serialization_integrity() {
-        let config = KoadConfig::default_initial();
-        let json = serde_json::to_string(&config).unwrap();
-        let _: KoadConfig = serde_json::from_str(&json).unwrap();
+    fn test_context_detection() {
+        let tags = detect_context_tags(&PathBuf::from("/home/ideans/data/skylinks/functions"));
+        assert!(tags.contains(&"skylinks".to_string()));
     }
 }

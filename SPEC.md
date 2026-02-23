@@ -16,9 +16,14 @@
 
 ### `koad boot [--project]`
 - **Purpose**: Generates a system-level context block.
-- **Logic**: Ingests identity, recent memory, and optionally a project's `PROJECT_PROGRESS.md` snapshot.
+- **Logic**: Ingests identity, recent memory, and optionally a project snapshot.
+- **Intelligence**: Automatically detects context tags (e.g., `rust`, `skylinks`) and prioritizes matching knowledge from the database.
 
-### `koad remember <category> "<text>"`
+### `koad retire <id>`
+- **Purpose**: PM ONLY. Deactivates a knowledge entry so it no longer appears in `boot` or `query` results.
+- **Logic**: Sets `active = 0` in the database.
+
+### `koad remember <category> "<text>" [--tags "<tags>"]`
 - **Purpose**: Appends knowledge to the persistent memory ledger.
 - **Categories**: `fact` (immutable truth), `learning` (session lesson).
 
