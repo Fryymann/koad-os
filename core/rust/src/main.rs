@@ -86,6 +86,28 @@ enum Commands {
         #[command(subcommand)]
         action: GcloudAction,
     },
+    /// Google Drive operations.
+    Drive {
+        #[command(subcommand)]
+        action: DriveAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum DriveAction {
+    /// List files in Google Drive.
+    List {
+        #[arg(short, long)]
+        shared: bool,
+    },
+    /// Download a file from Google Drive.
+    Download {
+        id: String,
+        #[arg(short, long)]
+        dest: Option<PathBuf>,
+    },
+    /// Sync metadata/files to local cache.
+    Sync,
 }
 
 #[derive(Subcommand)]
@@ -219,6 +241,12 @@ fn get_gh_pat_for_path(path: &Path) -> (&'static str, &'static str) {
     else { ("GITHUB_PERSONAL_PAT", "Personal") }
 }
 
+fn get_gdrive_token_for_path(path: &Path) -> (&'static str, &'static str) {
+    let path_str = path.to_string_lossy();
+    if path_str.contains("skylinks") { ("GDRIVE_SKYLINKS_TOKEN", "Work (Skylinks)") } 
+    else { ("GDRIVE_PERSONAL_TOKEN", "Personal") }
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let config = KoadConfig::load()?;
@@ -230,7 +258,9 @@ fn main() -> Result<()> {
             let (pat_var, pat_desc) = get_gh_pat_for_path(&current_dir);
             println!("<koad_boot>");
             println!("Identity: {} ({})", config.identity.name, config.identity.role);
-            println!("Auth: {} ({})", pat_var, pat_desc);
+            println!("Auth (GitHub): {} ({})", pat_var, pat_desc);
+            let (drive_var, drive_desc) = get_gdrive_token_for_path(&current_dir);
+            println!("Auth (Drive): {} ({})", drive_var, drive_desc);
             println!("\n[Recent Memory]");
             for (cat, content) in db.get_recent(10)? {
                 println!("- [{}] {}", cat, content);
@@ -250,7 +280,9 @@ fn main() -> Result<()> {
         Commands::Auth => {
             let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             let (pat_var, pat_desc) = get_gh_pat_for_path(&current_dir);
-            println!("Context: {} | Env: {}", pat_desc, pat_var);
+            println!("GitHub Context: {} | Env: {}", pat_desc, pat_var);
+            let (drive_var, drive_desc) = get_gdrive_token_for_path(&current_dir);
+            println!("Drive Context: {} | Env: {}", drive_desc, drive_var);
         }
         Commands::Query { term } => {
             for (cat, content, ts) in db.query(&term)? {
@@ -294,7 +326,7 @@ fn main() -> Result<()> {
             let mut count = 0;
             for line in reader.lines() {
                 let line = line?;
-                if line.starts_with("## Discoveries") { in_discovery = true; continue; }
+                if line.starts_with("## Discoveries") || line.starts_with("## Learnings") { in_discovery = true; continue; }
                 if line.starts_with("## ") && in_discovery { break; }
                 if in_discovery && line.trim().starts_with("- ") {
                     db.remember("learning", &line.trim()[2..], None)?;
@@ -325,6 +357,26 @@ fn main() -> Result<()> {
                 GcloudAction::Logs { name, limit } => { cmd_args.push("logs".to_string()); cmd_args.push("--name".to_string()); cmd_args.push(name); cmd_args.push("--limit".to_string()); cmd_args.push(limit.to_string()); }
             }
             let mut child = Command::new(env::current_exe()?).args(cmd_args).spawn()?; child.wait()?;
+        }
+        Commands::Drive { action } => {
+            let mut cmd_args = vec!["run".to_string(), "global/gdrive_ops.py".to_string(), "--".to_string()];
+            match action {
+                DriveAction::List { shared } => { 
+                    cmd_args.push("list".to_string()); 
+                    if shared { cmd_args.push("--shared".to_string()); }
+                }
+                DriveAction::Download { id, dest } => {
+                    cmd_args.push("download".to_string());
+                    cmd_args.push("--id".to_string());
+                    cmd_args.push(id);
+                    if let Some(d) = dest { cmd_args.push("--dest".to_string()); cmd_args.push(d.to_string_lossy().to_string()); }
+                }
+                DriveAction::Sync => {
+                    cmd_args.push("sync".to_string());
+                }
+            }
+            let mut child = Command::new(env::current_exe()?).args(cmd_args).spawn()?;
+            child.wait()?;
         }
     }
 
