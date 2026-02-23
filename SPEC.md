@@ -29,6 +29,16 @@
     - `notion [--page-id <id>] [--db-id <id>]`
 - **Implementation**: Dispatches to global Python skills for flexible networking.
 
+### `koad drive <action>`
+- **Purpose**: Google Drive operations with path-aware authentication.
+- **Actions**:
+    - `list [--shared]`: Lists files in personal or shared drives.
+    - `download <id> [--dest <path>]`: Downloads a specific file.
+    - `sync`: Syncs metadata/files to local cache.
+- **Authentication**: 
+    - `path.contains("skylinks")` -> `GDRIVE_SKYLINKS_TOKEN`
+    - Else -> `GDRIVE_PERSONAL_TOKEN`
+
 ### `koad harvest <path>`
 - **Purpose**: PM ONLY. Pulls discoveries from developer documentation.
 - **Trigger**: Looks for `## Discoveries` or `## Learnings` headers in Markdown files.
