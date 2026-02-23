@@ -14,10 +14,17 @@
 
 ## 2. CLI Reference (`koad`)
 
-### `koad boot [--project]`
+### `koad boot [--project] [--compact]`
 - **Purpose**: Generates a system-level context block.
+- **Compact Mode**: Outputs a dense, label-free format for minimal token usage.
 - **Logic**: Ingests identity, recent memory, and optionally a project snapshot.
-- **Intelligence**: Automatically detects context tags (e.g., `rust`, `skylinks`) and prioritizes matching knowledge from the database.
+
+### `koad saveup "<summary>" [--scope <scope>] [--facts "<f1,f2>"]`
+- **Purpose**: PM ONLY. Native session closure.
+- **Automation**: 
+    - Appends to `~/.koad-os/SESSION_LOG.md`.
+    - Commits facts to `koad.db`.
+    - Auto-tags facts based on scope.
 
 ### `koad retire <id>`
 - **Purpose**: PM ONLY. Deactivates a knowledge entry so it no longer appears in `boot` or `query` results.
