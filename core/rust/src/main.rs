@@ -50,7 +50,7 @@ pub struct DriverConfig {
 
 #[derive(Parser)]
 #[command(name = "koad")]
-#[command(version = "2.3.3")]
+#[command(version = "2.3.4")]
 #[command(about = "The KoadOS Control Plane")]
 struct Cli {
     #[command(subcommand)]
@@ -140,6 +140,12 @@ enum Commands {
     /// Native project scanner (database-aware).
     Scan {
         path: Option<PathBuf>,
+    },
+    /// Publish KoadOS changes to GitHub.
+    Publish {
+        /// Optional commit message.
+        #[arg(short, long)]
+        message: Option<String>,
     },
 }
 
@@ -694,16 +700,12 @@ fn main() -> Result<()> {
         }
         Commands::Saveup { summary, scope, facts, auto } => {
             if !has_privileged_access { anyhow::bail!("Access Denied: Sanctuary Rule."); }
-            
-            // 1. Process Manual Facts
             if let Some(f_str) = facts {
                 for f in f_str.split(',') { 
                     db.remember("fact", f.trim(), Some(scope.clone()))?; 
                     println!("Fact remembered: {}", f.trim());
                 }
             }
-
-            // 2. Process Auto-Harvested Facts
             if auto {
                 println!("Auto-harvesting facts from recent executions...");
                 let recent = db.get_recent_executions(4)?;
@@ -717,20 +719,13 @@ fn main() -> Result<()> {
                     println!("Auto-fact remembered: {}", fact_text);
                 }
             }
-
-            // 3. Append to SESSION_LOG.md
             let log_path = KoadConfig::get_log_path()?;
             let date_str = Local::now().format("%Y-%m-%d").to_string();
-            
-            // Try to find active project for better logging
             let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             let p_info = db.get_active_project(&current_dir.to_string_lossy())?.map(|(n, _, _)| n).unwrap_or_else(|| "General".to_string());
-
             let log_entry = format!("\n## {} - {} (Project: {})\n- Scope: {}\n- Completed via harvest-aware saveup.\n", date_str, summary, p_info, scope);
-            
             let mut file = std::fs::OpenOptions::new().append(true).create(true).open(log_path)?;
             file.write_all(log_entry.as_bytes())?;
-            
             println!("Saveup complete. Contextual memory and session logs updated.");
         }
         Commands::Scan { path } => {
@@ -744,6 +739,27 @@ fn main() -> Result<()> {
                 db.remember("fact", &format!("Verified Koad project at {:?}", target), Some("scan".to_string()))?;
             } else {
                 println!("No koad project found at {:?}", target);
+            }
+        }
+        Commands::Publish { message } => {
+            if !is_admin { anyhow::bail!("Admin only."); }
+            let home = KoadConfig::get_home()?;
+            let msg = message.unwrap_or_else(|| format!("KoadOS Sync - {}", Local::now().format("%Y-%m-%d %H:%M")));
+            
+            println!("Publishing KoadOS changes to GitHub...");
+            let mut child = Command::new("git").arg("-C").arg(&home).arg("add").arg(".").spawn()?;
+            child.wait()?;
+            
+            let mut child = Command::new("git").arg("-C").arg(&home).arg("commit").arg("-m").arg(&msg).spawn()?;
+            child.wait()?;
+            
+            let mut child = Command::new("git").arg("-C").arg(&home).arg("push").arg("origin").arg("main").spawn()?;
+            let status = child.wait()?;
+            
+            if status.success() {
+                println!("Successfully published KoadOS to GitHub.");
+            } else {
+                anyhow::bail!("Failed to push KoadOS to GitHub.");
             }
         }
     }
