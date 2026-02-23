@@ -382,3 +382,54 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_auth_logic() {
+        assert_eq!(get_gh_pat_for_path(&PathBuf::from("/home/ideans/data/skylinks")).0, "GITHUB_SKYLINKS_PAT");
+        assert_eq!(get_gh_pat_for_path(&PathBuf::from("/home/ideans/personal")).0, "GITHUB_PERSONAL_PAT");
+    }
+
+    #[test]
+    fn test_gdrive_auth_logic() {
+        assert_eq!(get_gdrive_token_for_path(&PathBuf::from("/home/ideans/data/skylinks/site")).0, "GDRIVE_SKYLINKS_TOKEN");
+        assert_eq!(get_gdrive_token_for_path(&PathBuf::from("/home/ideans/dev/rust")).0, "GDRIVE_PERSONAL_TOKEN");
+    }
+
+    #[test]
+    fn test_harvest_logic() -> Result<()> {
+        let mut config = KoadConfig::default_initial();
+        let mut file = NamedTempFile::new()?;
+        writeln!(file, "## Discoveries\n- First discovery\n- Second discovery\n## Other Section")?;
+        
+        let path = file.path();
+        let f = std::fs::File::open(path)?;
+        let reader = BufReader::new(f);
+        let mut in_discovery = false;
+        let mut count = 0;
+        
+        for line in reader.lines() {
+            let line = line?;
+            if line.starts_with("## Discoveries") { in_discovery = true; continue; }
+            if line.starts_with("## ") && in_discovery { break; }
+            if in_discovery && line.trim().starts_with("- ") {
+                count += 1;
+            }
+        }
+        
+        assert_eq!(count, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn test_serialization_integrity() {
+        let config = KoadConfig::default_initial();
+        let json = serde_json::to_string(&config).unwrap();
+        let _: KoadConfig = serde_json::from_str(&json).unwrap();
+    }
+}
