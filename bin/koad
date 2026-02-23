@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+CORE_DIR="${SCRIPT_DIR}/../core"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required" >&2
+  exit 127
+fi
+
+# For now this global launcher prefers the global core CLI but allows project overrides.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+PROJECT_CLI=""
+if [[ -n "${REPO_ROOT}" ]]; then
+  PROJECT_CLI="${REPO_ROOT}/.koad/scripts/koad_cli.py"
+fi
+
+export PYTHONPATH="${CORE_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+
+if [[ -f "${PROJECT_CLI}" ]]; then
+  # Project-specific override
+  exec python3 "${PROJECT_CLI}" "$@"
+else
+  # Global Core CLI
+  exec python3 "${CORE_DIR}/cli.py" "$@"
+fi
