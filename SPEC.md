@@ -23,6 +23,10 @@
 - **Purpose**: Database-aware project registration.
 - **Logic**: Searches for a `.koad` directory. If found, registers the project name and absolute path in the `projects` table for instant contextual booting.
 
+### `koad publish [--message <msg>]`
+- **Purpose**: ADMIN ONLY. Stages, commits, and pushes the KoadOS repository to GitHub.
+- **Logic**: Executes `git add`, `git commit`, and `git push` from the `KOAD_HOME` directory.
+
 ### `koad saveup "<summary>" [--scope <scope>] [--facts "<f1,f2>"] [--auto]`
 - **Purpose**: ADMIN/PM ONLY. Native session closure.
 - **Automation**: 
