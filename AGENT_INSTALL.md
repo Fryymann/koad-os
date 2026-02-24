@@ -40,6 +40,13 @@ Once you have the answers, prepare the installation.
 ```
 
 ## Step 3: Execution
+Run the automated setup script with the gathered information:
+
+```bash
+./koad-setup.sh --partner "[PARTNER_NAME]" --persona "[PERSONA_NAME]" --role "[ROLE]" --langs "[LANG_1],[LANG_2]"
+```
+
+### Legacy Manual Steps (Fallback):
 Run the following commands to finalize the installation:
 1. **Compile**: `cd core/rust && cargo build --release`
 2. **Scaffold**: `mkdir -p bin`
