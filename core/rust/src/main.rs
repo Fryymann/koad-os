@@ -51,7 +51,7 @@ pub struct DriverConfig {
 
 #[derive(Parser)]
 #[command(name = "koad")]
-#[command(version = "2.4.0")]
+#[command(version = "2.4.1")]
 #[command(about = "The KoadOS Control Plane")]
 struct Cli {
     #[command(subcommand)]
@@ -176,6 +176,14 @@ enum Commands {
         /// Custom commit message.
         #[arg(short, long)]
         message: Option<String>,
+    },
+    /// Display information about the current KoadOS identity and environment.
+    Whoami,
+    /// Run a self-diagnostic check of the KoadOS environment.
+    Diagnostic {
+        /// Perform a full system check including skills and remote access.
+        #[arg(short, long)]
+        full: bool,
     },
 }
 
@@ -469,12 +477,6 @@ impl KoadDB {
         if let Some(row) = rows.next()? { Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?))) } else { Ok(None) }
     }
 
-    fn update_notion_index(&self, id: &str, name: &str, r_type: &str, cloud_time: &str, url: &str) -> Result<()> {
-        let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        self.conn.execute("INSERT INTO notion_index (id, name, type, last_sync, cloud_edited, url) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(id) DO UPDATE SET last_sync=?4, cloud_edited=?5, name=?2, type=?3, url=?6", params![id, name, r_type, now, cloud_time, url])?;
-        Ok(())
-    }
-
     fn get_notion_index(&self) -> Result<Vec<(String, String, String, String, String)>> {
         let mut stmt = self.conn.prepare("SELECT name, type, last_sync, cloud_edited, id FROM notion_index ORDER BY name ASC")?;
         let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))?;
@@ -504,6 +506,87 @@ fn detect_context_tags(path: &Path) -> Vec<String> {
     tags
 }
 
+fn run_diagnostic(full: bool, config: &KoadConfig) -> Result<()> {
+    let home = KoadConfig::get_home()?;
+    println!("--- KoadOS Diagnostic ---\nKoad Home: {}", home.display());
+
+    let mut files_missing = false;
+    for file in ["koad.json", "koad.db", "SESSION_LOG.md"] {
+        if home.join(file).exists() { println!("[PASS] {} exists", file); } 
+        else { println!("[FAIL] {} is missing", file); files_missing = true; }
+    }
+
+    for var in ["KOAD_HOME", "KOAD_NAME", "KOAD_ROLE", "KOAD_BIO"] {
+        match env::var(var) {
+            Ok(val) => println!("[PASS] Env {} = {}", var, val),
+            Err(_) => println!("[INFO] Env {} is not set (using defaults)", var),
+        }
+    }
+
+    let db_status = match KoadDB::init() {
+        Ok(db) => match db.conn.query_row("SELECT count(*) FROM knowledge", [], |r| Ok(r.get::<_, i64>(0)?)) {
+            Ok(c) => format!("[PASS] Database connected (Knowledge entries: {})", c),
+            Err(e) => format!("[FAIL] Database query failed: {}", e),
+        },
+        Err(e) => format!("[FAIL] Database connection failed: {}", e),
+    };
+    println!("{}", db_status);
+
+    if full {
+        println!("\n--- Full Integration Check ---");
+        // Bridge Skills (Core if agent matches)
+        for skill in ["gemini/remember.py", "gemini/harvest.py", "gemini/search.py"] {
+            let status = if home.join("skills").join(skill).exists() { "[PASS]" } else { "[FAIL] (Core Skill)" };
+            println!("{} Bridge skill {} found", status, skill);
+        }
+
+        // Notion (Optional)
+        if config.notion.mcp {
+            println!("[PASS] Notion Integration: Enabled (MCP)");
+        } else {
+            println!("[INFO] Notion Integration: Not Enabled (Optional)");
+        }
+
+        let current_dir = env::current_dir()?;
+        let (pat_var, pat_label) = get_gh_pat_for_path(&current_dir);
+        let auth_status = if env::var(pat_var).is_ok() { "[PASS]" } else { "[FAIL] (Core Auth)" };
+        println!("{} Auth token {} ({}) is set", auth_status, pat_var, pat_label);
+
+        println!("\n--- Tool Availability ---");
+        // Core Tools
+        for tool in ["git"] {
+            let status = if Command::new(tool).arg("--version").output().is_ok() { "[PASS]" } else { "[FAIL] (CORE)" };
+            println!("{} {} is available", status, tool);
+        }
+
+        // Stack Tools (Conditionally Core based on preferences)
+        for lang in &config.preferences.languages {
+            let tools = match lang.as_str() {
+                "Python" => vec!["python3"],
+                "Node.js" => vec!["node", "npm"],
+                "Rust" => vec!["cargo"],
+                _ => vec![],
+            };
+            for t in tools {
+                let status = if Command::new(t).arg("--version").output().is_ok() { "[PASS]" } else { "[FAIL] (STACK)" };
+                println!("{} {} is available", status, t);
+            }
+        }
+
+        // Optional Tools
+        for tool in ["gh"] {
+            if Command::new(tool).arg("--version").output().is_ok() {
+                println!("[PASS] {} is available (Optional)", tool);
+            } else {
+                println!("[INFO] {} is not installed (Optional)", tool);
+            }
+        }
+    }
+
+    println!("\nStatus: {}", if files_missing { "DEGRADED" } else { "OPERATIONAL" });
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let config = KoadConfig::load()?;
@@ -514,6 +597,7 @@ fn main() -> Result<()> {
     let has_privileged_access = is_admin || is_pm;
 
     match cli.command {
+        Commands::Diagnostic { full } => run_diagnostic(full, &config)?,
         Commands::Boot { agent, project, task: _, compact } => {
             let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             let current_path_str = current_dir.to_string_lossy().to_string();
@@ -737,6 +821,28 @@ fn main() -> Result<()> {
             Command::new("git").arg("-C").arg(&h).arg("commit").arg("-m").arg(&m).spawn()?.wait()?;
             Command::new("git").arg("-C").arg(&h).arg("push").arg("origin").arg("main").spawn()?.wait()?;
             println!("Published.");
+        }
+        Commands::Whoami => {
+            let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let current_path_str = current_dir.to_string_lossy().to_string();
+            let tags = detect_context_tags(&current_dir);
+            let user = env::var("USER").unwrap_or_else(|_| "Partner".into());
+            
+            println!("--- KoadOS Partnership ---");
+            println!("Partner:   Ian ({})", user);
+            println!("Persona:   {} ({})", config.identity.name, config.identity.role);
+            println!("Status:    Active / Booted");
+            println!("Bio:       {}", config.identity.bio);
+            
+            if let Some((p_name, role, stack)) = db.get_active_project(&current_path_str)? {
+                println!("\n[Current Project Context]");
+                println!("Project:   {}", p_name);
+                if let Some(r) = role { println!("Role:      {}", r); }
+                if let Some(s) = stack { println!("Stack:     {}", s); }
+            }
+            
+            println!("\n[Environment]");
+            println!("Context:   {}", tags.join(", "));
         }
     }
     Ok(())
