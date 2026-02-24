@@ -21,6 +21,8 @@ pub struct KoadConfig {
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct NotionConfig {
+    #[serde(default)]
+    pub mcp: bool,
     pub index: HashMap<String, String>,
 }
 
@@ -61,78 +63,117 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Initialize agent context for the current session.
+    /// Loads identity, auth tokens, active project, and contextual memory.
     Boot {
+        /// Select the agent driver to use (e.g., 'gemini').
         #[arg(short, long, default_value = "gemini")]
         agent: String,
+        /// Ingest project-specific context (PROJECT_PROGRESS.md).
         #[arg(short, long)]
         project: bool,
+        /// (Optional) Focus on a specific task ID.
         #[arg(short, long)]
         task: Option<String>,
+        /// Output a compact pipe-delimited string for scripting.
         #[arg(short, long)]
         compact: bool,
     },
+    /// Display active authentication tokens for GitHub and Google Drive based on current directory.
     Auth,
-    Query { term: String },
+    /// Search the Koad Knowledge Base for a specific term or tag.
+    Query { 
+        /// Search term or tag.
+        term: String 
+    },
+    /// Commit a new fact or learning to the persistent SQLite database.
     Remember {
         #[command(subcommand)]
         category: MemoryCategory,
     },
     /// Record a personal reflection or interpretation (Persona Journaling).
+    /// Used for agent self-alignment and long-term reasoning storage.
     Ponder {
+        /// Reflection text.
         text: String,
+        /// (Optional) Comma-separated tags.
         #[arg(short, long)]
         tags: Option<String>,
     },
+    /// Manage and execute specialized KoadOS Skills (Python/JS/Rust).
     Skill {
         #[command(subcommand)]
         action: SkillAction,
     },
+    /// Scaffold new files or projects using standardized KoadOS templates.
     Template {
         #[command(subcommand)]
         action: TemplateAction,
     },
+    /// Initialize a new KoadOS root configuration (~/.koad-os/koad.json).
     Init {
+        /// Overwrite existing configuration.
         #[arg(short, long)]
         force: bool,
     },
+    /// Harvest discoveries from external files or git history into contextual memory.
     Harvest {
+        /// Path to the file to harvest discoveries from.
         #[arg(short, long)]
         path: Option<PathBuf>,
+        /// Harvest learnings from recent git commits.
         #[arg(short, long)]
         git: bool,
     },
+    /// Synchronize state between local SQLite and cloud sources (Airtable/Notion).
     Sync {
         #[command(subcommand)]
         source: SyncSource,
     },
+    /// Interact with the Koad Stream (Notion-backed communication channel).
     Stream {
         #[command(subcommand)]
         action: StreamAction,
     },
+    /// Execute Google Cloud Platform operations (Deployments, Logs, Audits).
     Gcloud {
         #[command(subcommand)]
         action: GcloudAction,
     },
+    /// Manage files and synchronization with Google Drive.
     Drive {
         #[command(subcommand)]
         action: DriveAction,
     },
+    /// Mark a knowledge entry as inactive (soft delete).
     Retire {
+        /// ID of the knowledge record.
         id: i64,
     },
+    /// Archive the current session and capture learnings.
+    /// Updates SESSION_LOG.md and harvests verified actions from history.
     Saveup {
+        /// Short summary of the work completed.
         summary: String,
+        /// Scope of work (e.g., project name).
         #[arg(short, long, default_value = "General")]
         scope: String,
+        /// Comma-separated list of specific facts to remember.
         #[arg(short, long)]
         facts: Option<String>,
+        /// Automatically harvest verified command executions from the last 4 hours.
         #[arg(short, long)]
         auto: bool,
     },
+    /// Register the current directory as a project in the Koad ecosystem.
+    /// Requires a .koad directory to be present.
     Scan {
+        /// Path to scan (defaults to CWD).
         path: Option<PathBuf>,
     },
+    /// Publish all local KoadOS changes to the remote origin (git push).
     Publish {
+        /// Custom commit message.
         #[arg(short, long)]
         message: Option<String>,
     },
@@ -140,35 +181,95 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum DriveAction {
-    List { #[arg(short, long)] shared: bool },
-    Download { id: String, #[arg(short, long)] dest: Option<PathBuf> },
+    /// List files in the configured Google Drive directory.
+    List { 
+        /// Include shared drive files.
+        #[arg(short, long)] 
+        shared: bool 
+    },
+    /// Download a file by its Drive ID.
+    Download { 
+        /// Google Drive file ID.
+        id: String, 
+        /// Destination path.
+        #[arg(short, long)] 
+        dest: Option<PathBuf> 
+    },
+    /// Sync local directories with Google Drive based on project config.
     Sync,
 }
 
 #[derive(Subcommand)]
 enum GcloudAction {
-    List { #[arg(short, long, default_value = "functions")] resource: String },
-    Deploy { name: String },
-    Logs { name: String, #[arg(short, long, default_value_t = 20)] limit: u32 },
-    Audit { #[arg(short, long, default_value = "ops")] project: String },
+    /// List GCP resources.
+    List { 
+        /// Resource type (functions, buckets, etc.).
+        #[arg(short, long, default_value = "functions")] 
+        resource: String 
+    },
+    /// Trigger a Cloud Build deployment for a named function.
+    Deploy { 
+        /// Function name.
+        name: String 
+    },
+    /// Tail or fetch logs for a specific function.
+    Logs { 
+        /// Function name.
+        name: String, 
+        /// Max log entries to return.
+        #[arg(short, long, default_value_t = 20)] 
+        limit: u32 
+    },
+    /// Run a security and spend audit on the project.
+    Audit { 
+        /// Project alias (ops, prod, etc.).
+        #[arg(short, long, default_value = "ops")] 
+        project: String 
+    },
 }
 
 #[derive(Subcommand)]
 enum SyncSource {
-    Airtable { #[arg(short, long)] schema_only: bool, #[arg(short, long)] base_id: Option<String> },
-    Notion { #[arg(short, long)] page_id: Option<String>, #[arg(short, long)] db_id: Option<String> },
-    Named { name: String },
+    /// Sync with Airtable bases.
+    Airtable { 
+        /// Only sync table schemas, not record data.
+        #[arg(short, long)] 
+        schema_only: bool, 
+        /// (Optional) Specific Base ID.
+        #[arg(short, long)] 
+        base_id: Option<String> 
+    },
+    /// Sync with Notion pages or databases.
+    Notion { 
+        /// Specific Notion Page ID.
+        #[arg(short, long)] 
+        page_id: Option<String>, 
+        /// Specific Notion Database ID.
+        #[arg(short, long)] 
+        db_id: Option<String> 
+    },
+    /// Sync a resource by its shortcut name defined in koad.json.
+    Named { 
+        /// Shortcut name (e.g., 'koad', 'stream', 'memories').
+        name: String 
+    },
 }
 
 #[derive(Subcommand)]
 enum StreamAction {
+    /// Post a new message to the Koad Stream.
     Post {
+        /// Message topic.
         topic: String,
+        /// Message content.
         message: String,
+        /// Message type (Log, Alert, Query, etc.).
         #[arg(short, long, default_value = "Log")]
         msg_type: String,
     },
+    /// List recent messages from the Koad Stream.
     List {
+        /// Number of messages to retrieve.
         #[arg(short, long, default_value_t = 5)]
         limit: usize,
     },
@@ -176,20 +277,50 @@ enum StreamAction {
 
 #[derive(Subcommand)]
 enum MemoryCategory {
-    Fact { text: String, #[arg(short, long)] tags: Option<String> },
-    Learning { text: String, #[arg(short, long)] tags: Option<String> },
+    /// Record an objective fact.
+    Fact { 
+        /// Fact text.
+        text: String, 
+        /// Comma-separated tags.
+        #[arg(short, long)] 
+        tags: Option<String> 
+    },
+    /// Record a lesson learned or process improvement.
+    Learning { 
+        /// Learning text.
+        text: String, 
+        /// Comma-separated tags.
+        #[arg(short, long)] 
+        tags: Option<String> 
+    },
 }
 
 #[derive(Subcommand)]
 enum SkillAction {
+    /// List all available KoadOS Skills.
     List,
-    Run { name: String, #[arg(last = true)] args: Vec<String> },
+    /// Execute a skill by name.
+    Run { 
+        /// Skill name (path relative to skills/).
+        name: String, 
+        /// Arguments passed to the skill.
+        #[arg(last = true)] 
+        args: Vec<String> 
+    },
 }
 
 #[derive(Subcommand)]
 enum TemplateAction {
+    /// List all available templates.
     List,
-    Use { name: String, #[arg(short, long)] out: Option<PathBuf> },
+    /// Apply a template to the current directory.
+    Use { 
+        /// Template name.
+        name: String, 
+        /// Destination path (defaults to name).
+        #[arg(short, long)] 
+        out: Option<PathBuf> 
+    },
 }
 
 impl KoadConfig {
@@ -253,6 +384,7 @@ impl KoadDB {
         conn.execute("CREATE TABLE IF NOT EXISTS knowledge (id INTEGER PRIMARY KEY, category TEXT NOT NULL, content TEXT NOT NULL, tags TEXT, timestamp TEXT NOT NULL, active INTEGER DEFAULT 1)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, path TEXT NOT NULL, role TEXT, stack TEXT, last_boot TEXT, active INTEGER DEFAULT 1)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS executions (id INTEGER PRIMARY KEY, command TEXT NOT NULL, args TEXT, timestamp TEXT NOT NULL, status TEXT)", [])?;
+        conn.execute("CREATE TABLE IF NOT EXISTS notion_index (id TEXT PRIMARY KEY, name TEXT, type TEXT, last_sync TEXT, cloud_edited TEXT, url TEXT)", [])?;
         Ok(Self { conn })
     }
 
@@ -336,6 +468,20 @@ impl KoadDB {
         let mut rows = stmt.query(params![current_path])?;
         if let Some(row) = rows.next()? { Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?))) } else { Ok(None) }
     }
+
+    fn update_notion_index(&self, id: &str, name: &str, r_type: &str, cloud_time: &str, url: &str) -> Result<()> {
+        let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        self.conn.execute("INSERT INTO notion_index (id, name, type, last_sync, cloud_edited, url) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(id) DO UPDATE SET last_sync=?4, cloud_edited=?5, name=?2, type=?3, url=?6", params![id, name, r_type, now, cloud_time, url])?;
+        Ok(())
+    }
+
+    fn get_notion_index(&self) -> Result<Vec<(String, String, String, String, String)>> {
+        let mut stmt = self.conn.prepare("SELECT name, type, last_sync, cloud_edited, id FROM notion_index ORDER BY name ASC")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))?;
+        let mut results = Vec::new();
+        for row in rows { results.push(row?); }
+        Ok(results)
+    }
 }
 
 fn get_gh_pat_for_path(path: &Path) -> (&'static str, &'static str) {
@@ -368,7 +514,7 @@ fn main() -> Result<()> {
     let has_privileged_access = is_admin || is_pm;
 
     match cli.command {
-        Commands::Boot { agent: _, project, task: _, compact } => {
+        Commands::Boot { agent, project, task: _, compact } => {
             let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             let current_path_str = current_dir.to_string_lossy().to_string();
             let (pat_var, _) = get_gh_pat_for_path(&current_dir);
@@ -382,6 +528,13 @@ fn main() -> Result<()> {
                 println!("Identity: {} ({})", config.identity.name, config.identity.role);
                 println!("Auth: GH={} | GD={}", pat_var, drive_var);
                 
+                if let Some(driver) = config.drivers.get(&agent) {
+                    let b_path = driver.bootstrap.replace("~", &env::var("HOME").unwrap_or_default());
+                    if let Ok(content) = std::fs::read_to_string(b_path) {
+                        println!("\n[Bootstrap: {}]\n{}", agent, content);
+                    }
+                }
+
                 if let Some((p_name, _, _)) = db.get_active_project(&current_path_str)? {
                     println!("\n[Active Project: {}]", p_name);
                 }
@@ -393,6 +546,11 @@ fn main() -> Result<()> {
 
                 println!("\n[Contextual Memory]");
                 for (cat, content) in db.get_contextual(8, tags)? { println!("- [{}] {}", cat, content); }
+
+                println!("\n[Notion Index Summary]");
+                let index = db.get_notion_index()?;
+                if index.is_empty() { println!("- No resources indexed."); }
+                for (name, r_type, local, _, _) in index { println!("- {}: [{}] (Synced: {})", name, r_type, local); }
 
                 if project {
                     let progress_path = current_dir.join("PROJECT_PROGRESS.md");
@@ -486,6 +644,9 @@ fn main() -> Result<()> {
                     Command::new(env::current_exe()?).args(args).spawn()?.wait()?;
                 }
                 SyncSource::Notion { page_id, db_id } => {
+                    if config.notion.mcp {
+                        println!("Note: MCP is enabled. The sync skill will use MCP tools for the backend pass.");
+                    }
                     let mut args = vec!["skill".to_string(), "run".to_string(), "global/notion_sync.py".to_string(), "--".to_string()];
                     if let Some(id) = page_id { args.push("--page-id".to_string()); args.push(id); }
                     if let Some(id) = db_id { args.push("--db-id".to_string()); args.push(id); }
@@ -493,11 +654,33 @@ fn main() -> Result<()> {
                 }
                 SyncSource::Named { name } => {
                     let id = config.notion.index.get(&name).ok_or_else(|| anyhow::anyhow!("Not found"))?;
-                    Command::new(env::current_exe()?).args(vec!["skill", "run", "global/notion_sync.py", "--", "--page-id", id]).spawn()?.wait()?;
+                    if config.notion.mcp && name == "koad" {
+                         println!("DELEGATE: Use Notion MCP tool for named resource '{}' (ID: {}).", name, id);
+                         return Ok(());
+                    }
+                    let mut args = vec!["skill".to_string(), "run".to_string(), "global/notion_sync.py".to_string(), "--".to_string()];
+                    args.push("--page-id".to_string());
+                    args.push(id.clone());
+                    Command::new(env::current_exe()?).args(args).spawn()?.wait()?;
                 }
             }
         }
         Commands::Stream { action } => {
+            if config.notion.mcp {
+                match action {
+                    StreamAction::Post { topic, message, msg_type } => {
+                        println!("DELEGATE: Use Notion MCP 'API-post-page' to post to Koad Stream (DB: {}). Topic: {}, Type: {}, Msg: {}", 
+                                 config.notion.index.get("stream").unwrap_or(&"310fe8ec-ae8f-80ba-9cbb-f31731d396d4".to_string()),
+                                 topic, msg_type, message);
+                    }
+                    StreamAction::List { limit } => {
+                        println!("DELEGATE: Use Notion MCP 'API-query-data-source' to list Koad Stream (DB: {}, Limit: {}).", 
+                                 config.notion.index.get("stream").unwrap_or(&"310fe8ec-ae8f-80ba-9cbb-f31731d396d4".to_string()),
+                                 limit);
+                    }
+                }
+                return Ok(());
+            }
             let s_path = KoadConfig::get_home()?.join("skills/global/notion_stream.py");
             match action {
                 StreamAction::Post { topic, message, msg_type } => {
