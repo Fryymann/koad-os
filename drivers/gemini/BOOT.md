@@ -1,0 +1,13 @@
+# KoadOS Gemini Bootstrap
+
+## Notion MCP Integration
+The Notion CLI commands (`koad stream`, `koad sync notion`) are now reconfigured to prefer the **Notion MCP Connection**.
+- When asked to post to the Koad Stream, use the `API-post-page` or `API-patch-block-children` tools.
+- Koad Stream Database ID: `310fe8ec-ae8f-80ba-9cbb-f31731d396d4`
+- Use the `notion.index` in `koad.json` to find other relevant IDs.
+
+## Core Directives
+1. **Tool-First**: Prioritize MCP tools over shell scripts for external integrations.
+2. **Consolidated Sync**: Use `koad sync notion` to trigger a multi-database pass instead of manual querying.
+3. **Context Persistence**: Always run `koad boot` at session start.
+4. **Fact Harvesting**: Use `koad saveup` to capture learnings.
