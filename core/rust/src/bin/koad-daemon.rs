@@ -1,15 +1,17 @@
-use notify::{Watcher, RecursiveMode, Config, Event};
+use notify::{Watcher, Config, Event};
 use std::path::{Path, PathBuf};
-use rusqlite::{params, Connection};
+use rusqlite::params;
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
 use dirs;
 use std::fs::OpenOptions;
-use std::io::{Write, Read};
-use std::sync::{Arc, Mutex};
+use std::io::Write;
+use std::sync::Arc;
 use std::process::{Command, Stdio};
 use chrono::Local;
 
 struct Daemon {
-    db_conn: Arc<Mutex<Connection>>,
+    pool: Pool<SqliteConnectionManager>,
     log_path: PathBuf,
 }
 
@@ -21,8 +23,13 @@ impl Daemon {
         
         let db_path = home.join("koad.db");
         let log_path = home.join("daemon.log");
-        let conn = Connection::open(db_path)?;
         
+        let manager = SqliteConnectionManager::file(db_path);
+        let pool = Pool::builder()
+            .max_size(5)
+            .build(manager)?;
+        
+        let conn = pool.get()?;
         let _ = conn.execute("PRAGMA busy_timeout = 5000", []);
 
         conn.execute(
@@ -52,10 +59,7 @@ impl Daemon {
             [],
         )?;
         
-        Ok(Self { 
-            db_conn: Arc::new(Mutex::new(conn)), 
-            log_path 
-        })
+        Ok(Self { pool, log_path })
     }
 
     fn debug_log(&self, msg: &str) {
@@ -75,7 +79,7 @@ impl Daemon {
 
         self.debug_log(&format!("Event: {} on {}", event_type, path_str));
 
-        let conn = self.db_conn.lock().unwrap();
+        let conn = self.pool.get()?;
         conn.execute(
             "INSERT INTO project_state (path, event_type, timestamp) VALUES (?1, ?2, ?3)",
             params![path_str, event_type, now],
@@ -87,7 +91,7 @@ impl Daemon {
     fn process_queue(&self) -> std::result::Result<(), anyhow::Error> {
         let mut pending = Vec::new();
         {
-            let conn = self.db_conn.lock().unwrap();
+            let conn = self.pool.get()?;
             let mut stmt = conn.prepare("SELECT id, command, args FROM command_queue WHERE status = 'pending'")?;
             let rows = stmt.query_map([], |row| {
                 Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?))
@@ -98,8 +102,9 @@ impl Daemon {
         }
 
         for (id, cmd, args) in pending {
+            // Pool is already thread-safe and cloneable (Arc-like)
             let daemon_clone = Arc::new(Self {
-                db_conn: Arc::clone(&self.db_conn),
+                pool: self.pool.clone(),
                 log_path: self.log_path.clone(),
             });
             
@@ -114,7 +119,7 @@ impl Daemon {
     fn record_delta(&self, category: &str, content: &str) -> std::result::Result<(), anyhow::Error> {
         let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         self.debug_log(&format!("Recording Delta: {} - {}", category, content));
-        let conn = self.db_conn.lock().unwrap();
+        let conn = self.pool.get()?;
         match conn.execute(
             "INSERT INTO knowledge (category, content, tags, timestamp) VALUES (?1, ?2, 'delta,spine', ?3)",
             params!["learning", format!("[SPINE] {}: {}", category, content), now],
@@ -133,7 +138,7 @@ impl Daemon {
     fn execute_task(&self, id: i64, cmd: String, args_str: Option<String>) -> std::result::Result<(), anyhow::Error> {
         let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         {
-            let conn = self.db_conn.lock().unwrap();
+            let conn = self.pool.get()?;
             conn.execute("UPDATE command_queue SET status = 'running', started_at = ?1 WHERE id = ?2", params![now, id])?;
         }
 
@@ -155,7 +160,7 @@ impl Daemon {
             Ok(child) => {
                 let pid = child.id() as i64;
                 {
-                    let conn = self.db_conn.lock().unwrap();
+                    let conn = self.pool.get()?;
                     conn.execute("UPDATE command_queue SET pid = ?1 WHERE id = ?2", params![pid, id])?;
                 }
 
@@ -167,7 +172,7 @@ impl Daemon {
                 let end_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
                 let status_str = if output.status.success() { "completed" } else { "failed" };
 
-                let conn = self.db_conn.lock().unwrap();
+                let conn = self.pool.get()?;
                 conn.execute("UPDATE command_queue SET status = ?1, output = ?2, finished_at = ?3 WHERE id = ?4", 
                              params![status_str, final_out, end_time, id])?;
                 
@@ -176,7 +181,7 @@ impl Daemon {
             },
             Err(e) => {
                 let end_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-                let conn = self.db_conn.lock().unwrap();
+                let conn = self.pool.get()?;
                 conn.execute("UPDATE command_queue SET status = 'failed', output = ?1, finished_at = ?2 WHERE id = ?3", 
                              params![format!("Spawn Error: {}", e), end_time, id])?;
                 self.debug_log(&format!("Task {}: Failed to spawn: {}", id, e));
@@ -207,7 +212,7 @@ fn main() -> anyhow::Result<()> {
     });
 
     let daemon_clone = Arc::clone(&daemon);
-    let mut watcher = notify::RecommendedWatcher::new(
+    let mut _watcher = notify::RecommendedWatcher::new(
         move |res: notify::Result<Event>| {
             match res {
                 Ok(event) => {
@@ -221,14 +226,6 @@ fn main() -> anyhow::Result<()> {
         },
         Config::default(),
     )?;
-
-    println!("Setting up filesystem watcher... (DISABLED for mission realignment)");
-    // Realignment: Only watch registered projects
-    /*
-    let mut watched_paths = Vec::new();
-...
-    }
-    */
 
     println!("Koad Spine is alive. (Passive Monitoring Only)");
     // Keep the main thread alive

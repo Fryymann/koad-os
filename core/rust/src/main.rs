@@ -8,7 +8,9 @@ use std::env;
 use std::process::Command;
 use chrono::{Local, Duration};
 use std::io::{BufRead, BufReader, Write};
-use rusqlite::{params, Connection};
+use rusqlite::params;
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
 
 mod tui;
 mod airtable;
@@ -504,13 +506,19 @@ impl KoadConfig {
 }
 
 pub struct KoadDB {
-    pub conn: Connection,
+    pub pool: Pool<SqliteConnectionManager>,
 }
 
 impl KoadDB {
     pub fn init() -> Result<Self> {
         let path = KoadConfig::get_db_path()?;
-        let conn = Connection::open(path)?;
+        let manager = SqliteConnectionManager::file(path);
+        let pool = Pool::builder()
+            .max_size(10)
+            .build(manager)
+            .context("Failed to create connection pool")?;
+        
+        let conn = pool.get().context("Failed to get connection from pool")?;
         conn.execute("CREATE TABLE IF NOT EXISTS knowledge (id INTEGER PRIMARY KEY, category TEXT NOT NULL, content TEXT NOT NULL, tags TEXT, timestamp TEXT NOT NULL, active INTEGER DEFAULT 1)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, path TEXT NOT NULL, role TEXT, stack TEXT, last_boot TEXT, active INTEGER DEFAULT 1)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS executions (id INTEGER PRIMARY KEY, command TEXT NOT NULL, args TEXT, timestamp TEXT NOT NULL, status TEXT)", [])?;
@@ -536,48 +544,54 @@ impl KoadDB {
             started_at TEXT,
             finished_at TEXT
         )", [])?;
-        Ok(Self { conn })
+        Ok(Self { pool })
+    }
+
+    pub fn get_conn(&self) -> Result<r2d2::PooledConnection<SqliteConnectionManager>> {
+        self.pool.get().context("Failed to get connection from pool")
     }
 
     pub fn set_spec(&self, title: &str, description: Option<String>, status: &str) -> Result<()> {
         let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        self.conn.execute("INSERT INTO active_spec (id, title, description, status, last_update) VALUES (1, ?1, ?2, ?3, ?4) ON CONFLICT(id) DO UPDATE SET title=?1, description=?2, status=?3, last_update=?4", params![title, description, status, now])?;
+        self.get_conn()?.execute("INSERT INTO active_spec (id, title, description, status, last_update) VALUES (1, ?1, ?2, ?3, ?4) ON CONFLICT(id) DO UPDATE SET title=?1, description=?2, status=?3, last_update=?4", params![title, description, status, now])?;
         Ok(())
     }
 
     pub fn get_spec(&self) -> Result<Option<(String, Option<String>, String, String)>> {
-        let mut stmt = self.conn.prepare("SELECT title, description, status, last_update FROM active_spec WHERE id = 1")?;
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT title, description, status, last_update FROM active_spec WHERE id = 1")?;
         let mut rows = stmt.query([])?;
         if let Some(row) = rows.next()? { Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))) } else { Ok(None) }
     }
 
     pub fn remember(&self, category: &str, content: &str, tags: Option<String>) -> Result<()> {
         let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        self.conn.execute("INSERT INTO knowledge (category, content, tags, timestamp) VALUES (?1, ?2, ?3, ?4)", params![category, content, tags, timestamp])?;
+        self.get_conn()?.execute("INSERT INTO knowledge (category, content, tags, timestamp) VALUES (?1, ?2, ?3, ?4)", params![category, content, tags, timestamp])?;
         Ok(())
     }
 
     pub fn save_note(&self, content: &str) -> Result<()> {
         let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        self.conn.execute("INSERT INTO ian_notes (content, timestamp) VALUES (?1, ?2)", params![content, timestamp])?;
+        self.get_conn()?.execute("INSERT INTO ian_notes (content, timestamp) VALUES (?1, ?2)", params![content, timestamp])?;
         Ok(())
     }
 
     pub fn save_brainstorm(&self, content: &str, is_rant: bool) -> Result<()> {
         let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let category = if is_rant { "rant" } else { "brainstorm" };
-        self.conn.execute("INSERT INTO brainstorms (content, category, timestamp) VALUES (?1, ?2, ?3)", params![content, category, timestamp])?;
+        self.get_conn()?.execute("INSERT INTO brainstorms (content, category, timestamp) VALUES (?1, ?2, ?3)", params![content, category, timestamp])?;
         Ok(())
     }
 
     pub fn dispatch(&self, command: &str, args: Option<String>) -> Result<()> {
         let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        self.conn.execute("INSERT INTO command_queue (command, args, status, created_at) VALUES (?1, ?2, 'pending', ?3)", params![command, args, now])?;
+        self.get_conn()?.execute("INSERT INTO command_queue (command, args, status, created_at) VALUES (?1, ?2, 'pending', ?3)", params![command, args, now])?;
         Ok(())
     }
 
     pub fn get_recent_brainstorms(&self, limit: usize) -> Result<Vec<(String, String, String)>> {
-        let mut stmt = self.conn.prepare("SELECT content, category, timestamp FROM brainstorms ORDER BY timestamp DESC LIMIT ?1")?;
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT content, category, timestamp FROM brainstorms ORDER BY timestamp DESC LIMIT ?1")?;
         let rows = stmt.query_map(params![limit], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
         let mut results = Vec::new();
         for row in rows { results.push(row?); }
@@ -585,7 +599,8 @@ impl KoadDB {
     }
 
     pub fn get_notes(&self, limit: usize) -> Result<Vec<(i64, String, String)>> {
-        let mut stmt = self.conn.prepare("SELECT id, content, timestamp FROM ian_notes ORDER BY timestamp DESC LIMIT ?1")?;
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT id, content, timestamp FROM ian_notes ORDER BY timestamp DESC LIMIT ?1")?;
         let rows = stmt.query_map(params![limit], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
         let mut results = Vec::new();
         for row in rows { results.push(row?); }
@@ -593,7 +608,8 @@ impl KoadDB {
     }
 
     pub fn get_ponderings(&self, limit: usize) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare("SELECT content FROM knowledge WHERE category = 'pondering' AND active = 1 ORDER BY timestamp DESC LIMIT ?1")?;
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT content FROM knowledge WHERE category = 'pondering' AND active = 1 ORDER BY timestamp DESC LIMIT ?1")?;
         let rows = stmt.query_map(params![limit], |row| Ok(row.get(0)?))?;
         let mut results = Vec::new();
         for row in rows { results.push(row?); }
@@ -602,13 +618,14 @@ impl KoadDB {
 
     pub fn log_execution(&self, command: &str, args: &str, status: &str) -> Result<()> {
         let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        self.conn.execute("INSERT INTO executions (command, args, timestamp, status) VALUES (?1, ?2, ?3, ?4)", params![command, args, timestamp, status])?;
+        self.get_conn()?.execute("INSERT INTO executions (command, args, timestamp, status) VALUES (?1, ?2, ?3, ?4)", params![command, args, timestamp, status])?;
         Ok(())
     }
 
     pub fn get_recent_executions(&self, hours: i64) -> Result<Vec<(String, String, String)>> {
         let cutoff = (Local::now() - Duration::hours(hours)).format("%Y-%m-%d %H:%M:%S").to_string();
-        let mut stmt = self.conn.prepare("SELECT command, args, status FROM executions WHERE timestamp > ?1 ORDER BY timestamp DESC LIMIT 15")?;
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT command, args, status FROM executions WHERE timestamp > ?1 ORDER BY timestamp DESC LIMIT 15")?;
         let rows = stmt.query_map(params![cutoff], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
         let mut results = Vec::new();
         for row in rows { results.push(row?); }
@@ -617,12 +634,12 @@ impl KoadDB {
 
     pub fn register_project(&self, name: &str, path: &str) -> Result<()> {
         let last_boot = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        self.conn.execute("INSERT INTO projects (name, path, last_boot) VALUES (?1, ?2, ?3) ON CONFLICT(name) DO UPDATE SET last_boot=?3, path=?2", params![name, path, last_boot])?;
+        self.get_conn()?.execute("INSERT INTO projects (name, path, last_boot) VALUES (?1, ?2, ?3) ON CONFLICT(name) DO UPDATE SET last_boot=?3, path=?2", params![name, path, last_boot])?;
         Ok(())
     }
 
     pub fn retire(&self, id: i64) -> Result<()> {
-        self.conn.execute("UPDATE knowledge SET active = 0 WHERE id = ?1", params![id])?;
+        self.get_conn()?.execute("UPDATE knowledge SET active = 0 WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -647,7 +664,8 @@ impl KoadDB {
         params_vec.push((limit as i64).into());
         query_str.push_str(&(params_vec.len()).to_string());
 
-        let mut stmt = self.conn.prepare(&query_str)?;
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare(&query_str)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(params_vec), |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))?;
         
         let mut results = Vec::new();
@@ -666,14 +684,17 @@ impl KoadDB {
             }
             query.push_str(") ORDER BY timestamp DESC LIMIT ?");
             query.push_str(&(tags.len() + 1).to_string());
-            let mut stmt = self.conn.prepare(&query)?;
+            
+            let conn = self.get_conn()?;
+            let mut stmt = conn.prepare(&query)?;
             let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
             for t in &tags { params_vec.push(format!("%{}%", t).into()); }
             params_vec.push(((limit / 2) as i64).into());
             let rows = stmt.query_map(rusqlite::params_from_iter(params_vec), |row| Ok((row.get(0)?, row.get(1)?)))?;
             for row in rows { results.push(row?); }
         }
-        let mut stmt = self.conn.prepare("SELECT category, content FROM knowledge WHERE active = 1 AND category != 'pondering' ORDER BY timestamp DESC LIMIT ?1")?;
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT category, content FROM knowledge WHERE active = 1 AND category != 'pondering' ORDER BY timestamp DESC LIMIT ?1")?;
         let rows = stmt.query_map(params![limit.saturating_sub(results.len())], |row| Ok((row.get(0)?, row.get(1)?)))?;
         for row in rows { 
             let item = row?;
@@ -684,7 +705,8 @@ impl KoadDB {
 
     pub fn get_recent_deltas(&self, minutes: i64) -> Result<Vec<(String, String, String)>> {
         let cutoff = (Local::now() - Duration::minutes(minutes)).format("%Y-%m-%d %H:%M:%S").to_string();
-        let mut stmt = self.conn.prepare("SELECT path, event_type, timestamp FROM project_state WHERE timestamp > ?1 ORDER BY timestamp DESC LIMIT 10")?;
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT path, event_type, timestamp FROM project_state WHERE timestamp > ?1 ORDER BY timestamp DESC LIMIT 10")?;
         let rows = stmt.query_map(params![cutoff], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
         let mut results = Vec::new();
         for row in rows { results.push(row?); }
@@ -692,13 +714,15 @@ impl KoadDB {
     }
 
     pub fn get_active_project(&self, current_path: &str) -> Result<Option<(String, Option<String>, Option<String>)>> {
-        let mut stmt = self.conn.prepare("SELECT name, role, stack FROM projects WHERE path = ?1 AND active = 1")?;
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT name, role, stack FROM projects WHERE path = ?1 AND active = 1")?;
         let mut rows = stmt.query(params![current_path])?;
         if let Some(row) = rows.next()? { Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?))) } else { Ok(None) }
     }
 
     pub fn get_notion_index(&self) -> Result<Vec<(String, String, String, String, String)>> {
-        let mut stmt = self.conn.prepare("SELECT name, type, last_sync, cloud_edited, id FROM notion_index ORDER BY name ASC")?;
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT name, type, last_sync, cloud_edited, id FROM notion_index ORDER BY name ASC")?;
         let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))?;
         let mut results = Vec::new();
         for row in rows { results.push(row?); }
@@ -742,7 +766,7 @@ fn run_diagnostic(full: bool, config: &KoadConfig) -> Result<()> {
     }
 
     let db_status = match KoadDB::init() {
-        Ok(db) => match db.conn.query_row("SELECT count(*) FROM knowledge", [], |r| Ok(r.get::<_, i64>(0)?)) {
+        Ok(db) => match db.get_conn()?.query_row("SELECT count(*) FROM knowledge", [], |r| Ok(r.get::<_, i64>(0)?)) {
             Ok(c) => format!("[PASS] Database connected (Knowledge entries: {})", c),
             Err(e) => format!("[FAIL] Database query failed: {}", e),
         },
@@ -853,7 +877,7 @@ fn main() -> Result<()> {
                     } else { println!("No active task spec."); }
                 },
                 SpecAction::Clear => {
-                    db.conn.execute("DELETE FROM active_spec WHERE id = 1", [])?;
+                    db.get_conn()?.execute("DELETE FROM active_spec WHERE id = 1", [])?;
                     println!("Spec cleared.");
                 }
             }
@@ -1077,8 +1101,8 @@ fn main() -> Result<()> {
                 },
                 AirtableAction::Update { base_id, table_name, record_id, fields } => {
                     let json_fields: Value = serde_json::from_str(&fields)?;
-                    let record = client.update_record(&base_id, &table_name, &record_id, json_fields)?;
-                    println!("Record {} updated successfully.", record.id);
+                    let _record = client.update_record(&base_id, &table_name, &record_id, json_fields)?;
+                    println!("Record {} updated successfully.", record_id);
                 }
             }
         }
@@ -1099,8 +1123,7 @@ fn main() -> Result<()> {
             if !has_privileged_access { anyhow::bail!("Access Denied."); }
             match source {
                 SyncSource::Airtable { schema_only: _, base_id } => {
-                    let pat = env::var("AIRTABLE_KOAD_PAT").context("AIRTABLE_KOAD_PAT not set")?;
-                    let _client = AirtableClient::new(pat);
+                    let _pat = env::var("AIRTABLE_KOAD_PAT").context("AIRTABLE_KOAD_PAT not set")?;
                     println!("Syncing Airtable (Native Rust Implementation)...");
                     if let Some(id) = base_id {
                         println!("Target Base: {}", id);

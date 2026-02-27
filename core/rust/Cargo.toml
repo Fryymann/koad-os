@@ -11,12 +11,14 @@ anyhow = "1.0"
 chrono = "0.4"
 dirs = "5.0"
 tempfile = "3.8"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
 ratatui = "0.26"
 crossterm = "0.27"
 notify = "6.1"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 tokio = { version = "1", features = ["full"] }
+r2d2 = "0.8.10"
+r2d2_sqlite = "0.25.0"
 
 [dev-dependencies]
 assert_cmd = "2.0"

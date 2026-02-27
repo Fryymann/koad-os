@@ -99,18 +99,20 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
             // 3. ACTIVITY (Right) - Daemon & Commands
             let mut activity_items: Vec<ListItem> = Vec::new();
             {
-                if let Ok(mut stmt) = db.conn.prepare("SELECT id, command, status FROM command_queue ORDER BY created_at DESC LIMIT 10") {
-                    if let Ok(rows) = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))) {
-                        for row in rows {
-                            if let Ok((id, cmd, status)) = row {
-                                let style = match status.as_str() {
-                                    "pending" => Style::default().fg(Color::Yellow),
-                                    "running" => Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
-                                    "completed" => Style::default().fg(Color::Green),
-                                    "failed" => Style::default().fg(Color::Red),
-                                    _ => Style::default().fg(Color::White),
-                                };
-                                activity_items.push(ListItem::new(format!("[TASK #{}] {} - {}", id, cmd.to_uppercase(), status)).style(style));
+                if let Ok(conn) = db.get_conn() {
+                    if let Ok(mut stmt) = conn.prepare("SELECT id, command, status FROM command_queue ORDER BY created_at DESC LIMIT 10") {
+                        if let Ok(rows) = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))) {
+                            for row in rows {
+                                if let Ok((id, cmd, status)) = row {
+                                    let style = match status.as_str() {
+                                        "pending" => Style::default().fg(Color::Yellow),
+                                        "running" => Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
+                                        "completed" => Style::default().fg(Color::Green),
+                                        "failed" => Style::default().fg(Color::Red),
+                                        _ => Style::default().fg(Color::White),
+                                    };
+                                    activity_items.push(ListItem::new(format!("[TASK #{}] {} - {}", id, cmd.to_uppercase(), status)).style(style));
+                                }
                             }
                         }
                     }
