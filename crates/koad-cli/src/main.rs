@@ -14,8 +14,8 @@ struct Cli {
     command: Commands,
 
     /// Socket path for the kspine Kernel
-    #[arg(long, default_value = "/home/ideans/.koad-os/kspine.sock")]
-    socket: String,
+    #[arg(long)]
+    socket: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -45,7 +45,12 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     // Connect to the Kernel via UDS
-    let socket_path = cli.socket.clone();
+    let socket_path = cli.socket.unwrap_or_else(|| {
+        let home = std::env::var("KOAD_HOME")
+            .unwrap_or_else(|_| format!("{}/.koad-os", std::env::var("HOME").unwrap_or_default()));
+        format!("{}/kspine.sock", home)
+    });
+
     let channel = Endpoint::try_from("http://[::]:50051")?
         .connect_with_connector(service_fn(move |_: Uri| {
             let path = socket_path.clone();

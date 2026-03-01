@@ -4,22 +4,23 @@ mod tests {
     use crate::engine::persistence::PersistenceManager;
     use crate::engine::commands::CommandProcessor;
     use std::sync::Arc;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use fred::interfaces::{PubsubInterface, EventInterface};
     use fred::types::Message;
 
     #[tokio::test]
     async fn test_redis_lifecycle() {
-        let config_path = "/home/ideans/.koad-os/config/redis.conf";
-        let redis = RedisClient::new(config_path).await;
+        let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| format!("{}/.koad-os", std::env::var("HOME").unwrap_or_default()));
+        let redis = RedisClient::new(&koad_home).await;
         assert!(redis.is_ok(), "RedisClient should initialize and connect");
     }
 
     #[tokio::test]
     async fn test_persistence_initialization() {
-        let config_path = "/home/ideans/.koad-os/config/redis.conf";
-        let redis = Arc::new(RedisClient::new(config_path).await.unwrap());
-        let db_path = "/home/ideans/.koad-os/test_persistence.db";
+        let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| format!("{}/.koad-os", std::env::var("HOME").unwrap_or_default()));
+        let redis = Arc::new(RedisClient::new(&koad_home).await.unwrap());
+        let db_path_buf = PathBuf::from(std::env::var("KOAD_HOME").unwrap_or_else(|_| format!("{}/.koad-os", std::env::var("HOME").unwrap_or_default()))).join("test_persistence.db");
+        let db_path = db_path_buf.to_str().unwrap();
         
         let pm = PersistenceManager::new(redis, db_path);
         assert!(pm.is_ok(), "PersistenceManager should initialize SQLite with WAL");
@@ -31,8 +32,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_command_execution() {
-        let config_path = "/home/ideans/.koad-os/config/redis.conf";
-        let redis = Arc::new(RedisClient::new(config_path).await.unwrap());
+        let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| format!("{}/.koad-os", std::env::var("HOME").unwrap_or_default()));
+        let redis = Arc::new(RedisClient::new(&koad_home).await.unwrap());
         
         let engine = Arc::new(crate::engine::Engine {
             redis: redis.clone(),

@@ -2,75 +2,176 @@ use tonic::{Request, Response, Status};
 use tokio_stream::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
-use koad_proto::kernel::kernel_service_server::KernelService;
-use koad_proto::kernel::{CommandRequest, CommandResponse, TelemetryUpdate, Empty};
 use crate::engine::Engine;
-use fred::interfaces::{PubsubInterface, EventInterface};
+use koad_proto::spine::v1::spine_service_server::SpineService;
+use koad_proto::spine::v1::*;
+use fred::interfaces::{PubsubInterface, HashesInterface};
+use serde_json::json;
+use chrono::Utc;
+use async_stream::try_stream;
 
-pub struct KoadKernel {
-    _engine: Arc<Engine>,
+pub struct KoadSpine {
+    engine: Arc<Engine>,
 }
 
-impl KoadKernel {
+impl KoadSpine {
     pub fn new(engine: Arc<Engine>) -> Self {
-        Self { _engine: engine }
+        Self { engine }
+    }
+
+    pub async fn register_in_inventory(&self, host: &str, port: u32) -> anyhow::Result<()> {
+        let service_entry = json!({
+            "name": "grpc",
+            "host": host,
+            "port": port,
+            "protocol": "grpc",
+            "status": "UP",
+            "last_seen": Utc::now().timestamp()
+        });
+
+        let _: () = self.engine.redis.client.hset("koad:services", ("grpc", service_entry.to_string())).await?;
+        Ok(())
     }
 }
 
 #[tonic::async_trait]
-impl KernelService for KoadKernel {
-    async fn execute(
+impl SpineService for KoadSpine {
+    async fn dispatch_task(
         &self,
-        request: Request<CommandRequest>,
-    ) -> Result<Response<CommandResponse>, Status> {
+        request: Request<DispatchTaskRequest>,
+    ) -> Result<Response<DispatchTaskResponse>, Status> {
         let req = request.into_inner();
-        println!("Kernel: Executing command [{}] from {}", req.name, req.identity);
+        let cmd_str = req.command;
+        let identity = "admin"; // TODO: Extract from auth metadata
 
-        Ok(Response::new(CommandResponse {
-            command_id: req.command_id,
-            success: true,
-            output: format!("Command '{}' executed successfully by v3 Kernel.", req.name),
-            error: "".to_string(),
+        // Create the Intent Payload for the CommandProcessor
+        let intent = json!({
+            "identity": identity,
+            "command": cmd_str,
+            "args": req.args,
+            "working_dir": req.working_dir,
+            "environment": req.environment
+        });
+
+        // Publish to koad:commands for the CommandProcessor to pick up
+        if let Err(e) = self.engine.redis.client.publish::<(), _, _>("koad:commands", intent.to_string()).await {
+            return Err(Status::internal(format!("Failed to dispatch task: {}", e)));
+        }
+
+        // Note: For now we don't have the task_id immediately here because CommandProcessor generates it.
+        // We might want to generate it here in the future or wait for a return.
+        // For MVP, we return a success with a placeholder until we refactor for direct return.
+        
+        Ok(Response::new(DispatchTaskResponse {
+            task_id: "pending".to_string(),
+            status: TaskStatus::Pending as i32,
         }))
     }
 
-    type StreamTelemetryStream = Pin<Box<dyn Stream<Item = Result<TelemetryUpdate, Status>> + Send>>;
+    type StreamTaskStatusStream = Pin<Box<dyn Stream<Item = Result<TaskStatusUpdate, Status>> + Send>>;
 
-    async fn stream_telemetry(
+    async fn stream_task_status(
         &self,
-        _request: Request<Empty>,
-    ) -> Result<Response<Self::StreamTelemetryStream>, Status> {
-        println!("Kernel: TUI connected to telemetry stream.");
-        
-        let (tx, rx) = tokio::sync::mpsc::channel(128);
-        let redis = self._engine.redis.clone();
+        _request: Request<StreamTaskStatusRequest>,
+    ) -> Result<Response<Self::StreamTaskStatusStream>, Status> {
+        // TODO: Implement actual Redis Stream tailing for task updates
+        let output = try_stream! {
+            yield TaskStatusUpdate {
+                task_id: "init".to_string(),
+                status: TaskStatus::Pending as i32,
+                stdout: "Connection established".to_string(),
+                stderr: "".to_string(),
+                exit_code: 0,
+                updated_at: None,
+            };
+        };
 
-        tokio::spawn(async move {
-            let mut message_stream = redis.subscriber.message_rx();
-            
-            if let Err(e) = redis.subscriber.subscribe(vec!["koad:telemetry", "koad:telemetry:stats"]).await {
-                eprintln!("Kernel Telemetry Error: Failed to subscribe to Redis: {}", e);
-                return;
-            }
-
-            while let Ok(message) = message_stream.recv().await {
-                let payload = message.value.as_string().unwrap_or_default();
-                if tx.send(Ok(TelemetryUpdate {
-                    source: "redis".to_string(),
-                    message: payload,
-                    timestamp: chrono::Utc::now().timestamp(),
-                    level: 0, // INFO
-                })).await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        let output_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-        Ok(Response::new(Box::pin(output_stream) as Self::StreamTelemetryStream))
+        Ok(Response::new(Box::pin(output) as Self::StreamTaskStatusStream))
     }
 
-    async fn heartbeat(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
-        Ok(Response::new(Empty {}))
+    type StreamSystemEventsStream = Pin<Box<dyn Stream<Item = Result<SystemEvent, Status>> + Send>>;
+
+    async fn stream_system_events(
+        &self,
+        _request: Request<StreamSystemEventsRequest>,
+    ) -> Result<Response<Self::StreamSystemEventsStream>, Status> {
+        // TODO: Implement Redis Stream tailing for system events
+        let output = try_stream! {
+            yield SystemEvent {
+                event_id: "0".to_string(),
+                source: "spine:grpc".to_string(),
+                severity: EventSeverity::Info as i32,
+                message: "Event stream active".to_string(),
+                metadata_json: "{}".to_string(),
+                timestamp: None,
+            };
+        };
+
+        Ok(Response::new(Box::pin(output) as Self::StreamSystemEventsStream))
+    }
+
+    async fn get_system_state(
+        &self,
+        _request: Request<GetSystemStateRequest>,
+    ) -> Result<Response<GetSystemStateResponse>, Status> {
+        Ok(Response::new(GetSystemStateResponse {
+            identity_json: "{}".to_string(),
+            active_tasks: 0,
+            version: "3.0.0-alpha".to_string(),
+        }))
+    }
+
+    async fn get_service(
+        &self,
+        request: Request<GetServiceRequest>,
+    ) -> Result<Response<GetServiceResponse>, Status> {
+        let name = request.into_inner().name;
+        let res: Option<String> = self.engine.redis.client.hget("koad:services", &name).await.map_err(|e| Status::internal(e.to_string()))?;
+        
+        if let Some(json_str) = res {
+            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                return Ok(Response::new(GetServiceResponse {
+                    service: Some(ServiceEntry {
+                        name: entry["name"].as_str().unwrap_or_default().to_string(),
+                        host: entry["host"].as_str().unwrap_or_default().to_string(),
+                        port: entry["port"].as_u64().unwrap_or_default() as u32,
+                        protocol: entry["protocol"].as_str().unwrap_or_default().to_string(),
+                        environment: EnvironmentType::Wsl as i32, // TODO: map properly
+                        status: entry["status"].as_str().unwrap_or_default().to_string(),
+                    })
+                }));
+            }
+        }
+        
+        Err(Status::not_found("Service not found"))
+    }
+
+    async fn register_service(
+        &self,
+        request: Request<RegisterServiceRequest>,
+    ) -> Result<Response<RegisterServiceResponse>, Status> {
+        let entry = request.into_inner().service.ok_or_else(|| Status::invalid_argument("Missing service entry"))?;
+        let payload = json!({
+            "name": entry.name,
+            "host": entry.host,
+            "port": entry.port,
+            "protocol": entry.protocol,
+            "status": entry.status,
+            "last_seen": Utc::now().timestamp()
+        });
+
+        let _: () = self.engine.redis.client.hset("koad:services", (entry.name, payload.to_string())).await.map_err(|e| Status::internal(e.to_string()))?;
+        
+        Ok(Response::new(RegisterServiceResponse { success: true }))
+    }
+
+    async fn register_component(
+        &self,
+        _request: Request<RegisterComponentRequest>,
+    ) -> Result<Response<RegisterComponentResponse>, Status> {
+        Ok(Response::new(RegisterComponentResponse {
+            session_id: uuid::Uuid::new_v4().to_string(),
+            authorized: true,
+        }))
     }
 }

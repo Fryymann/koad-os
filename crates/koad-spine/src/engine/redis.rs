@@ -13,11 +13,23 @@ pub struct RedisClient {
 pub type RedisClientInner = fred::clients::RedisClient;
 
 impl RedisClient {
-    pub async fn new(config_path: &str) -> anyhow::Result<Self> {
+    pub async fn new(koad_home: &str) -> anyhow::Result<Self> {
+        let home_path = PathBuf::from(koad_home);
+        let socket_path = home_path.join("koad.sock");
+        let pid_path = home_path.join("redis.pid");
+        let log_path = home_path.join("redis.log");
+        let data_dir = home_path.join("data/redis");
+
+        std::fs::create_dir_all(&data_dir)?;
+
         // 1. Start Redis Process (Local-managed)
         println!("Starting Koad-managed Redis server...");
         let process = Command::new("redis-server")
-            .arg(config_path)
+            .arg("--port").arg("0")
+            .arg("--unixsocket").arg(&socket_path)
+            .arg("--pidfile").arg(&pid_path)
+            .arg("--logfile").arg(&log_path)
+            .arg("--dir").arg(&data_dir)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()?;
@@ -28,7 +40,7 @@ impl RedisClient {
         // 2. Connect via UDS
         let config = RedisConfig {
             server: ServerConfig::Unix {
-                path: PathBuf::from("/home/ideans/.koad-os/koad.sock"),
+                path: socket_path,
             },
             ..Default::default()
         };

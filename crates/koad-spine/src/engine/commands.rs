@@ -1,8 +1,11 @@
 use std::process::Command;
 use std::sync::Arc;
 use crate::engine::Engine;
-use fred::interfaces::{PubsubInterface, EventInterface};
+use crate::engine::sandbox::{Sandbox, PolicyResult};
+use fred::interfaces::{PubsubInterface, HashesInterface, StreamsInterface, EventInterface};
 use serde_json::json;
+use uuid::Uuid;
+use chrono::Utc;
 
 pub struct CommandProcessor {
     engine: Arc<Engine>,
@@ -25,61 +28,147 @@ impl CommandProcessor {
         println!("CommandProcessor: Listening for commands on 'koad:commands'...");
 
         while let Ok(message) = message_stream.recv().await {
-            let cmd_str = message.value.as_string().unwrap_or_default();
+            if message.channel != "koad:commands" { continue; }
+
+            let payload_str = message.value.as_string().unwrap_or_default();
+            if payload_str.is_empty() { continue; }
+
+            // Parse the Intent Payload
+            // Example: {"identity": "developer", "command": "ls -la"}
+            let (identity, cmd_str) = match serde_json::from_str::<serde_json::Value>(&payload_str) {
+                Ok(json) => {
+                    let id = json["identity"].as_str().unwrap_or("unknown").to_string();
+                    let cmd = json["command"].as_str().unwrap_or("").to_string();
+                    (id, cmd)
+                }
+                Err(_) => {
+                    // Fallback for legacy raw string commands (assume admin for backwards compatibility for now)
+                    ("admin".to_string(), payload_str)
+                }
+            };
+
             if cmd_str.is_empty() { continue; }
 
             let engine = self.engine.clone();
             tokio::spawn(async move {
-                Self::execute_command(engine, cmd_str).await;
+                let task_id = Uuid::new_v4().to_string();
+                Self::execute_task(engine, task_id, identity, cmd_str).await;
             });
         }
     }
 
-    async fn execute_command(engine: Arc<Engine>, cmd_str: String) {
-        println!("CommandProcessor: Executing [{}]", cmd_str);
+    async fn execute_task(engine: Arc<Engine>, task_id: String, identity: String, cmd_str: String) {
+        let timestamp = Utc::now().timestamp();
         
-        // Log start to telemetry
-        let _: Result<(), _> = engine.redis.client.publish("koad:telemetry", json!({
-            "source": "PROCESSOR",
-            "message": format!("Executing: {}", cmd_str),
-            "timestamp": chrono::Utc::now().timestamp(),
-            "level": 0
-        }).to_string()).await;
+        // 1. Sandbox Policy Check
+        match Sandbox::evaluate(&identity, &cmd_str) {
+            PolicyResult::Denied(reason) => {
+                let error_state = json!({
+                    "task_id": task_id,
+                    "status": "FAILED",
+                    "error": format!("Policy Violation ({}): {}", identity, reason),
+                    "updated_at": timestamp
+                });
+                let _: () = engine.redis.client.hset(format!("koad:task:{}", task_id), ("state", error_state.to_string())).await.unwrap_or_default();
+                
+                let _: () = engine.redis.client.xadd(
+                    "koad:events:stream", false, None, "*", 
+                    vec![
+                        ("source", "engine:sandbox"),
+                        ("severity", "ERROR"),
+                        ("message", "TASK_REJECTED"),
+                        ("metadata", &error_state.to_string()),
+                        ("timestamp", &timestamp.to_string())
+                    ]
+                ).await.unwrap_or_default();
+                
+                return; // Abort Execution
+            }
+            PolicyResult::Allowed => {} // Proceed
+        }
 
-        // Execute via shell
-        let output = Command::new("bash")
+        // 2. Initial State in Redis
+        let initial_state = json!({
+            "task_id": task_id,
+            "command": cmd_str,
+            "identity": identity,
+            "status": "RUNNING",
+            "updated_at": timestamp
+        });
+        let _: () = engine.redis.client.hset(format!("koad:task:{}", task_id), ("state", initial_state.to_string())).await.unwrap_or_default();
+
+        // 3. Broadcast START Event to Stream
+        let _: () = engine.redis.client.xadd(
+            "koad:events:stream", 
+            false, 
+            None, 
+            "*", 
+            vec![
+                ("source", "engine:scheduler"),
+                ("severity", "INFO"),
+                ("message", "TASK_LIFECYCLE"),
+                ("metadata", &initial_state.to_string()),
+                ("timestamp", &timestamp.to_string())
+            ]
+        ).await.unwrap_or_default();
+
+        // 4. Execute Command
+        let output = Command::new("/usr/bin/bash")
             .arg("-c")
             .arg(&cmd_str)
             .env("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ideans/.cargo/bin:/home/ideans/.nvm/versions/node/v22.21.1/bin")
             .output();
 
+        let final_timestamp = Utc::now().timestamp();
         match output {
             Ok(out) => {
                 let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                let status = out.status.code().unwrap_or(-1);
+                let status_code = out.status.code().unwrap_or(-1);
+                let final_status = if status_code == 0 { "SUCCESS" } else { "FAILED" };
 
-                let msg = if status == 0 {
-                    if stdout.is_empty() { "Command completed successfully.".to_string() } else { stdout }
-                } else {
-                    format!("Error ({}): {}", status, stderr)
-                };
+                // 5. Update State in Redis
+                let final_state = json!({
+                    "task_id": task_id,
+                    "status": final_status,
+                    "exit_code": status_code,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "updated_at": final_timestamp
+                });
+                let _: () = engine.redis.client.hset(format!("koad:task:{}", task_id), ("state", final_state.to_string())).await.unwrap_or_default();
 
-                let _: Result<(), _> = engine.redis.client.publish("koad:telemetry", json!({
-                    "source": "PROCESSOR",
-                    "message": msg,
-                    "timestamp": chrono::Utc::now().timestamp(),
-                    "level": if status == 0 { 0 } else { 2 }
-                }).to_string()).await;
+                // 6. Broadcast END Event to Stream
+                let _: () = engine.redis.client.xadd(
+                    "koad:events:stream", 
+                    false, 
+                    None, 
+                    "*", 
+                    vec![
+                        ("source", "engine:scheduler"),
+                        ("severity", if status_code == 0 { "INFO" } else { "ERROR" }),
+                        ("message", "TASK_LIFECYCLE"),
+                        ("metadata", &final_state.to_string()),
+                        ("timestamp", &final_timestamp.to_string())
+                    ]
+                ).await.unwrap_or_default();
             },
             Err(e) => {
-                let _: Result<(), _> = engine.redis.client.publish("koad:telemetry", json!({
-                    "source": "PROCESSOR",
-                    "message": format!("Spawn Error: {}", e),
-                    "timestamp": chrono::Utc::now().timestamp(),
-                    "level": 2
-                }).to_string()).await;
+                let _: () = engine.redis.client.xadd(
+                    "koad:events:stream", 
+                    false, 
+                    None, 
+                    "*", 
+                    vec![
+                        ("source", "engine:scheduler"),
+                        ("severity", "ERROR"),
+                        ("message", "TASK_SPAWN_FAILURE"),
+                        ("metadata", &json!({ "task_id": task_id, "error": e.to_string() }).to_string()),
+                        ("timestamp", &final_timestamp.to_string())
+                    ]
+                ).await.unwrap_or_default();
             }
         }
     }
 }
+

@@ -1,0 +1,80 @@
+/// The Sandbox enforces security policies on commands before they are executed by the Spine.
+pub struct Sandbox;
+
+pub enum PolicyResult {
+    Allowed,
+    Denied(String),
+}
+
+impl Sandbox {
+    /// Evaluates a command against the policies associated with the given identity (role).
+    pub fn evaluate(identity: &str, command: &str) -> PolicyResult {
+        let role = identity.to_lowercase();
+        
+        // Admin has root access, bypasses all checks.
+        if role == "admin" || role == "admiral" || role == "dood" {
+            return PolicyResult::Allowed;
+        }
+
+        // Developer Agent Policies
+        if role == "developer" || role == "pm" || role == "reviewer" {
+            return Self::evaluate_agent_policy(command);
+        }
+
+        // Default Deny for unknown identities
+        PolicyResult::Denied(format!("Unknown identity role: {}", identity))
+    }
+
+    fn evaluate_agent_policy(command: &str) -> PolicyResult {
+        let cmd_lower = command.to_lowercase();
+
+        // 1. Blacklist check (Commands)
+        let blacklisted_commands = ["sudo ", "su ", "rm -rf /", "koad boot"];
+        for blacklisted in blacklisted_commands.iter() {
+            if cmd_lower.contains(blacklisted) {
+                return PolicyResult::Denied(format!("Command contains blacklisted phrase: '{}'", blacklisted));
+            }
+        }
+
+        // 2. Sanctuary Check (Paths)
+        // Agents must not modify the KoadOS kernel or system roots.
+        let protected_paths = [".koad-os", "/etc", "/var", "/root"];
+        
+        // Basic heuristic: if it looks like they are trying to touch a protected path
+        // (This is a rudimentary check for MVP, a real parser would break down args)
+        for path in protected_paths.iter() {
+            if command.contains(path) && (command.contains("rm ") || command.contains("mv ") || command.contains("cp ") || command.contains("echo ") || command.contains(">") || command.contains("nano ") || command.contains("vim ")) {
+                 return PolicyResult::Denied(format!("Attempt to modify protected path: '{}'", path));
+            }
+        }
+
+        PolicyResult::Allowed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_admin_bypass() {
+        assert!(matches!(Sandbox::evaluate("admin", "sudo rm -rf /"), PolicyResult::Allowed));
+    }
+
+    #[test]
+    fn test_developer_blacklist() {
+        assert!(matches!(Sandbox::evaluate("developer", "sudo apt update"), PolicyResult::Denied(_)));
+        assert!(matches!(Sandbox::evaluate("pm", "rm -rf /home"), PolicyResult::Denied(_)));
+    }
+
+    #[test]
+    fn test_developer_sanctuary() {
+        assert!(matches!(Sandbox::evaluate("developer", "rm -rf .koad-os/koad.db"), PolicyResult::Denied(_)));
+        assert!(matches!(Sandbox::evaluate("developer", "ls .koad-os"), PolicyResult::Allowed)); // Read is okay
+    }
+    
+    #[test]
+    fn test_developer_allowed() {
+         assert!(matches!(Sandbox::evaluate("developer", "cargo build"), PolicyResult::Allowed));
+    }
+}

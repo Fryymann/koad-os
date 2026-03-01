@@ -1,24 +1,80 @@
-# KoadOS Ignore Rules
+# KoadOS v3 Exhaustive Ignore Rules
 
-# Project state
+# --- Local State & Telemetry ---
 koad.json
 koad.db
+koad.db-shm
+koad.db-wal
 SESSION_LOG.md
 NOTION_INDEX.md
 *.db
+*.db-shm
+*.db-wal
 *.log
-daemon.pid
+*.log.*
+*.pid
+*.sock
+*.sock.*
+data/redis/
+*.rdb
 
-# Build artifacts
+# --- Build Artifacts (Rust) ---
 target/
 **/target/
-node_modules/
-**/node_modules/
-bin/koad
-bin/koad-daemon
+debug/
+release/
 .crates.toml
 .crates2.json
 
-# System
+# --- Build Artifacts (Node/Web) ---
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.npm
+.eslintcache
+
+# --- Virtual Environments (Python) ---
+venv/
+.venv/
+**/venv/
+**/.venv/
+env/
+.env/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+
+# --- IDE & OS ---
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.vscode/
+.idea/
+.codex/
+*.swp
+*.swo
+
+# --- Secrets & Config ---
 .env
+.env.*
+.credentials.json
+*.pem
+*.key
+pub.key
+bin/koad

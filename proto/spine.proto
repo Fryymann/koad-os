@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+package koad.spine.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// The Spine service is the central nervous system for KoadOS.
+service SpineService {
+  // Task Management
+  rpc DispatchTask(DispatchTaskRequest) returns (DispatchTaskResponse);
+  rpc StreamTaskStatus(StreamTaskStatusRequest) returns (stream TaskStatusUpdate);
+  
+  // System Telemetry & Monitoring
+  rpc StreamSystemEvents(StreamSystemEventsRequest) returns (stream SystemEvent);
+  rpc GetSystemState(GetSystemStateRequest) returns (GetSystemStateResponse);
+
+  // Service Discovery: Finding where the Web Deck, Redis, or gRPC is hosted.
+  rpc GetService(GetServiceRequest) returns (GetServiceResponse);
+  rpc RegisterService(RegisterServiceRequest) returns (RegisterServiceResponse);
+
+  // Identity & Discovery
+  rpc RegisterComponent(RegisterComponentRequest) returns (RegisterComponentResponse);
+}
+
+// --- Service Discovery Messages ---
+
+message GetServiceRequest {
+  string name = 1; // e.g., "web-deck", "redis", "grpc"
+}
+
+message GetServiceResponse {
+  ServiceEntry service = 1;
+}
+
+message RegisterServiceRequest {
+  ServiceEntry service = 1;
+}
+
+message RegisterServiceResponse {
+  bool success = 1;
+}
+
+message ServiceEntry {
+  string name = 1;
+  string host = 2;
+  uint32 port = 3;
+  string protocol = 4; // "http", "ws", "grpc", "redis"
+  EnvironmentType environment = 5;
+  string status = 6; // "UP", "DOWN", "STARTING"
+}
+
+// --- Task Messages ---
+
+message DispatchTaskRequest {
+  string command = 1;
+  repeated string args = 2;
+  string working_dir = 3;
+  EnvironmentType environment = 4; // WSL or WINDOWS
+  map<string, string> env_vars = 5;
+}
+
+message DispatchTaskResponse {
+  string task_id = 1;
+  TaskStatus status = 2;
+}
+
+message StreamTaskStatusRequest {
+  string task_id = 1; // Optional: if empty, streams all tasks
+}
+
+message TaskStatusUpdate {
+  string task_id = 1;
+  TaskStatus status = 2;
+  string stdout = 3;
+  string stderr = 4;
+  int32 exit_code = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// --- Event & Telemetry Messages ---
+
+message SystemEvent {
+  string event_id = 1;
+  string source = 2; // e.g., "engine", "web", "windows-cli"
+  EventSeverity severity = 3;
+  string message = 4;
+  string metadata_json = 5;
+  google.protobuf.Timestamp timestamp = 6;
+}
+
+message StreamSystemEventsRequest {
+  repeated string filter_sources = 1;
+}
+
+message GetSystemStateRequest {}
+
+message GetSystemStateResponse {
+  string identity_json = 1;
+  uint32 active_tasks = 2;
+  string version = 3;
+}
+
+// --- Discovery Messages ---
+
+message RegisterComponentRequest {
+  string name = 1;
+  ComponentType type = 2;
+  EnvironmentType environment = 3;
+}
+
+message RegisterComponentResponse {
+  string session_id = 1;
+  bool authorized = 2;
+}
+
+// --- Enums ---
+
+enum EnvironmentType {
+  ENVIRONMENT_TYPE_UNSPECIFIED = 0;
+  ENVIRONMENT_TYPE_WSL = 1;
+  ENVIRONMENT_TYPE_WINDOWS = 2;
+  ENVIRONMENT_TYPE_REMOTE = 3;
+}
+
+enum TaskStatus {
+  TASK_STATUS_PENDING = 0;
+  TASK_STATUS_RUNNING = 1;
+  TASK_STATUS_SUCCESS = 2;
+  TASK_STATUS_FAILED = 3;
+  TASK_STATUS_CANCELLED = 4;
+}
+
+enum EventSeverity {
+  EVENT_SEVERITY_DEBUG = 0;
+  EVENT_SEVERITY_INFO = 1;
+  EVENT_SEVERITY_WARN = 2;
+  EVENT_SEVERITY_ERROR = 3;
+  EVENT_SEVERITY_CRITICAL = 4;
+}
+
+enum ComponentType {
+  COMPONENT_TYPE_CLI = 0;
+  COMPONENT_TYPE_TUI = 1;
+  COMPONENT_TYPE_DASHBOARD = 2;
+  COMPONENT_TYPE_SKILL = 3;
+  COMPONENT_TYPE_AGENT = 4;
+}
