@@ -12,6 +12,7 @@ use fred::interfaces::{PubsubInterface, EventInterface, HashesInterface};
 use serde_json::{json, Value};
 use futures::{StreamExt, SinkExt};
 use chrono::Utc;
+use koad_core::intent::{Intent, ExecuteIntent};
 
 pub struct WebGateway {
     engine: Arc<Engine>,
@@ -88,12 +89,18 @@ async fn handle_socket(socket: WebSocket, engine: Arc<Engine>) {
             if let Ok(json) = serde_json::from_str::<Value>(&text) {
                 if json["type"] == "COMMAND" {
                     if let Some(cmd) = json["payload"].as_str() {
-                        // WRAP: Convert to Sandbox-ready Intent Payload
-                        let intent = json!({
-                            "identity": "admin", // Default for Web Deck for now
-                            "command": cmd
+                        // WRAP: Convert to strongly-typed Intent
+                        let intent = Intent::Execute(ExecuteIntent {
+                            identity: "admin".to_string(), // Default for Web Deck for now
+                            command: cmd.to_string(),
+                            args: vec![],
+                            working_dir: None,
+                            env_vars: std::collections::HashMap::new(),
                         });
-                        let _: Result<(), _> = redis.client.publish("koad:commands", intent.to_string()).await;
+                        
+                        if let Ok(intent_str) = serde_json::to_string(&intent) {
+                            let _: Result<(), _> = redis.client.publish("koad:commands", intent_str).await;
+                        }
                     }
                 }
             }

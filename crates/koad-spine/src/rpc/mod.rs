@@ -9,6 +9,7 @@ use fred::interfaces::{PubsubInterface, HashesInterface};
 use serde_json::json;
 use chrono::Utc;
 use async_stream::try_stream;
+use koad_core::intent::{Intent, ExecuteIntent};
 
 pub struct KoadSpine {
     engine: Arc<Engine>,
@@ -45,16 +46,17 @@ impl SpineService for KoadSpine {
         let identity = "admin"; // TODO: Extract from auth metadata
 
         // Create the Intent Payload for the CommandProcessor
-        let intent = json!({
-            "identity": identity,
-            "command": cmd_str,
-            "args": req.args,
-            "working_dir": req.working_dir,
-            "environment": req.environment
+        let intent = Intent::Execute(ExecuteIntent {
+            identity: identity.to_string(),
+            command: cmd_str,
+            args: req.args,
+            working_dir: if req.working_dir.is_empty() { None } else { Some(req.working_dir) },
+            env_vars: req.env_vars,
         });
 
         // Publish to koad:commands for the CommandProcessor to pick up
-        if let Err(e) = self.engine.redis.client.publish::<(), _, _>("koad:commands", intent.to_string()).await {
+        let intent_str = serde_json::to_string(&intent).map_err(|e| Status::internal(e.to_string()))?;
+        if let Err(e) = self.engine.redis.client.publish::<(), _, _>("koad:commands", intent_str).await {
             return Err(Status::internal(format!("Failed to dispatch task: {}", e)));
         }
 

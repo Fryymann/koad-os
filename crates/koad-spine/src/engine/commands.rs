@@ -5,6 +5,7 @@ use fred::interfaces::{PubsubInterface, HashesInterface, StreamsInterface, Event
 use serde_json::json;
 use uuid::Uuid;
 use chrono::Utc;
+use koad_core::intent::Intent;
 
 pub struct CommandProcessor {
     engine: Arc<Engine>,
@@ -33,16 +34,29 @@ impl CommandProcessor {
             if payload_str.is_empty() { continue; }
 
             // Parse the Intent Payload
-            // Example: {"identity": "developer", "command": "ls -la"}
-            let (identity, cmd_str) = match serde_json::from_str::<serde_json::Value>(&payload_str) {
-                Ok(json) => {
-                    let id = json["identity"].as_str().unwrap_or("unknown").to_string();
-                    let cmd = json["command"].as_str().unwrap_or("").to_string();
-                    (id, cmd)
+            // 1. Try modern Intent enum (strongly-typed)
+            // 2. Fallback to legacy JSON format
+            // 3. Fallback to raw string (admin)
+            let (identity, cmd_str) = match serde_json::from_str::<Intent>(&payload_str) {
+                Ok(Intent::Execute(exec)) => (exec.identity, exec.command),
+                Ok(other) => {
+                    // Log but skip for now until Skill/Session handlers are added
+                    eprintln!("CommandProcessor: Received non-execute intent: {:?}", other);
+                    continue;
                 }
                 Err(_) => {
-                    // Fallback for legacy raw string commands (assume admin for backwards compatibility for now)
-                    ("admin".to_string(), payload_str)
+                    // Fallback path
+                    match serde_json::from_str::<serde_json::Value>(&payload_str) {
+                        Ok(json) => {
+                            let id = json["identity"].as_str().unwrap_or("unknown").to_string();
+                            let cmd = json["command"].as_str().unwrap_or("").to_string();
+                            (id, cmd)
+                        }
+                        Err(_) => {
+                            // Raw string fallback
+                            ("admin".to_string(), payload_str)
+                        }
+                    }
                 }
             };
 
