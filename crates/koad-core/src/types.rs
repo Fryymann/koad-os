@@ -1,6 +1,29 @@
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
+/// Represents a unit of work within the KoadOS ecosystem.
+/// Every Ticket MUST have a corresponding GitHub Issue for external tracking.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Ticket {
+    pub id: uuid::Uuid,
+    pub github_issue: Option<u32>,
+    pub title: String,
+    pub problem: String,
+    pub solution: String,
+    pub implementation_plan: Vec<String>,
+    pub status: TicketStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TicketStatus {
+    Draft,
+    Open,
+    InProgress,
+    Testing,
+    Resolved,
+    Closed,
+}
+
 /// The environment in which a session or task is executing.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum EnvironmentType {

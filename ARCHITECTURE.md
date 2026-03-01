@@ -65,6 +65,7 @@ The consolidated I/O edge of KoadOS. Instead of scattered servers causing port c
 
 ## 4. KoadOS Development Canon
 The management of KoadOS is strictly governed by the following protocols to ensure system integrity:
+- **Ticket-First Workflow**: ALL work begins with a local `Ticket` object (Problem/Solution/Implementation) which mirrors to a GitHub Issue.
 - **Tight Git Coupling**: Incremental development is enforced via surgical, issue-linked commits.
 - **GitHub Orchestration**: All planning and status tracking is handled via GitHub Projects and Milestones.
 - **Automated Compliance**: The `repo-clean` tool enforces zero-drift repository hygiene.
