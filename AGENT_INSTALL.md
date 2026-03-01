@@ -18,7 +18,7 @@ Once you have the answers, prepare the installation.
 
 ```json
 {
-  "version": "2.4",
+  "version": "3.1",
   "identity": {
     "name": "[PERSONA_NAME]",
     "role": "[ROLE]",

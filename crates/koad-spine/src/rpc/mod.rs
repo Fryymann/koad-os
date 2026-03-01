@@ -119,7 +119,7 @@ impl SpineService for KoadSpine {
         Ok(Response::new(GetSystemStateResponse {
             identity_json: "{}".to_string(),
             active_tasks: 0,
-            version: "3.0.0-alpha".to_string(),
+            version: "3.1.0".to_string(),
         }))
     }
 

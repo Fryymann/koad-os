@@ -11,11 +11,11 @@ This chart represents the current target architecture of KoadOS. It is maintaine
 graph TD
     %% Oversight & Governance
     DECK[GitHub Command Deck: Project #2] --- ADMIN((Dood))
-    DECK --- KCM[Koad Compliance Manager: v3.1 TARGET]
+    DECK --- KCM[Koad Compliance Manager: v3.1 IMPLEMENTED]
     KCM --- OV[Compliance Agent: Overseer]
     
     %% Workflow Orchestration
-    DECK --- WF[Spine Workflow Engine: v3.1 TARGET]
+    DECK --- WF[Spine Workflow Engine: v3.1 IMPLEMENTED]
     WF --- ACTIONS[GitHub Actions: CI/Hygiene]
     WF --- KERNEL[Koad Kernel: v3.1 BUILDER REFACTOR]
 
@@ -35,7 +35,7 @@ graph TD
     KERNEL --- CM[Command Manager + Sandbox: IMPLEMENTED]
     
     %% Isolated I/O (The Air Gap)
-    KERNEL ---|UDS ONLY| EDGE[Isolated Edge Gateway: v3.1 TARGET]
+    KERNEL ---|UDS ONLY| EDGE[Isolated Edge Gateway: v3.1 IMPLEMENTED]
     EDGE -->|TCP 0.0.0.0| Web(Chrome)
     EDGE -->|TCP 0.0.0.0| TUI(Windows TUI)
     
