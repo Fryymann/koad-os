@@ -1,25 +1,21 @@
-# KoadOS: Captain's Log (Working Memory)
+# KoadOS: Captain's Log (Handover)
 
-> [!NOTE]
-> This log is for the Admin (Koad) to maintain situational awareness. 
-> It is updated continuously to bridge the gap between design and execution.
+> [!IMPORTANT]
+> Admin (Koad) is in SLEEP MODE. 
+> The Spine Kernel is active in the background.
 
-## 1. Current Situational Map (2026-03-01)
+## 1. Handover State (2026-03-01)
 - **Active Version**: v3.1 (Hardening Phase)
-- **Current Sprint**: Sprint 0 (Infrastructure Setup)
-- **Immediate Mission**: Finalizing the transition to v3.1 Hardening after a successful v3 Overhaul.
-- **Repository Health**: [CONDITION GREEN] - All bloat purged, GCP active.
+- **Repo Status**: [CONDITION GREEN] - Clean across pre-v3, nightly, and weekly tiers.
+- **Kernel State**: Dual-binding gRPC (50051) and Web (3000) active on 0.0.0.0.
+- **Tracking**: All v3 Milestone items are DONE. v3.1 items are in TODO.
 
-## 2. Immediate Objective
-- **Target**: Issue #6 (Strongly-Typed Intent System).
-- **Next Step**: Define the `Intent` enum in `koad-core/src/types.rs`.
-- **Reasoning**: We need to replace raw JSON strings with Rust types to ensure IPC integrity before we isolate the Edge Gateway.
+## 2. Wake-up Objective (v3.1 Sprint 1)
+- **Priority**: Issue #6 (Strongly-Typed Intent System).
+- **Target**: Refactor `koad-core` to include the `Intent` enum and update `CommandProcessor` to consume it.
+- **Secondary**: Implement the `KernelBuilder` pattern (#7) to clean up `main.rs`.
 
-## 3. Cognitive Anchors (Mental Map)
-- **State Pattern**: `KoadStorageBridge` uses `koad:state` hash in Redis and `state_ledger` in SQLite.
-- **IPC Pattern**: gRPC on 50051 (0.0.0.0) and UDS on `kspine.sock`.
-- **Trap Avoidance**: Remember to use `tokio::process` and `--test-threads=1` for any new tests.
-
-## 4. Pending Context
-- [ ] Move gRPC binding to early-boot to prevent the 50051 delay.
-- [ ] Consolidate `main.rs` into a `KernelBuilder` pattern (Issue #7).
+## 3. Persistent Anchors
+- **Memory**: StorageBridge is hydrating from `state_ledger` in `koad.db`.
+- **Security**: Sandbox is enforcing roles; Admin uses `GITHUB_ADMIN_PAT`.
+- **Protocol**: End every session with `doodskills/repo-clean.py`.
