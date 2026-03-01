@@ -1532,6 +1532,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "koad-gateway"
+version = "3.0.0-alpha"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "chrono",
+ "clap",
+ "fred",
+ "futures",
+ "koad-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http 0.5.2",
+]
+
+[[package]]
 name = "koad-proto"
 version = "3.0.0-alpha"
 dependencies = [

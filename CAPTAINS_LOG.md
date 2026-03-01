@@ -7,17 +7,17 @@
 ## 1. Handover State (2026-03-01)
 - **Active Version**: v3.1 (Hardening Phase)
 - **Repo Status**: [CONDITION GREEN] - Active development on **nightly**.
-- **Kernel State**: Dual-binding gRPC (50051) and Web (3000) active on 0.0.0.0.
+- **Kernel State**: Spine gRPC (50051) and Gateway (3000) are now separate processes.
 - **Recent Progress**: 
     - **Issue #6 (Complete)**: Formalized the Strongly-Typed Intent System.
-    - **Issue #7 (Complete)**: Implemented `KernelBuilder` to decouple initialization from `main.rs`.
-    - **Test Infrastructure**: Refactored `koad-spine` engine tests to use `tempfile::tempdir()` for Redis isolation, resolving race conditions on the UDS socket.
+    - **Issue #7 (Complete)**: Implemented `KernelBuilder` Refactor.
+    - **Issue #8 (Complete)**: Isolated Edge Gateway into a dedicated process (`koad-gateway`). This ensures that web-facing vulnerabilities are air-gapped from the core Spine Kernel.
 - **Tracking**: All v3 Milestone items are DONE. v3.1 items are in progress.
 
 ## 2. Wake-up Objective (v3.1 Sprint 3)
-- **Priority**: Expand `Intent` system to include `Skill` and `Session` handlers.
+- **Priority**: Issue #14 (Expand Intent System: Skill & Session Handlers).
 - **Target**: Implement the logic in `CommandProcessor` to route `Intent::Skill` and `Intent::Session` to their respective managers.
-- **Secondary**: Add more comprehensive integration tests for the full Intent lifecycle.
+- **Secondary**: Implement a central orchestrator or supervisor to manage the lifecycle of both `kspine` and `koad-gateway`.
 
 ## 3. Persistent Anchors
 - **Memory**: StorageBridge is hydrating from `state_ledger` in `koad.db`.

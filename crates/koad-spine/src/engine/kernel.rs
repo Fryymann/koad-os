@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::path::PathBuf;
 use crate::engine::Engine;
 use crate::discovery::SkillRegistry;
-use crate::web::WebGateway;
 use crate::rpc::KoadSpine;
 use koad_proto::spine::v1::spine_service_server::SpineServiceServer;
 use tonic::transport::Server;
@@ -20,7 +19,6 @@ pub struct KernelBuilder {
     home_dir: Option<PathBuf>,
     tcp_addr: Option<String>,
     uds_path: Option<PathBuf>,
-    web_enabled: bool,
 }
 
 impl KernelBuilder {
@@ -29,7 +27,6 @@ impl KernelBuilder {
             home_dir: None,
             tcp_addr: None,
             uds_path: None,
-            web_enabled: false,
         }
     }
 
@@ -43,12 +40,6 @@ impl KernelBuilder {
     pub fn with_grpc(mut self, tcp_addr: &str, uds_path: PathBuf) -> Self {
         self.tcp_addr = Some(tcp_addr.to_string());
         self.uds_path = Some(uds_path);
-        self
-    }
-
-    /// Enables the Web Dashboard and Gateway.
-    pub fn with_web(mut self) -> Self {
-        self.web_enabled = true;
         self
     }
 
@@ -76,16 +67,6 @@ impl KernelBuilder {
 
         let command_processor = crate::engine::commands::CommandProcessor::new(engine.clone());
         tokio::spawn(async move { command_processor.start().await; });
-
-        // 4. Start Web Gateway if enabled
-        if self.web_enabled {
-            let web_gateway = WebGateway::new(engine.clone());
-            tokio::spawn(async move {
-                if let Err(e) = web_gateway.start().await {
-                    eprintln!("Kernel: WebGateway failed: {}", e);
-                }
-            });
-        }
 
         // 5. Start gRPC Bridges if configured
         if let (Some(tcp_addr_str), Some(uds_path)) = (self.tcp_addr, self.uds_path) {

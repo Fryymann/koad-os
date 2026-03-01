@@ -1,8 +1,6 @@
 pub mod engine;
 pub mod discovery;
 pub mod rpc;
-pub mod web;
-pub mod deck;
 
 use crate::engine::kernel::KernelBuilder;
 use std::path::PathBuf;
@@ -18,7 +16,6 @@ async fn main() -> anyhow::Result<()> {
     let kernel = KernelBuilder::new()
         .with_home(home_dir.clone())
         .with_grpc("0.0.0.0:50051", home_dir.join("kspine.sock"))
-        .with_web()
         .start()
         .await?;
 
