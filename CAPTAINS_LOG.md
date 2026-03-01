@@ -22,4 +22,7 @@
 ## 3. Persistent Anchors
 - **Memory**: StorageBridge is hydrating from `state_ledger` in `koad.db`.
 - **Security**: Sandbox is enforcing roles; Admin uses `GITHUB_ADMIN_PAT`.
-- **Protocol**: End every session with `doodskills/repo-clean.py`.
+- **Protocol**: 
+    - Maintain hygiene: `doodskills/repo-clean.py`
+    - Version Management: `doodskills/version-bump.py <version>`
+
