@@ -4,6 +4,7 @@ pub mod commands;
 pub mod sandbox;
 pub mod storage_bridge;
 pub mod asm;
+pub mod kernel;
 #[cfg(test)]
 mod tests;
 

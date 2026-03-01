@@ -5,11 +5,13 @@ mod tests {
     use crate::engine::Engine;
     use std::sync::Arc;
     use fred::interfaces::{PubsubInterface, EventInterface, StreamsInterface, ClientLike, KeysInterface};
+    use tempfile::tempdir;
 
     #[tokio::test]
     async fn test_redis_lifecycle() {
-        let home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
-        let redis = RedisClient::new(&home).await.unwrap();
+        let tdir = tempdir().unwrap();
+        let home = tdir.path().to_str().unwrap();
+        let redis = RedisClient::new(home).await.unwrap();
         let _: String = redis.client.ping().await.unwrap();
     }
 
@@ -17,9 +19,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_command_execution() {
-        let home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+        let tdir = tempdir().unwrap();
+        let home = tdir.path().to_str().unwrap();
         let db_path = format!("{}/test_exec.db", home);
-        let engine = Arc::new(Engine::new(&home, &db_path).await.unwrap());
+        let engine = Arc::new(Engine::new(home, &db_path).await.unwrap());
         
         let proc = CommandProcessor::new(engine.clone());
         let _proc_handle = tokio::spawn(async move {
@@ -65,14 +68,14 @@ mod tests {
         }
 
         assert!(found, "CommandProcessor should execute command and log to event stream");
-        let _ = std::fs::remove_file(db_path);
     }
 
     #[tokio::test]
     async fn test_path_integrity() {
-        let home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+        let tdir = tempdir().unwrap();
+        let home = tdir.path().to_str().unwrap();
         let db_path = format!("{}/test_path.db", home);
-        let engine = Arc::new(Engine::new(&home, &db_path).await.unwrap());
+        let engine = Arc::new(Engine::new(home, &db_path).await.unwrap());
         
         let proc = CommandProcessor::new(engine.clone());
         let _proc_handle = tokio::spawn(async move {
@@ -115,6 +118,5 @@ mod tests {
         }
 
         assert!(output_ok, "CommandProcessor should be able to find and execute 'cargo'");
-        let _ = std::fs::remove_file(db_path);
     }
 }
