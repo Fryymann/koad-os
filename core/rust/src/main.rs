@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::env;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use chrono::{Local, Duration};
 use std::io::{BufRead, BufReader, Write};
 use rusqlite::params;
@@ -13,12 +13,32 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 
 use axum::{
-    extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    extract::{ws::{Message, WebSocket, WebSocketUpgrade}, State, Path as AxumPath},
     routing::get,
     Router,
 };
 use tokio::sync::broadcast;
 use tower_http::services::ServeDir;
+use std::sync::Arc;
+
+#[derive(Clone)]
+struct AppState {
+    // A map of topic -> sender
+    channels: Arc<std::sync::Mutex<HashMap<String, broadcast::Sender<String>>>>,
+}
+
+impl AppState {
+    fn get_or_create_channel(&self, topic: &str) -> broadcast::Sender<String> {
+        let mut channels = self.channels.lock().unwrap();
+        if let Some(tx) = channels.get(topic) {
+            tx.clone()
+        } else {
+            let (tx, _) = broadcast::channel(100);
+            channels.insert(topic.to_string(), tx.clone());
+            tx
+        }
+    }
+}
 
 mod tui;
 mod airtable;
@@ -249,6 +269,25 @@ enum Commands {
     Whoami,
     /// [HUMAN] Run a real-time TUI dashboard of the KoadOS state.
     Dash,
+    /// [HUMAN/ADMIN] Run a deep health check of the KoadOS platform.
+    Doctor,
+    /// [HUMAN/ADMIN] Display live system metrics and platform state.
+    Stat {
+        /// Output as JSON.
+        #[arg(short, long)]
+        json: bool,
+    },
+    /// [ADMIN] Stream the live KoadOS event bus to the terminal.
+    Tail {
+        /// Topic to tail (e.g. 'events', 'metrics', 'agents').
+        #[arg(short, long, default_value = "events")]
+        topic: String,
+    },
+    /// [ADMIN] Manage system backups, snapshots, and disaster recovery.
+    Vault {
+        #[command(subcommand)]
+        action: VaultAction,
+    },
     /// [HUMAN/AGENT] Track or update the current active task specification.
     Spec {
         #[command(subcommand)]
@@ -265,6 +304,11 @@ enum Commands {
         /// Guide name (onboarding, development, architecture).
         topic: Option<String>,
     },
+    /// [AGENT/ADMIN] Log out the current session and release role slots.
+    Logout {
+        /// Session ID to close (defaults to current process session if found).
+        session_id: Option<String>,
+    },
     /// [AGENT/HUMAN] Host a local web server for testing front-ends or the Koad Dashboard.
     Host {
         /// Port to bind the server to.
@@ -273,8 +317,44 @@ enum Commands {
         /// Directory to serve (defaults to KoadOS dashboard if omitted).
         #[arg(short, long)]
         dir: Option<PathBuf>,
+        /// Stop the background host.
+        #[arg(short, long)]
+        stop: bool,
+    },
+    /// [ADMIN] Manage and apply KoadOS v3 Blueprints for automated scaffolding.
+    Blueprint {
+        #[command(subcommand)]
+        action: BlueprintAction,
     },
 }
+
+#[derive(Subcommand)]
+enum BlueprintAction {
+    /// List all registered blueprints.
+    List,
+    /// Apply a blueprint to the current environment.
+    Use {
+        /// Blueprint ID (e.g. 'koad-skill').
+        blueprint: String,
+        /// Variables in key=val format.
+        #[arg(short, long)]
+        var: Vec<String>,
+    }
+}
+
+#[derive(Subcommand)]
+enum VaultAction {
+    /// Create a new atomic snapshot of the platform state.
+    Snapshot,
+    /// List all available snapshots in the vault.
+    List,
+    /// Restore the platform state from a specific snapshot.
+    Restore {
+        /// Snapshot name (from 'koad vault list').
+        name: String,
+    }
+}
+
 #[derive(Subcommand)]
 enum SpecAction {
     /// Update the current task specification.
@@ -565,6 +645,18 @@ impl KoadDB {
             started_at TEXT,
             finished_at TEXT
         )", [])?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY,
+                agent TEXT NOT NULL,
+                role TEXT NOT NULL,
+                status TEXT NOT NULL,
+                last_heartbeat TEXT NOT NULL,
+                pid INTEGER,
+                current_task_id INTEGER
+            )",
+            [],
+        )?;
         Ok(Self { pool })
     }
 
@@ -916,6 +1008,81 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Dash => tui::run_dash(&db)?,
+        Commands::Blueprint { action } => {
+            if !is_admin { anyhow::bail!("Admin Access Required."); }
+            let s_path = KoadConfig::get_home()?.join("skills/admin/blueprint_engine.py");
+            match action {
+                BlueprintAction::List => {
+                    Command::new(s_path).arg("list").spawn()?.wait()?;
+                }
+                BlueprintAction::Use { blueprint, var } => {
+                    let mut cmd = Command::new(s_path);
+                    cmd.arg("use").arg(blueprint);
+                    for v in var {
+                        cmd.arg("--var").arg(v);
+                    }
+                    cmd.spawn()?.wait()?;
+                }
+            }
+        }
+        Commands::Doctor => {
+            println!("--- KoadOS v3 Doctor ---");
+            let res = reqwest::blocking::get("http://localhost:8080/health");
+            match res {
+                Ok(resp) => {
+                    let health: Value = resp.json()?;
+                    println!("[PASS] Kernel: Online (Uptime: {}s)", health["uptime"]);
+                    println!("[PASS] Database: {}", health["database"]);
+                    println!("[PASS] Event Bus: {}", health["event_bus"]);
+                }
+                Err(_) => println!("[FAIL] Kernel: Offline. Run 'kspine start' to fix."),
+            }
+            
+            let db_path = KoadConfig::get_home()?.join("koad.db");
+            if db_path.exists() { println!("[PASS] Storage: Database found."); }
+            else { println!("[FAIL] Storage: Database missing!"); }
+
+            let booster_pid = KoadConfig::get_home()?.join("kbooster.pid");
+            if booster_pid.exists() { println!("[INFO] Booster: Active."); }
+            else { println!("[INFO] Booster: Idle/Not running."); }
+        }
+        Commands::Stat { json } => {
+            let mut cmd = Command::new("kspine");
+            cmd.arg("status");
+            if json { cmd.arg("--json"); }
+            cmd.spawn()?.wait()?;
+        }
+        Commands::Tail { topic } => {
+            println!(">>> Tailing KoadOS topic: '{}' (Ctrl+C to stop)", topic);
+            let url = format!("ws://localhost:8080/ws/{}", topic);
+            let (mut socket, _) = tungstenite::connect(url)?;
+            loop {
+                let msg = socket.read()?;
+                if msg.is_text() || msg.is_binary() {
+                    println!("{}", msg.into_text()?);
+                }
+            }
+        }
+        Commands::Vault { action } => {
+            if !is_admin { anyhow::bail!("Admin Access Required."); }
+            let s_path = KoadConfig::get_home()?.join("skills/admin/vault.py");
+            match action {
+                VaultAction::Snapshot => {
+                    Command::new(s_path).arg("snapshot").spawn()?.wait()?;
+                }
+                VaultAction::List => {
+                    Command::new(s_path).arg("list").spawn()?.wait()?;
+                }
+                VaultAction::Restore { name } => {
+                    println!("WARNING: Restore will overwrite current state. Continue? [y/N]");
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input)?;
+                    if input.trim().to_lowercase() == "y" {
+                        Command::new(s_path).arg("restore").arg("--name").arg(name).spawn()?.wait()?;
+                    }
+                }
+            }
+        }
         Commands::Spec { action } => {
             match action {
                 SpecAction::Set { title, desc, status } => db.set_spec(&title, desc, &status)?,
@@ -934,56 +1101,31 @@ fn main() -> Result<()> {
             }
         },
         Commands::Diagnostic { full } => run_diagnostic(full, &config)?,
-        Commands::Host { port, dir } => {
-            let target_dir = dir.unwrap_or_else(|| KoadConfig::get_home().unwrap().join("data/dashboard"));
-            if !target_dir.exists() {
-                println!("[INFO] Directory {} does not exist. Creating it...", target_dir.display());
-                std::fs::create_dir_all(&target_dir)?;
-                std::fs::write(target_dir.join("index.html"), "<!DOCTYPE html><html><head><title>KoadOS Dashboard</title><style>body { font-family: monospace; background: #121212; color: #0f0; padding: 2rem; }</style></head><body><h1>[KoadOS] Dashboard Active</h1><div id='updates'></div><script>const ws = new WebSocket(`ws://${location.host}/ws`); ws.onmessage = (e) => { const div = document.createElement('div'); div.innerText = `[${new Date().toLocaleTimeString()}] ${e.data}`; document.getElementById('updates').prepend(div); };</script></body></html>")?;
-            }
-            
-            println!("Starting web server on http://localhost:{} serving {}", port, target_dir.display());
-            
-            let (tx, _rx) = broadcast::channel::<String>(100);
-            let tx_clone = tx.clone();
-
-            async fn handle_socket(mut socket: WebSocket, tx: broadcast::Sender<String>) {
-                let mut rx = tx.subscribe();
-                loop {
-                    tokio::select! {
-                        msg = rx.recv() => {
-                            if let Ok(msg) = msg {
-                                if socket.send(Message::Text(msg.into())).await.is_err() { break; }
-                            }
-                        }
-                        msg = socket.recv() => {
-                            if let Some(Ok(Message::Text(text))) = msg {
-                                let _ = tx.send(text.to_string());
-                            } else if msg.is_none() {
-                                break;
-                            }
-                        }
-                    }
+        Commands::Logout { session_id } => {
+            let conn = db.get_conn()?;
+            match session_id {
+                Some(sid) => {
+                    conn.execute("UPDATE sessions SET status = 'closed' WHERE session_id = ?1", [sid])?;
+                    println!("Session closed.");
+                }
+                None => {
+                    conn.execute("UPDATE sessions SET status = 'closed' WHERE pid = ?1 AND status = 'active'", [std::process::id()])?;
+                    println!("Active process sessions closed.");
                 }
             }
+        }
+        Commands::Host { port, dir, stop } => {
+            if stop {
+                println!("DEPRECATED: Please use 'kspine stop'");
+                let _ = Command::new("kspine").arg("stop").status();
+                return Ok(());
+            }
 
-            let app = Router::new()
-                .route("/ws", get(move |ws: WebSocketUpgrade| {
-                    let tx = tx_clone.clone();
-                    async move {
-                        ws.on_upgrade(move |socket| handle_socket(socket, tx))
-                    }
-                }))
-                .fallback_service(ServeDir::new(&target_dir));
-
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(async {
-                    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await.unwrap();
-                    axum::serve(listener, app).await.unwrap();
-                });
+            println!("DEPRECATED: Please use 'kspine start --port {}'", port);
+            let mut cmd = Command::new("kspine");
+            cmd.arg("start").arg("--port").arg(port.to_string());
+            let _ = cmd.status();
+            std::process::exit(0);
         }
         Commands::Guide { topic } => {
             let docs_dir = KoadConfig::get_home()?.join("docs");
@@ -1027,10 +1169,60 @@ fn main() -> Result<()> {
             let (drive_var, _) = get_gdrive_token_for_path(&current_dir);
             let tags = detect_context_tags(&current_dir);
 
+            let mut session_id = "BOOT".to_string();
+
+            if !compact {
+                // 1. Role Arbitration
+                let conn = db.get_conn()?;
+                let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                session_id = uuid::Uuid::new_v4().to_string();
+
+                if role.to_lowercase() == "admin" {
+                    // Check for active admin sessions in the last 2 minutes
+                    let cutoff = (Local::now() - chrono::Duration::minutes(2)).format("%Y-%m-%d %H:%M:%S").to_string();
+                    let mut stmt = conn.prepare("SELECT session_id, agent FROM sessions WHERE role = 'admin' AND last_heartbeat > ?1 AND status = 'active'")?;
+                    let active_admin = stmt.query_row([cutoff], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)));
+
+                    if let Ok((old_sid, old_agent)) = active_admin {
+                        if old_agent != agent {
+                            anyhow::bail!("Admin role is currently occupied by {} (Session: {}). Only one Admin allowed.", old_agent, old_sid);
+                        } else {
+                            // Reclaiming own session
+                            session_id = old_sid;
+                        }
+                    }
+                }
+
+                // 2. Register/Refresh Session
+                conn.execute(
+                    "INSERT INTO sessions (session_id, agent, role, status, last_heartbeat, pid)
+                     VALUES (?1, ?2, ?3, 'active', ?4, ?5)
+                     ON CONFLICT(session_id) DO UPDATE SET last_heartbeat = excluded.last_heartbeat, status = 'active'",
+                    params![session_id, agent, role, now, std::process::id()],
+                )?;
+
+                // 3. Launch Cognitive Booster v3 Sidecar
+                if config.preferences.booster_enabled {
+                    let booster_path = KoadConfig::get_home()?.join("bin/kbooster");
+                    if booster_path.exists() {
+                         let log_path = KoadConfig::get_home()?.join(format!("booster_{}.log", config.identity.name.to_lowercase()));
+                         let log_file = std::fs::OpenOptions::new().append(true).create(true).open(&log_path)?;
+                         let _ = Command::new(booster_path)
+                            .arg("--agent-id").arg(&config.identity.name)
+                            .arg("--role").arg(&config.identity.role)
+                            .stdin(Stdio::null())
+                            .stdout(Stdio::from(log_file.try_clone()?))
+                            .stderr(Stdio::from(log_file))
+                            .spawn();
+                    }
+                }
+            }
+
             if compact {
-                println!("I:{}|R:{}|G:{}|D:{}|T:{}", config.identity.name, config.identity.role, pat_var, drive_var, tags.join(","));
+                println!("I:{}|R:{}|G:{}|D:{}|T:{}|S:{}", config.identity.name, config.identity.role, pat_var, drive_var, tags.join(","), session_id);
             } else {
                 println!("<koad_boot>");
+                println!("Session:  {}", session_id);
                 println!("Identity: {} ({})", config.identity.name, config.identity.role);
                 println!("Auth: GH={} | GD={}", pat_var, drive_var);
                 
@@ -1060,7 +1252,7 @@ fn main() -> Result<()> {
 
                 if config.preferences.booster_enabled {
                     println!("\n[Spine Intelligence Deltas]");
-                    // Query knowledge for delta tags since last boot (approx last 4 hours or since boot)
+                    // Query knowledge for delta tags
                     let deltas = db.query("", 5, Some("delta".to_string()))?;
                     if deltas.is_empty() {
                         println!("- Spine is quiet. No background events recorded.");
@@ -1102,15 +1294,33 @@ fn main() -> Result<()> {
             println!("GH:{} | GD:{}", p, d);
         }
         Commands::Query { term, limit, tags } => {
-            for (id, cat, content, ts) in db.query(&term, limit, tags)? { println!("- ID:{} [{}] ({}) {}", id, cat, ts, content); }
+            let url = format!("http://localhost:8080/knowledge?term={}&limit={}&tags={}", 
+                url::form_urlencoded::byte_serialize(term.as_bytes()).collect::<String>(),
+                limit,
+                tags.unwrap_or_default());
+            let res = reqwest::blocking::get(url)?.json::<Vec<Value>>()?;
+            for item in res {
+                println!("- ID:{} [{}] ({}) {}", 
+                    item["id"], item["category"], item["timestamp"], item["content"]);
+            }
         }
         Commands::Remember { category } => {
             if !has_privileged_access { anyhow::bail!("Access Denied."); }
-            match category {
-                MemoryCategory::Fact { text, tags } => db.remember("fact", &text, tags)?,
-                MemoryCategory::Learning { text, tags } => db.remember("learning", &text, tags)?,
-            }
-            println!("Memory updated.");
+            let (cat_str, text, tags) = match category {
+                MemoryCategory::Fact { text, tags } => ("fact", text, tags),
+                MemoryCategory::Learning { text, tags } => ("learning", text, tags),
+            };
+            
+            let client = reqwest::blocking::Client::new();
+            client.post("http://localhost:8080/knowledge")
+                .json(&serde_json::json!({
+                    "category": cat_str,
+                    "content": text,
+                    "tags": tags
+                }))
+                .send()?;
+            
+            println!("Memory updated via Kernel.");
         }
         Commands::Ponder { text, tags } => {
             let p_tags = format!("persona-journal,{}", tags.unwrap_or_default());
@@ -1209,59 +1419,13 @@ fn main() -> Result<()> {
             }
         }
         Commands::Serve { stop } => {
-            let home = KoadConfig::get_home()?;
-            let pid_file = home.join("daemon.pid");
-
             if stop {
-                if pid_file.exists() {
-                    let pid_str = std::fs::read_to_string(&pid_file)?;
-                    let pid = pid_str.trim().parse::<i32>()?;
-                    println!("Stopping Koad Daemon (PID: {})...", pid);
-                    
-                    // Simple kill command
-                    let status = Command::new("kill").arg(pid.to_string()).status()?;
-                    if status.success() {
-                        let _ = std::fs::remove_file(pid_file);
-                        println!("[PASS] Daemon stopped.");
-                    } else {
-                        println!("[FAIL] Could not kill process {}. Is it already dead?", pid);
-                        let _ = std::fs::remove_file(pid_file);
-                    }
-                } else {
-                    println!("[INFO] No PID file found. Is the daemon running?");
-                }
-                return Ok(());
+                println!("DEPRECATED: Please use 'kspine stop'");
+                let _ = Command::new("kspine").arg("stop").status();
+            } else {
+                println!("DEPRECATED: Please use 'kspine start'");
+                let _ = Command::new("kspine").arg("start").status();
             }
-
-            if pid_file.exists() {
-                let pid_str = std::fs::read_to_string(&pid_file)?;
-                if let Ok(pid) = pid_str.trim().parse::<i32>() {
-                    // Check if process still exists
-                    let check = Command::new("kill").arg("-0").arg(pid.to_string()).status();
-                    if let Ok(s) = check {
-                        if s.success() {
-                            anyhow::bail!("Koad Daemon is already running (PID: {}).", pid);
-                        }
-                    }
-                }
-            }
-
-            if !config.preferences.booster_enabled {
-                anyhow::bail!("Cognitive Booster is disabled in koad.json. Enable it to use 'koad serve'.");
-            }
-            let daemon_path = home.join("bin/koad-daemon");
-            if !daemon_path.exists() { anyhow::bail!("koad-daemon binary not found."); }
-            
-            println!("Starting Koad Cognitive Booster in background...");
-            let child = Command::new(daemon_path)
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .context("Failed to launch daemon")?;
-            
-            let pid = child.id();
-            std::fs::write(pid_file, pid.to_string())?;
-            println!("[PASS] Daemon launched (PID: {}).", pid);
             return Ok(());
         },
         Commands::Sync { source } => {

@@ -1,1 +1,124 @@
-<!DOCTYPE html><html><head><title>KoadOS Dashboard</title><style>body { font-family: monospace; background: #121212; color: #0f0; padding: 2rem; }</style></head><body><h1>[KoadOS] Dashboard Active</h1><p>Ready for front-end experimentation.</p></body></html>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>KoadOS Dashboard v2</title>
+    <style>
+        body { font-family: monospace; background: #0a0a0a; color: #0f0; padding: 2rem; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+        .card { border: 1px solid #0f0; padding: 1rem; background: #121212; }
+        h1 { border-bottom: 2px solid #0f0; padding-bottom: 0.5rem; }
+        .metric-value { font-size: 2rem; color: #fff; }
+        #event-log { height: 400px; overflow-y: auto; border: 1px solid #333; padding: 0.5rem; font-size: 0.8rem; }
+        .log-entry { border-bottom: 1px solid #222; padding: 0.2rem 0; }
+        .timestamp { color: #888; margin-right: 0.5rem; }
+    </style>
+</head>
+<body>
+    <h1>[KoadOS] Spine v2 - Event Fabric</h1>
+    <div class="grid">
+        <div class="card">
+            <h2>System Metrics</h2>
+            <div id="metrics">
+                <div>CPU Usage: <span id="cpu-val" class="metric-value">0%</span></div>
+                <div>RAM Usage: <span id="mem-val" class="metric-value">0%</span></div>
+            </div>
+        </div>
+        <div class="card">
+            <h2>Active Tasks</h2>
+            <div id="active-tasks">
+                <div style="color: #555;">Waiting for task events...</div>
+            </div>
+        </div>
+        <div class="card">
+            <h2>Booted Agents</h2>
+            <div id="active-agents">
+                <div style="color: #555;">Waiting for agent registry...</div>
+            </div>
+        </div>
+    </div>
+    <div class="card" style="margin-top: 2rem;">
+        <h2>Event Fabric Log</h2>
+        <div id="event-log"></div>
+    </div>
+
+    <script>
+        const host = location.host;
+        const taskList = document.getElementById('active-tasks');
+        const tasks = new Map();
+
+        // Connect to Events Channel
+        const eventWs = new WebSocket(`ws://${host}/ws/events`);
+        const log = document.getElementById('event-log');
+        
+        eventWs.onmessage = (e) => {
+            const data = e.data;
+            
+            // Task Activity Detection
+            if (data.includes("Task ")) {
+                const match = data.match(/Task (\d+): (Starting|Finished) (.*)/);
+                if (match) {
+                    const [_, id, status, detail] = match;
+                    if (status === 'Starting') {
+                        tasks.set(id, detail);
+                    } else {
+                        tasks.delete(id);
+                    }
+                    renderTasks();
+                }
+            }
+
+            const div = document.createElement('div');
+            div.className = 'log-entry';
+            div.innerHTML = `<span class="timestamp">[${new Date().toLocaleTimeString()}]</span> ${data}`;
+            log.prepend(div);
+        };
+
+        function renderTasks() {
+            if (tasks.size === 0) {
+                taskList.innerHTML = '<div style="color: #555;">No active tasks.</div>';
+                return;
+            }
+            taskList.innerHTML = '';
+            tasks.forEach((detail, id) => {
+                const div = document.createElement('div');
+                div.style.color = '#ffff00';
+                div.innerText = `[Task #${id}] Running: ${detail}`;
+                taskList.appendChild(div);
+            });
+        }
+
+        // Connect to Metrics Channel
+        const metricWs = new WebSocket(`ws://${host}/ws/metrics`);
+        
+        metricWs.onmessage = (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                document.getElementById('cpu-val').innerText = `${data.cpu}%`;
+                document.getElementById('mem-val').innerText = `${data.mem}%`;
+            } catch (err) {}
+        };
+
+        // Connect to Agents Channel
+        const agentWs = new WebSocket(`ws://${host}/ws/agents`);
+        const agentList = document.getElementById('active-agents');
+
+        agentWs.onmessage = (e) => {
+            try {
+                const active = JSON.parse(e.data);
+                if (active.length === 0) {
+                    agentList.innerHTML = '<div style="color: #555;">No agents active.</div>';
+                    return;
+                }
+                agentList.innerHTML = '';
+                active.forEach(a => {
+                    const div = document.createElement('div');
+                    const color = a.status === 'active' ? '#00ffff' : '#ff0000';
+                    div.style.color = color;
+                    div.innerText = `[${a.name}] - Role: ${a.role} (${a.status}) ${a.task_id ? `| Task: #${a.task_id}` : ''}`;
+                    agentList.appendChild(div);
+                });
+            } catch (err) {}
+        };
+    </script>
+</body>
+</html>

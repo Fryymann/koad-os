@@ -163,3 +163,89 @@ fn test_serve_lifecycle() {
 
     assert!(!home.join("daemon.pid").exists());
 }
+
+#[test]
+fn test_spine_connectivity() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path();
+    
+    // 1. Setup minimal koad.json
+    let config = r#"{
+        "version": "2.4",
+        "identity": {"name": "SpineTest", "role": "Admin", "bio": "Test"},
+        "preferences": {"languages": [], "booster_enabled": true, "style": "test", "principles": []},
+        "drivers": {},
+        "notion": {"mcp": false, "index": {}}
+    }"#;
+    std::fs::write(home.join("koad.json"), config).unwrap();
+    std::fs::create_dir_all(home.join("bin")).unwrap();
+    
+    // 2. Link actual binaries to sandbox bin/
+    let koad_exe = assert_cmd::cargo::cargo_bin("koad");
+    let daemon_exe = assert_cmd::cargo::cargo_bin("koad-daemon");
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&daemon_exe, home.join("bin/koad-daemon")).unwrap();
+    }
+
+    // 3. Start Hub
+    let mut hub_cmd = Command::cargo_bin("koad").unwrap();
+    hub_cmd.env("KOAD_HOME", home);
+    hub_cmd.arg("host").arg("--port").arg("8081"); // Use non-standard port for testing
+    hub_cmd.assert().success();
+
+    // 4. Start Daemon
+    let mut serve_cmd = Command::cargo_bin("koad").unwrap();
+    serve_cmd.env("KOAD_HOME", home);
+    serve_cmd.env("KOAD_HUB_URL", "ws://localhost:8081/ws");
+    serve_cmd.arg("serve");
+    serve_cmd.assert().success();
+
+    // 5. Verify basic HTTP availability first
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    let mut check_cmd = Command::cargo_bin("koad").unwrap();
+    check_cmd.arg("diagnostic");
+    check_cmd.env("KOAD_HOME", home);
+    check_cmd.assert().success();
+
+    // Verify port 8081 is actually listening via curl
+    let output = std::process::Command::new("curl").arg("-I").arg("http://localhost:8081").output().unwrap();
+    println!("HTTP Check Status: {}", output.status);
+
+    // 6. Verify WebSocket Flow (Topic: metrics)
+    use tungstenite::{connect, Message};
+    let url = "ws://localhost:8081/ws/metrics";
+    
+    let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+        // Use a shorter timeout for the connection attempt
+        let (mut socket, _) = connect(url)?;
+        
+        // Set a read timeout so we don't hang forever
+        if let tungstenite::stream::MaybeTlsStream::Plain(s) = socket.get_mut() {
+            let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+        }
+
+        // Wait for metrics message
+        let msg = socket.read()?;
+        if let Message::Text(text) = msg {
+            println!("Received Metrics: {}", text);
+            if text.contains("cpu") && text.contains("mem") {
+                return Ok(());
+            }
+        }
+        Err("Invalid message format".into())
+    })();
+
+    // Cleanup before assertion
+    let _ = Command::cargo_bin("koad").unwrap().env("KOAD_HOME", home).arg("host").arg("--stop").ok();
+    let _ = Command::cargo_bin("koad").unwrap().env("KOAD_HOME", home).arg("serve").arg("--stop").ok();
+
+    if result.is_err() {
+        println!("--- Hub Log ---");
+        if let Ok(l) = std::fs::read_to_string(home.join("hub.log")) { println!("{}", l); }
+        println!("--- Daemon Log ---");
+        if let Ok(l) = std::fs::read_to_string(home.join("daemon.log")) { println!("{}", l); }
+    }
+
+    assert!(result.is_ok(), "Spine failed to broadcast metrics over WebSocket: {:?}", result.err());
+}
