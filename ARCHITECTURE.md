@@ -15,7 +15,7 @@ graph TD
     Storage --- SPINE[Koad Spine Event Bus]
 
     %% Agent Layer (Subscribers/Publishers)
-    PM((Koad PM)) -->|Intents| ASM[Agent Session Manager: ACTIVE DEVELOPMENT]
+    PM((Koad PM)) -->|Intents| ASM[Agent Session Manager: IMPLEMENTED]
     DEV((Developer)) -->|Code| ASM
     REV((Reviewer)) -->|Feedback| ASM
     ADMIN((Koad Admin)) -->|Overrides| ASM

@@ -4,6 +4,7 @@
 pub mod identity;
 pub mod types;
 pub mod storage;
+pub mod session;
 
 /// The basic trait for any system component that can be started and stopped.
 #[async_trait::async_trait]

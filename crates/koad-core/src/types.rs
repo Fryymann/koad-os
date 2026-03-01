@@ -1,6 +1,15 @@
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
+/// The environment in which a session or task is executing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum EnvironmentType {
+    Wsl,
+    Windows,
+    Remote,
+    Unspecified,
+}
+
 /// A standardized log entry for system-wide telemetry and event tracking.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LogEntry {
