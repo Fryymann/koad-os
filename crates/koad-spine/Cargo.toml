@@ -1,0 +1,24 @@
+[package]
+name = "koad-spine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+koad-core = { path = "../koad-core" }
+koad-proto = { path = "../koad-proto" }
+tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true }
+tonic.workspace = true
+prost.workspace = true
+fred.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+rusqlite.workspace = true
+walkdir = "2.4"
+serde_yaml = "0.9"
+
+[dev-dependencies]
+tempfile = "3.8"

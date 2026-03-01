@@ -1,0 +1,15 @@
+[package]
+name = "koad-skill-airtable"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+koad-proto = { path = "../koad-proto" }
+tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true }
+tonic.workspace = true
+prost.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+reqwest = { version = "0.11", features = ["json"] }

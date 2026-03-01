@@ -1,0 +1,44 @@
+[workspace]
+members = [
+    "crates/koad-core",
+    "crates/koad-proto",
+    "crates/koad-spine",
+    "crates/koad-cli",
+    "crates/koad-tui",
+    "crates/koad-skill-airtable",
+]
+resolver = "2"
+
+[workspace.package]
+version = "3.0.0-alpha"
+edition = "2021"
+authors = ["Ian <ian@koad.os>"]
+repository = "https://github.com/Fryymann/koad-os"
+license = "MIT"
+
+[workspace.dependencies]
+# Shared Core Dependencies
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# gRPC / Proto
+tonic = "0.12"
+prost = "0.13"
+hyper-util = "0.1"
+
+# Persistence & State
+rusqlite = { version = "0.32", features = ["bundled"] }
+fred = { version = "9.0", features = ["unix-sockets"] }
+
+# CLI / TUI
+clap = { version = "4.4", features = ["derive"] }
+ratatui = "0.26"
+crossterm = "0.27"
+
+# Utilities
+async-trait = "0.1"

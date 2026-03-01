@@ -1,0 +1,7 @@
+id: airtable_bridge
+name: Koad Airtable Bridge (Rust)
+version: 1.0.0
+endpoint: unix:///tmp/koad-airtable.sock
+tools:
+  - list_records
+  - update_record

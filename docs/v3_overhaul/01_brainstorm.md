@@ -99,11 +99,29 @@ To increase my (Koad's) ability to self-monitor and report health accurately:
 *   **Memory Index:** The Booster maintains a compressed index of context.
 *   **Paging Tool:** `koad page --task <id>` or `koad page --file <path>` to load detail only when needed.
 
+## 19. Resource & Expense Management (The Fuel Gauge)
+To prevent token waste and control financial costs:
+*   **Real-Time Token Tracking:** Every gRPC interaction between the Kernel and an Agent tracks `prompt_tokens` and `completion_tokens` in Redis.
+*   **Financial Guardrails:**
+    *   **Daily Budget:** Configurable USD limit in `koad.json`. If exceeded, the Kernel enters "Low-Power Mode" (requires Admin override to continue).
+    *   **Context Ceiling:** Hard limit on the number of tokens an agent can request in a single turn.
+*   **Efficiency Audits:** Part of the Cognitive Scan. Identifies agents that are "spinning their wheels" (repeatedly calling the same tools without progress).
+*   **The Resource Dashboard:** `koad-tui` shows real-time "Fuel" (token/cost) metrics for the current session.
+
+## 20. The DoodSkills Toolbox (Admin Arsenal)
+Specialized tools and services designed specifically for the Fleet Admiral (Ian / Dood) to work in tandem with Koad:
+*   **Inspection Gear:** High-fidelity logs, direct Redis state inspection, and SQLite raw-query access.
+*   **Troubleshooting Kit:** Forced service restarts, gRPC endpoint pinging, and trace injection.
+*   **Collaboration Services:** Tools that allow Dood to "shadow" agent turns or inject manual instructions into the shared state.
+*   **Organization:** Existing admin-centric services (e.g., `vault`, `blueprint_engine`) will be re-categorized as "DoodSkills."
+
 ---
 
 ### Current Tangents for Discussion:
 *   **The Night Watch:** Now includes Automated Regression Testing and Cognitive Scans.
 *   **The Redis Implementation:** Decided.
 *   **Worktree Lifecycle:** Admin-led maintenance.
+*   **Expense Protocols:** Integrated into Kernel and TUI.
+*   **DoodSkills:** Formalized Toolbox for Admin operations.
 
-*Status: Brainstorm expanded with Structural Refactor and Cognitive Health systems.*
+*Status: Brainstorm expanded with Structural Refactor, Cognitive Health, Resource Management, and DoodSkills systems.*
