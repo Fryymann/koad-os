@@ -42,3 +42,4 @@ crossterm = "0.27"
 
 # Utilities
 async-trait = "0.1"
+futures = "0.3"

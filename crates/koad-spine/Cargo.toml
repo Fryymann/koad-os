@@ -14,11 +14,15 @@ fred.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
+futures.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 rusqlite.workspace = true
 walkdir = "2.4"
 serde_yaml = "0.9"
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["fs", "cors"] }
+sysinfo = "0.30"
 
 [dev-dependencies]
 tempfile = "3.8"

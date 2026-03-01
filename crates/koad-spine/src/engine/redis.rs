@@ -6,6 +6,7 @@ use tokio::time::sleep;
 
 pub struct RedisClient {
     pub client: RedisClientInner,
+    pub subscriber: RedisClientInner,
     _process: Option<Child>,
 }
 
@@ -32,17 +33,28 @@ impl RedisClient {
             ..Default::default()
         };
 
-        let client = Builder::from_config(config)
+        // Primary client for commands
+        let client = Builder::from_config(config.clone())
+            .with_connection_config(|c| {
+                c.connection_timeout = Duration::from_secs(5);
+            })
+            .build()?;
+
+        // Subscriber client for PubSub
+        let subscriber = Builder::from_config(config)
             .with_connection_config(|c| {
                 c.connection_timeout = Duration::from_secs(5);
             })
             .build()?;
 
         client.init().await?;
-        println!("Connected to Redis via UDS.");
+        subscriber.init().await?;
+        
+        println!("Connected to Redis via UDS (Primary + Subscriber).");
 
         Ok(Self {
             client,
+            subscriber,
             _process: Some(process),
         })
     }

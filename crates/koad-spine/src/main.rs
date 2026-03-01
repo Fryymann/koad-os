@@ -1,10 +1,14 @@
 pub mod engine;
 pub mod discovery;
 pub mod rpc;
+pub mod web;
+pub mod deck;
 
 use crate::engine::Engine;
 use crate::discovery::SkillRegistry;
 use crate::rpc::KoadKernel;
+use crate::web::WebGateway;
+use crate::deck::DeckManager;
 use koad_proto::kernel::kernel_service_server::KernelServiceServer;
 use tonic::transport::Server;
 use tokio::net::UnixListener;
@@ -36,9 +40,30 @@ async fn main() -> anyhow::Result<()> {
         diagnostics.start_health_monitor().await;
     });
 
+    let command_processor = crate::engine::commands::CommandProcessor::new(engine.clone());
+    tokio::spawn(async move {
+        command_processor.start().await;
+    });
+
     println!("{}", engine.diagnostics.get_morning_report());
 
-    // 4. Start gRPC Server (Bridge Interface)
+    // 4. Start Web Gateway (Dashboard)
+    let web_gateway = WebGateway::new(engine.clone());
+    tokio::spawn(async move {
+        if let Err(e) = web_gateway.start().await {
+            eprintln!("WebGateway Error: {}", e);
+        }
+    });
+
+    // 5. Start Vite Deck (Background)
+    let deck_manager = DeckManager::new("/home/ideans/.koad-os/web/deck");
+    tokio::spawn(async move {
+        if let Err(e) = deck_manager.start().await {
+            eprintln!("DeckManager Error: {}", e);
+        }
+    });
+
+    // 6. Start gRPC Server (Bridge Interface)
     let uds_path = "/home/ideans/.koad-os/kspine.sock";
     if fs::metadata(uds_path).is_ok() {
         fs::remove_file(uds_path)?;

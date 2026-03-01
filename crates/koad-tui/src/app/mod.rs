@@ -19,12 +19,22 @@ use tonic::transport::{Endpoint, Uri};
 use tower::service_fn;
 use tokio::net::UnixStream;
 use hyper_util::rt::tokio::TokioIo;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemStats {
+    pub cpu_usage: f32,
+    pub memory_usage: u64,
+    pub uptime: u64,
+    pub timestamp: i64,
+}
 
 pub struct KoadApp {
     states: [ListState; 4],
     active_column: usize,
     items_counts: [usize; 4],
     pub terminal_logs: Vec<String>,
+    pub stats: Option<SystemStats>,
 }
 
 impl KoadApp {
@@ -34,6 +44,7 @@ impl KoadApp {
             active_column: 0,
             items_counts: [0; 4],
             terminal_logs: Vec::new(),
+            stats: None,
         }
     }
 
@@ -98,8 +109,13 @@ pub async fn run_tui() -> Result<()> {
     loop {
         // Handle incoming telemetry
         if let Ok(Ok(Some(update))) = tokio::time::timeout(Duration::from_millis(1), telemetry_stream.message()).await {
-            app.terminal_logs.push(update.message);
-            app.items_counts[3] = app.terminal_logs.len();
+            let msg = update.message;
+            if let Ok(stats) = serde_json::from_str::<SystemStats>(&msg) {
+                app.stats = Some(stats);
+            } else {
+                app.terminal_logs.push(msg);
+                app.items_counts[3] = app.terminal_logs.len();
+            }
         }
 
         terminal.draw(|f| {
@@ -131,7 +147,15 @@ pub async fn run_tui() -> Result<()> {
                 .split(chunks[1]);
 
             render_stateful_column(f, " [CREW] Active Agents ", vec![], body_chunks[0], &mut app.states[0], app.active_column == 0);
-            render_stateful_column(f, " [STATE] Live Metrics ", vec![], body_chunks[1], &mut app.states[1], app.active_column == 1);
+            
+            let mut state_items = vec![];
+            if let Some(s) = &app.stats {
+                state_items.push(ListItem::new(format!("CPU: {:.1}%", s.cpu_usage)).style(Style::default().fg(Color::Yellow)));
+                state_items.push(ListItem::new(format!("MEM: {} MB", s.memory_usage)).style(Style::default().fg(Color::Cyan)));
+                state_items.push(ListItem::new(format!("UPTIME: {}s", s.uptime)).style(Style::default().fg(Color::Green)));
+            }
+            render_stateful_column(f, " [STATE] Live Metrics ", state_items, body_chunks[1], &mut app.states[1], app.active_column == 1);
+            
             render_stateful_column(f, " [BRIDGE] Command Log ", vec![], body_chunks[2], &mut app.states[2], app.active_column == 2);
             
             let telemetry_items: Vec<ListItem> = app.terminal_logs.iter()

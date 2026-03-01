@@ -46,9 +46,9 @@ impl KernelService for KoadKernel {
         let redis = self._engine.redis.clone();
 
         tokio::spawn(async move {
-            let mut message_stream = redis.client.message_rx();
+            let mut message_stream = redis.subscriber.message_rx();
             
-            if let Err(e) = redis.client.subscribe("koad:telemetry").await {
+            if let Err(e) = redis.subscriber.subscribe(vec!["koad:telemetry", "koad:telemetry:stats"]).await {
                 eprintln!("Kernel Telemetry Error: Failed to subscribe to Redis: {}", e);
                 return;
             }

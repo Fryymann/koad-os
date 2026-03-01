@@ -1,6 +1,7 @@
 pub mod redis;
 pub mod persistence;
 pub mod diagnostics;
+pub mod commands;
 #[cfg(test)]
 mod tests;
 
