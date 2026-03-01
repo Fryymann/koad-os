@@ -9,30 +9,30 @@ This chart represents the current target architecture of KoadOS. It is maintaine
 
 ```mermaid
 graph TD
-    %% Core Memory
-    Redis[(Redis Hot Path)] --- Storage[Storage Bridge: IMPLEMENTED]
-    SQLite[(SQLite Cold Path)] --- Storage
-    Storage --- SPINE[Koad Spine Event Bus]
+    %% Oversight & Governance
+    DECK[GitHub Command Deck: Project #2] --- ADMIN((Dood))
+    DECK --- KCM[Koad Compliance Manager: v3.1 TARGET]
+    KCM --- OV[Compliance Agent: Overseer]
+    
+    OV --- KERNEL[Koad Kernel: v3.1 BUILDER REFACTOR]
 
-    %% Agent Layer (Subscribers/Publishers)
-    PM((Koad PM)) -->|Intents| ASM[Agent Session Manager: IMPLEMENTED]
-    DEV((Developer)) -->|Code| ASM
-    REV((Reviewer)) -->|Feedback| ASM
-    ADMIN((Koad Admin)) -->|Overrides| ASM
-    
-    %% Oversight Layer
-    DECK[GitHub Command Deck: Project #2] --- ADMIN
-    
-    ASM --- SPINE
+    %% Core Memory (Hydrated & Durable)
+    Redis[(Redis Hot Path)] --- SB[Storage Bridge: IMPLEMENTED]
+    SQLite[(SQLite Cold Path)] --- SB
+    SB --- KERNEL[Koad Kernel: v3.1 BUILDER REFACTOR]
 
-    %% Execution Layer
-    SPINE --- CMD[Command Manager + Sandbox: IMPLEMENTED]
+    %% Agent Layer (Process Managed)
+    KERNEL --- ASM[Agent Session Manager: IMPLEMENTED]
+    ASM --- DEV((Developer))
+    ASM --- PM((PM))
     
-    %% IO Layer
-    SPINE --- EDGE[Edge Gateway: IMPLEMENTED]
-    EDGE -->|HTTP 3000| WebDeck(Web Command Deck)
-    EDGE -->|WS 3000| WSClients(Dashboards)
-    EDGE -->|gRPC 50051| TUIClients(TUI / Windows)
+    %% Execution Layer (Fused & Secure)
+    KERNEL --- CM[Command Manager + Sandbox: IMPLEMENTED]
+    
+    %% Isolated I/O (The Air Gap)
+    KERNEL ---|UDS ONLY| EDGE[Isolated Edge Gateway: v3.1 TARGET]
+    EDGE -->|TCP 0.0.0.0| Web(Chrome)
+    EDGE -->|TCP 0.0.0.0| TUI(Windows TUI)
     
     %% Diagnostics
     SPINE --- DOC[Koad Doctor]
