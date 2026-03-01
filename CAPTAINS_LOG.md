@@ -6,7 +6,7 @@
 
 ## 1. Handover State (2026-03-01)
 - **Active Version**: v3.1 (Hardening Phase)
-- **Repo Status**: [CONDITION GREEN] - Clean across pre-v3, nightly, and weekly tiers.
+- **Repo Status**: [CONDITION GREEN] - Active development on **nightly**.
 - **Kernel State**: Dual-binding gRPC (50051) and Web (3000) active on 0.0.0.0.
 - **Tracking**: All v3 Milestone items are DONE. v3.1 items are in TODO.
 
