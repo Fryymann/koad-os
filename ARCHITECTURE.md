@@ -58,5 +58,9 @@ The execution engine for the OS. It translates agent Intents into literal shell 
 ### E. Edge Gateway
 The consolidated I/O edge of KoadOS. Instead of scattered servers causing port collisions, the Edge Gateway acts as a unified reverse-proxy and protocol upgrade layer (HTTP, WebSocket, gRPC) ensuring clean cross-environment connectivity (e.g., WSL to Windows 11).
 
-### F. Koad Doctor
-The dedicated, always-on diagnostic engine. It monitors system health, port resilience, and agent integrity, broadcasting condition reports (`CONDITION GREEN`) to the Spine.
+## 4. KoadOS Development Canon
+The management of KoadOS is strictly governed by the following protocols to ensure system integrity:
+- **Tight Git Coupling**: Incremental development is enforced via surgical, issue-linked commits.
+- **GitHub Orchestration**: All planning and status tracking is handled via GitHub Projects and Milestones.
+- **Automated Compliance**: The `repo-clean` tool enforces zero-drift repository hygiene.
+- **Self-Documenting Charts**: Architecture maps must be updated in real-time.
