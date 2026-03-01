@@ -10,12 +10,12 @@ This chart represents the current target architecture of KoadOS. It is maintaine
 ```mermaid
 graph TD
     %% Core Memory
-    Redis[(Redis Hot Path)] --- Storage[Storage Bridge]
+    Redis[(Redis Hot Path)] --- Storage[Storage Bridge: IMPLEMENTED]
     SQLite[(SQLite Cold Path)] --- Storage
     Storage --- SPINE[Koad Spine Event Bus]
 
     %% Agent Layer (Subscribers/Publishers)
-    PM((Koad PM)) -->|Intents| ASM[Agent Session Manager]
+    PM((Koad PM)) -->|Intents| ASM[Agent Session Manager: ACTIVE DEVELOPMENT]
     DEV((Developer)) -->|Code| ASM
     REV((Reviewer)) -->|Feedback| ASM
     ADMIN((Koad Admin)) -->|Overrides| ASM

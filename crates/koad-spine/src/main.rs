@@ -32,8 +32,8 @@ async fn main() -> anyhow::Result<()> {
     let _ = registry.scan_directory(&home_dir.join("doodskills").to_string_lossy());
 
     // 3. Start Core Engine Services (Draining, Heartbeat, Commands)
-    let persistence = engine.persistence.clone();
-    tokio::spawn(async move { persistence.start_drain_loop().await; });
+    let storage_drain = engine.storage.clone();
+    tokio::spawn(async move { storage_drain.start_drain_loop().await; });
 
     let diagnostics = engine.diagnostics.clone();
     tokio::spawn(async move { diagnostics.start_health_monitor().await; });

@@ -18,6 +18,7 @@ futures.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 rusqlite.workspace = true
+async-trait.workspace = true
 async-stream.workspace = true
 walkdir = "2.4"
 serde_yaml = "0.9"
