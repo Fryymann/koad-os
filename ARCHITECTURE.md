@@ -14,7 +14,12 @@ graph TD
     DECK --- KCM[Koad Compliance Manager: v3.1 TARGET]
     KCM --- OV[Compliance Agent: Overseer]
     
-    OV --- KERNEL[Koad Kernel: v3.1 BUILDER REFACTOR]
+    %% Workflow Orchestration
+    DECK --- WF[Spine Workflow Engine: v3.1 TARGET]
+    WF --- ACTIONS[GitHub Actions: CI/Hygiene]
+    WF --- KERNEL[Koad Kernel: v3.1 BUILDER REFACTOR]
+
+    OV --- KERNEL
 
     %% Core Memory (Hydrated & Durable)
     Redis[(Redis Hot Path)] --- SB[Storage Bridge: IMPLEMENTED]
