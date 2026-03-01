@@ -6,6 +6,7 @@ members = [
     "crates/koad-cli",
     "crates/koad-tui",
     "crates/koad-skill-airtable",
+    "core/rust"
 ]
 resolver = "2"
 
@@ -29,6 +30,7 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 # gRPC / Proto
 tonic = "0.12"
 prost = "0.13"
+prost-types = "0.13"
 hyper-util = "0.1"
 
 # Persistence & State
@@ -42,4 +44,5 @@ crossterm = "0.27"
 
 # Utilities
 async-trait = "0.1"
+async-stream = "0.3"
 futures = "0.3"

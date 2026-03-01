@@ -865,10 +865,12 @@ impl KoadDB {
     }
 }
 
-fn get_gh_pat_for_path(path: &Path) -> (&'static str, &'static str) {
+fn get_gh_pat_for_path(path: &Path, role: &str) -> (&'static str, &'static str) {
     let path_str = path.to_string_lossy();
     if path_str.contains("/skylinks/") || path_str.contains("\\skylinks\\") {
         ("GITHUB_SKYLINKS_PAT", "Skylinks")
+    } else if role.to_lowercase() == "admin" || role.to_lowercase() == "koad" {
+        ("GITHUB_ADMIN_PAT", "Admin")
     } else {
         ("GITHUB_PERSONAL_PAT", "Personal")
     }
@@ -942,7 +944,7 @@ fn run_diagnostic(full: bool, config: &KoadConfig) -> Result<()> {
         }
 
         let current_dir = env::current_dir()?;
-        let (pat_var, pat_label) = get_gh_pat_for_path(&current_dir);
+        let (pat_var, pat_label) = get_gh_pat_for_path(&current_dir, &config.identity.role);
         let auth_status = if env::var(pat_var).is_ok() { "[PASS]" } else { "[FAIL] (Core Auth)" };
         println!("{} Auth token {} ({}) is set", auth_status, pat_var, pat_label);
 
@@ -1165,7 +1167,7 @@ fn main() -> Result<()> {
         Commands::Boot { agent, project, task: _, compact } => {
             let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             let current_path_str = current_dir.to_string_lossy().to_string();
-            let (pat_var, _) = get_gh_pat_for_path(&current_dir);
+            let (pat_var, _) = get_gh_pat_for_path(&current_dir, &role);
             let (drive_var, _) = get_gdrive_token_for_path(&current_dir);
             let tags = detect_context_tags(&current_dir);
 
@@ -1289,7 +1291,7 @@ fn main() -> Result<()> {
         }
         Commands::Auth => {
             let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            let (p, _) = get_gh_pat_for_path(&current_dir);
+            let (p, _) = get_gh_pat_for_path(&current_dir, &role);
             let (d, _) = get_gdrive_token_for_path(&current_dir);
             println!("GH:{} | GD:{}", p, d);
         }
@@ -1646,12 +1648,16 @@ mod tests {
     #[test]
     fn test_gh_pat_resolution() {
         let path = Path::new("/home/ideans/data/personal/project1");
-        let (var, label) = get_gh_pat_for_path(path);
+        let (var, label) = get_gh_pat_for_path(path, "developer");
         assert_eq!(var, "GITHUB_PERSONAL_PAT");
         assert_eq!(label, "Personal");
 
+        let (var, label) = get_gh_pat_for_path(path, "admin");
+        assert_eq!(var, "GITHUB_ADMIN_PAT");
+        assert_eq!(label, "Admin");
+
         let path = Path::new("/home/ideans/data/skylinks/project2");
-        let (var, label) = get_gh_pat_for_path(path);
+        let (var, label) = get_gh_pat_for_path(path, "developer");
         assert_eq!(var, "GITHUB_SKYLINKS_PAT");
         assert_eq!(label, "Skylinks");
     }
