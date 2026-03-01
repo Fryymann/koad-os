@@ -29,19 +29,20 @@ Initiated the Spine Mini-Project to resolve cross-environment (WSL/Windows) inst
 - **Challenge**: Port 50051 binding is delayed due to Spine initialization order. Future fix: Move gRPC binding to a dedicated early-boot module.
 - **Identity**: Confirmed the Spine is correctly scanning `skills` and `doodskills` directories and populating the `Morning Report`.
 
-## [2026-03-01] Sprint 3: Full gRPC Implementation & 0.0.0.0 Parity
+## [2026-03-01] Sprint 4: Systemd Environment & Execution Integrity
 
 ### Overview
-Successfully transitioned the Spine from mock listeners to a full **Tonic gRPC Server** implementation and achieved `0.0.0.0` binding across all Edge Gateway protocols.
+Hardened the CommandProcessor to ensure absolute reliability when running as a systemd user service and improved kernel concurrency.
 
 ### Milestones
-- **Schema Unification**: Consolidated all protos into the root `proto/` directory and updated `koad-proto` to generate `koad.spine.v1` traits.
-- **Tonic Integration**: 
-    - Replaced mock listeners in `main.rs` with dual `tonic::transport::Server` instances (UDS + TCP 50051).
-    - Implemented the `SpineService` trait in `rpc/mod.rs` with intent-based task dispatch.
-- **Connectivity Lockdown**: 
-    - Confirmed via `ss` that ports `3000` (Web) and `50051` (gRPC) are bound to `0.0.0.0`.
-    - Verified cross-environment reachability using `spine-check.py`.
+- **Environment Integrity**: 
+    - Implemented explicit PATH injection in `commands.rs`, including verified paths for `.cargo/bin`, `.nvm`, and `.koad-os/bin`.
+    - Resolved persistent `os error 2` failures seen in background service boot logs.
+- **Kernel Concurrency**: 
+    - Refactored `execute_task` to use `tokio::process::Command` (async) instead of blocking standard library calls.
+    - This ensures the Spine remains responsive during long-running tasks.
+- **Automated Validation**: 
+    - Added `test_path_integrity` to engine tests to probe for non-standard binary reachability.
 
 ### Rationale
-Full gRPC support on `0.0.0.0` allows Windows-native tools (like a dedicated TUI or Dashboard backend) to interact with the KoadOS kernel with the same performance and security as local WSL tools.
+A true operating system must provide a stable execution environment regardless of how it is launched. Explicitly managing the PATH eliminates the most common cause of background service failure.

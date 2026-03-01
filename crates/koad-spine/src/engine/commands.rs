@@ -1,4 +1,3 @@
-use std::process::Command;
 use std::sync::Arc;
 use crate::engine::Engine;
 use crate::engine::sandbox::{Sandbox, PolicyResult};
@@ -112,12 +111,31 @@ impl CommandProcessor {
             ]
         ).await.unwrap_or_default();
 
-        // 4. Execute Command
-        let output = Command::new("/usr/bin/bash")
+        // 4. Construct Environment
+        // We explicitly inject a robust PATH to ensure systemd and other restricted 
+        // environments can find the necessary binaries.
+        let mut path = std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".to_string());
+        
+        // Ensure Koad-critical paths are present
+        let koad_paths = vec![
+            "/home/ideans/.cargo/bin",
+            "/home/ideans/.nvm/versions/node/v22.21.1/bin",
+            "/home/ideans/.koad-os/bin"
+        ];
+        
+        for p in koad_paths {
+            if !path.contains(p) {
+                path = format!("{}:{}", p, path);
+            }
+        }
+
+        // 5. Execute Command
+        let output = tokio::process::Command::new("/usr/bin/bash")
             .arg("-c")
             .arg(&cmd_str)
-            .env("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ideans/.cargo/bin:/home/ideans/.nvm/versions/node/v22.21.1/bin")
-            .output();
+            .env("PATH", path)
+            .output()
+            .await;
 
         let final_timestamp = Utc::now().timestamp();
         match output {
@@ -139,7 +157,7 @@ impl CommandProcessor {
                 let _: () = engine.redis.client.hset(format!("koad:task:{}", task_id), ("state", final_state.to_string())).await.unwrap_or_default();
 
                 // 6. Broadcast END Event to Stream
-                let _: () = engine.redis.client.xadd(
+                if let Err(e) = engine.redis.client.xadd::<String, _, _, _, _>(
                     "koad:events:stream", 
                     false, 
                     None, 
@@ -151,7 +169,9 @@ impl CommandProcessor {
                         ("metadata", &final_state.to_string()),
                         ("timestamp", &final_timestamp.to_string())
                     ]
-                ).await.unwrap_or_default();
+                ).await {
+                    eprintln!("CommandProcessor: xadd failed: {}", e);
+                }
             },
             Err(e) => {
                 let _: () = engine.redis.client.xadd(

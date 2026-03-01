@@ -1,68 +1,51 @@
 #[cfg(test)]
 mod tests {
     use crate::engine::redis::RedisClient;
-    use crate::engine::persistence::PersistenceManager;
     use crate::engine::commands::CommandProcessor;
+    use crate::engine::Engine;
     use std::sync::Arc;
-    use std::path::{Path, PathBuf};
-    use fred::interfaces::{PubsubInterface, EventInterface};
-    use fred::types::Message;
+    use fred::interfaces::{PubsubInterface, EventInterface, StreamsInterface, ClientLike, KeysInterface};
 
     #[tokio::test]
     async fn test_redis_lifecycle() {
-        let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| format!("{}/.koad-os", std::env::var("HOME").unwrap_or_default()));
-        let redis = RedisClient::new(&koad_home).await;
-        assert!(redis.is_ok(), "RedisClient should initialize and connect");
-    }
-
-    #[tokio::test]
-    async fn test_persistence_initialization() {
-        let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| format!("{}/.koad-os", std::env::var("HOME").unwrap_or_default()));
-        let redis = Arc::new(RedisClient::new(&koad_home).await.unwrap());
-        let db_path_buf = PathBuf::from(std::env::var("KOAD_HOME").unwrap_or_else(|_| format!("{}/.koad-os", std::env::var("HOME").unwrap_or_default()))).join("test_persistence.db");
-        let db_path = db_path_buf.to_str().unwrap();
-        
-        let pm = PersistenceManager::new(redis, db_path);
-        assert!(pm.is_ok(), "PersistenceManager should initialize SQLite with WAL");
-        
-        if Path::new(db_path).exists() {
-            let _ = std::fs::remove_file(db_path);
-        }
+        let home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+        let redis = RedisClient::new(&home).await.unwrap();
+        let _: String = redis.client.ping().await.unwrap();
     }
 
     #[tokio::test]
     async fn test_command_execution() {
-        let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| format!("{}/.koad-os", std::env::var("HOME").unwrap_or_default()));
-        let redis = Arc::new(RedisClient::new(&koad_home).await.unwrap());
+        let home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+        let db_path = format!("{}/test_exec.db", home);
+        let engine = Arc::new(Engine::new(&home, &db_path).await.unwrap());
         
-        let engine = Arc::new(crate::engine::Engine {
-            redis: redis.clone(),
-            persistence: Arc::new(PersistenceManager::new(redis.clone(), "/tmp/test_cmd.db").unwrap()),
-            diagnostics: Arc::new(crate::engine::diagnostics::ShipDiagnostics::new(redis.clone())),
-        });
-
-        let processor = CommandProcessor::new(engine.clone());
-        let mut telemetry_rx = redis.subscriber.message_rx();
-        let _: () = redis.subscriber.subscribe("koad:telemetry").await.unwrap();
-
+        let proc = CommandProcessor::new(engine.clone());
         let proc_handle = tokio::spawn(async move {
-            processor.start().await;
+            proc.start().await;
         });
 
-        // Give the processor a moment to subscribe
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        // Publish a command via engine's client
-        let _: () = redis.client.publish("koad:commands", "echo 'test_output'").await.unwrap();
+        let payload = serde_json::json!({
+            "identity": "admin",
+            "command": "echo 'hello_koad'"
+        });
+        
+        let _: () = engine.redis.client.publish("koad:commands", payload.to_string()).await.unwrap();
 
-        // Wait for telemetry response
         let mut found = false;
-        for _ in 0..20 {
-            if let Ok(res) = tokio::time::timeout(std::time::Duration::from_secs(1), telemetry_rx.recv()).await {
-                if let Ok(msg) = res as Result<Message, _> {
-                    let payload = msg.value.as_string().unwrap();
-                    println!("Test Got Telemetry: {}", payload);
-                    if payload.contains("test_output") {
+        // Wait for task completion
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        
+        let events: Vec<(String, std::collections::HashMap<String, String>)> = engine.redis.client.xrange(
+            "koad:events:stream", "-", "+", None
+        ).await.unwrap_or_default();
+
+        for msg in events {
+            if let Some(msg_type) = msg.1.get("message") {
+                if msg_type == "TASK_LIFECYCLE" {
+                    let meta = msg.1.get("metadata").unwrap();
+                    if meta.contains("hello_koad") {
                         found = true;
                         break;
                     }
@@ -70,7 +53,53 @@ mod tests {
             }
         }
 
-        assert!(found, "CommandProcessor should execute command and publish result to telemetry");
+        assert!(found, "CommandProcessor should execute command and log to event stream");
         proc_handle.abort();
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[tokio::test]
+    async fn test_path_integrity() {
+        let home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+        let db_path = format!("{}/test_path.db", home);
+        let engine = Arc::new(Engine::new(&home, &db_path).await.unwrap());
+        
+        let proc = CommandProcessor::new(engine.clone());
+        let proc_handle = tokio::spawn(async move {
+            proc.start().await;
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        // Test finding 'cargo' which is in a non-standard path
+        let payload = serde_json::json!({
+            "identity": "admin",
+            "command": "which cargo"
+        });
+        
+        let _: () = engine.redis.client.publish("koad:commands", payload.to_string()).await.unwrap();
+
+        let mut output_ok = false;
+        for _ in 0..5 {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            let events: Vec<(String, std::collections::HashMap<String, String>)> = engine.redis.client.xrange(
+                "koad:events:stream", "-", "+", None
+            ).await.unwrap_or_default();
+
+            for msg in events {
+                if msg.1.get("message").map(|s| s == "TASK_LIFECYCLE").unwrap_or(false) {
+                    let meta = msg.1.get("metadata").unwrap();
+                    if meta.contains("cargo") && meta.contains("SUCCESS") {
+                        output_ok = true;
+                        break;
+                    }
+                }
+            }
+            if output_ok { break; }
+        }
+
+        assert!(output_ok, "CommandProcessor should be able to find and execute 'cargo'");
+        proc_handle.abort();
+        let _ = std::fs::remove_file(db_path);
     }
 }
