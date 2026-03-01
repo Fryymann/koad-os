@@ -1,8 +1,8 @@
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Terminal,
 };
 use crossterm::{
@@ -15,6 +15,53 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use crate::KoadDB;
 
+struct KoadApp {
+    states: [ListState; 4],
+    active_column: usize,
+    items_counts: [usize; 4],
+}
+
+impl KoadApp {
+    fn new() -> Self {
+        Self {
+            states: [ListState::default(), ListState::default(), ListState::default(), ListState::default()],
+            active_column: 0,
+            items_counts: [0; 4],
+        }
+    }
+
+    fn next_col(&mut self) {
+        self.active_column = (self.active_column + 1) % 4;
+    }
+
+    fn prev_col(&mut self) {
+        if self.active_column == 0 { self.active_column = 3; }
+        else { self.active_column -= 1; }
+    }
+
+    fn scroll_down(&mut self) {
+        let i = match self.states[self.active_column].selected() {
+            Some(i) => {
+                if i >= self.items_counts[self.active_column].saturating_sub(1) { 0 }
+                else { i + 1 }
+            }
+            None => 0,
+        };
+        self.states[self.active_column].select(Some(i));
+    }
+
+    fn scroll_up(&mut self) {
+        let i = match self.states[self.active_column].selected() {
+            Some(i) => {
+                if i == 0 { self.items_counts[self.active_column].saturating_sub(1) }
+                else { i - 1 }
+            }
+            None => 0,
+        };
+        self.states[self.active_column].select(Some(i));
+    }
+}
+
 pub fn run_dash(db: &KoadDB) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -22,126 +69,123 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let tick_rate = Duration::from_millis(500);
+    let mut app = KoadApp::new();
+    let tick_rate = Duration::from_millis(250);
     let mut last_tick = Instant::now();
 
     loop {
         terminal.draw(|f| {
+            let area = f.size();
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(3),  // Header
+                    Constraint::Length(3),  // Active Spec Banner
                     Constraint::Min(10),    // Main Content
                     Constraint::Length(3),  // Footer
                 ])
-                .split(f.size());
+                .split(area);
 
-            // Header
-            let header = Paragraph::new(" KoadOS Real-Time Dashboard - [OBSERVER MODE] ")
+            // 1. Header
+            let header = Paragraph::new(" KoadOS Command Center - [v0.2 Stateful] ")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
                 .block(Block::default().borders(Borders::ALL));
             f.render_widget(header, chunks[0]);
 
-            // Main Body: 3 Columns
+            // 2. Active Spec Banner
+            let spec_text = if let Ok(Some((title, _, status, _))) = db.get_spec() {
+                format!(" ACTIVE SPEC: {} [{}] ", title.to_uppercase(), status)
+            } else {
+                " NO ACTIVE SPEC - Use 'koad spec set' to begin ".to_string()
+            };
+            let spec_banner = Paragraph::new(spec_text)
+                .style(Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD))
+                .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Green)));
+            f.render_widget(spec_banner, chunks[1]);
+
+            // 3. Main Body: 4 Columns
             let body_chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(33),
-                    Constraint::Percentage(34),
-                    Constraint::Percentage(33),
+                    Constraint::Percentage(25),
+                    Constraint::Percentage(25),
+                    Constraint::Percentage(25),
+                    Constraint::Percentage(25),
                 ])
-                .split(chunks[1]);
+                .split(chunks[2]);
 
-            // 1. MIND (Left) - Knowledge & Ponderings
+            // Data Fetching & Rendering
+            
+            // 0. PLAN
+            let mut plan_items: Vec<ListItem> = Vec::new();
+            if let Ok(wfs) = db.get_workflows(None, 20) {
+                app.items_counts[0] = wfs.len();
+                for (_, title, status, project) in wfs {
+                    let style = match status.as_str() {
+                        "Active" => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        "Pinned" => Style::default().fg(Color::Yellow),
+                        _ => Style::default().fg(Color::White),
+                    };
+                    let prefix = if status == "Pinned" { "📌 " } else { "   " };
+                    plan_items.push(ListItem::new(format!("{}[{}] {}", prefix, project.unwrap_or("N/A".into()), title)).style(style));
+                }
+            }
+            render_stateful_column(f, " [PLAN] Pinned & Pending ", plan_items, body_chunks[0], &mut app.states[0], app.active_column == 0);
+
+            // 1. MIND
             let mut mind_items: Vec<ListItem> = Vec::new();
             if let Ok(recent) = db.query("", 15, None) {
                 for (_, cat, content, _) in recent {
-                    let style = if content.contains("[SPINE]") {
-                        Style::default().fg(Color::Blue).add_modifier(Modifier::ITALIC)
-                    } else {
-                        match cat.as_str() {
-                            "fact" => Style::default().fg(Color::Cyan),
-                            "learning" => Style::default().fg(Color::Green),
-                            _ => Style::default().fg(Color::White),
-                        }
+                    let style = match cat.as_str() {
+                        "fact" => Style::default().fg(Color::Cyan),
+                        "learning" => Style::default().fg(Color::Green),
+                        _ => Style::default().fg(Color::White),
                     };
                     mind_items.push(ListItem::new(format!("[{}] {}", cat.to_uppercase(), content)).style(style));
                 }
             }
-            if !mind_items.is_empty() { mind_items.push(ListItem::new("---").style(Style::default().fg(Color::DarkGray))); }
             if let Ok(ponders) = db.get_ponderings(10) {
-                for p in ponders {
-                    mind_items.push(ListItem::new(format!("> {}", p)).style(Style::default().fg(Color::Magenta)));
-                }
+                for p in ponders { mind_items.push(ListItem::new(format!("> {}", p)).style(Style::default().fg(Color::Magenta))); }
             }
-            let list = List::new(mind_items)
-                .block(Block::default().borders(Borders::ALL).title(" [MIND] Knowledge & Journal "));
-            f.render_widget(list, body_chunks[0]);
+            app.items_counts[1] = mind_items.len();
+            render_stateful_column(f, " [MIND] Knowledge ", mind_items, body_chunks[1], &mut app.states[1], app.active_column == 1);
 
-            // 2. VOICE (Middle) - Notes, Brainstorms, Rants
+            // 2. VOICE
             let mut voice_items: Vec<ListItem> = Vec::new();
             if let Ok(notes) = db.get_notes(10) {
-                for (_, content, _) in notes {
-                    voice_items.push(ListItem::new(format!("(Note) {}", content)).style(Style::default().fg(Color::White)));
-                }
+                for (_, content, _) in notes { voice_items.push(ListItem::new(format!("(Note) {}", content))); }
             }
-            if !voice_items.is_empty() { voice_items.push(ListItem::new("---").style(Style::default().fg(Color::DarkGray))); }
             if let Ok(brainstorms) = db.get_recent_brainstorms(10) {
                 for (content, cat, _) in brainstorms {
                     let style = if cat == "rant" { Style::default().fg(Color::Red) } else { Style::default().fg(Color::Yellow) };
                     voice_items.push(ListItem::new(format!("[{}] {}", cat.to_uppercase(), content)).style(style));
                 }
             }
-            let list = List::new(voice_items)
-                .block(Block::default().borders(Borders::ALL).title(" [VOICE] Notes & Brainstorms "));
-            f.render_widget(list, body_chunks[1]);
+            app.items_counts[2] = voice_items.len();
+            render_stateful_column(f, " [VOICE] Notes & Ideas ", voice_items, body_chunks[2], &mut app.states[2], app.active_column == 2);
 
-            // 3. ACTIVITY (Right) - Daemon & Commands
+            // 3. ACTIVITY
             let mut activity_items: Vec<ListItem> = Vec::new();
-            {
-                if let Ok(conn) = db.get_conn() {
-                    if let Ok(mut stmt) = conn.prepare("SELECT id, command, status FROM command_queue ORDER BY created_at DESC LIMIT 10") {
-                        if let Ok(rows) = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))) {
-                            for row in rows {
-                                if let Ok((id, cmd, status)) = row {
-                                    let style = match status.as_str() {
-                                        "pending" => Style::default().fg(Color::Yellow),
-                                        "running" => Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
-                                        "completed" => Style::default().fg(Color::Green),
-                                        "failed" => Style::default().fg(Color::Red),
-                                        _ => Style::default().fg(Color::White),
-                                    };
-                                    activity_items.push(ListItem::new(format!("[TASK #{}] {} - {}", id, cmd.to_uppercase(), status)).style(style));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if !activity_items.is_empty() { activity_items.push(ListItem::new("---").style(Style::default().fg(Color::DarkGray))); }
-            if let Ok(deltas) = db.get_recent_deltas(60) {
-                for (path, event, _) in deltas {
-                    let p = std::path::Path::new(&path);
-                    let name = p.file_name().unwrap_or_default().to_string_lossy();
-                    activity_items.push(ListItem::new(format!("[DAEMON] {}: {}", event, name)).style(Style::default().fg(Color::Blue)));
-                }
-            }
-            if !activity_items.is_empty() { activity_items.push(ListItem::new("---").style(Style::default().fg(Color::DarkGray))); }
-            if let Ok(execs) = db.get_recent_executions(24) {
+            if let Ok(execs) = db.get_recent_executions(12) {
                 for (cmd, args, status) in execs {
                     let style = if status == "success" { Style::default().fg(Color::Green) } else { Style::default().fg(Color::Red) };
                     activity_items.push(ListItem::new(format!("[CLI] {} {}", cmd, args)).style(style));
                 }
             }
-            let list = List::new(activity_items)
-                .block(Block::default().borders(Borders::ALL).title(" [ACTIVITY] Pulse & Events "));
-            f.render_widget(list, body_chunks[2]);
+            if let Ok(deltas) = db.get_recent_deltas(30) {
+                for (path, event, _) in deltas {
+                    let name = std::path::Path::new(&path).file_name().unwrap_or_default().to_string_lossy();
+                    activity_items.push(ListItem::new(format!("[BOOST] {}: {}", event, name)).style(Style::default().fg(Color::Blue)));
+                }
+            }
+            app.items_counts[3] = activity_items.len();
+            render_stateful_column(f, " [ACTIVITY] Pulse ", activity_items, body_chunks[3], &mut app.states[3], app.active_column == 3);
 
-            // Footer
-            let footer = Paragraph::new(" [q] Exit | [Auto-refresh: 500ms] ")
+            // 4. Footer
+            let footer = Paragraph::new(" [q] Exit | [TAB/h/l] Switch Col | [j/k] Scroll | [Auto-refresh: 250ms] ")
                 .style(Style::default().fg(Color::DarkGray))
                 .block(Block::default().borders(Borders::ALL));
-            f.render_widget(footer, chunks[2]);
+            f.render_widget(footer, chunks[3]);
         })?;
 
         let timeout = tick_rate
@@ -150,8 +194,13 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
 
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
-                if let KeyCode::Char('q') = key.code {
-                    break;
+                match key.code {
+                    KeyCode::Char('q') => break,
+                    KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => app.next_col(),
+                    KeyCode::Left | KeyCode::Char('h') => app.prev_col(),
+                    KeyCode::Down | KeyCode::Char('j') => app.scroll_down(),
+                    KeyCode::Up | KeyCode::Char('k') => app.scroll_up(),
+                    _ => {}
                 }
             }
         }
@@ -165,4 +214,26 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
     execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     terminal.show_cursor()?;
     Ok(())
+}
+
+fn render_stateful_column(
+    f: &mut ratatui::Frame,
+    title: &str,
+    items: Vec<ListItem>,
+    area: Rect,
+    state: &mut ListState,
+    is_active: bool,
+) {
+    let border_style = if is_active {
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let list = List::new(items)
+        .block(Block::default().borders(Borders::ALL).title(title).border_style(border_style))
+        .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+        .highlight_symbol(">> ");
+
+    f.render_stateful_widget(list, area, state);
 }

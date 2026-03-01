@@ -112,3 +112,54 @@ fn test_guide_topic() {
         .success()
         .stdout(predicate::str::contains("# KoadOS: Your First 15 Minutes"));
 }
+
+#[test]
+fn test_serve_lifecycle() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path();
+    
+    // Create necessary koad.json
+    let config = r#"{
+        "version": "2.4",
+        "identity": {"name": "Test", "role": "Admin", "bio": "Test"},
+        "preferences": {"languages": [], "booster_enabled": true, "style": "test", "principles": []},
+        "drivers": {},
+        "notion": {"mcp": false, "index": {}}
+    }"#;
+    std::fs::write(home.join("koad.json"), config).unwrap();
+    std::fs::create_dir_all(home.join("bin")).unwrap();
+    
+    // Mock the daemon binary - just a sleep script
+    let daemon_mock = home.join("bin/koad-daemon");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(&daemon_mock, "#!/bin/sh\nsleep 1000").unwrap();
+        let mut perms = std::fs::metadata(&daemon_mock).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&daemon_mock, perms).unwrap();
+    }
+
+    // 1. Start Serve
+    let mut cmd = Command::cargo_bin("koad").unwrap();
+    cmd.env("KOAD_HOME", home);
+    cmd.arg("serve");
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("[PASS] Daemon launched"));
+
+    // Give it a moment to spawn
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    assert!(home.join("daemon.pid").exists());
+
+    // 2. Stop Serve
+    let mut cmd = Command::cargo_bin("koad").unwrap();
+    cmd.env("KOAD_HOME", home);
+    cmd.arg("serve").arg("--stop");
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("[PASS] Daemon stopped"));
+
+    assert!(!home.join("daemon.pid").exists());
+}

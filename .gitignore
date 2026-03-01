@@ -1,11 +1,24 @@
+# KoadOS Ignore Rules
+
+# Project state
 koad.json
 koad.db
-core/rust/target/
-legacy/
 SESSION_LOG.md
-bin/koad
-.crates.toml
-.crates2.json
 NOTION_INDEX.md
 *.db
 *.log
+daemon.pid
+
+# Build artifacts
+target/
+**/target/
+node_modules/
+**/node_modules/
+bin/koad
+bin/koad-daemon
+.crates.toml
+.crates2.json
+
+# System
+.DS_Store
+.env

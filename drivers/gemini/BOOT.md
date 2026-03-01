@@ -7,7 +7,12 @@ The Notion CLI commands (`koad stream`, `koad sync notion`) are now reconfigured
 - Use the `notion.index` in `koad.json` to find other relevant IDs.
 
 ## Core Directives
-1. **Tool-First**: Prioritize MCP tools over shell scripts for external integrations.
+1. **Strict Path Alignment**: ALWAYS resolve paths against the `filesystem.mappings` in `koad.json`. 
+   - `projects` = `/mnt/c/data/projects`
+   - `skylinks` = `/mnt/c/data/skylinks`
+   - `data` = `/mnt/c/data`
+   - Use the symlink `/home/ideans/data` for all terminal operations to ensure local workspace compatibility.
+2. **Tool-First**: Prioritize MCP tools over shell scripts for external integrations.
 2. **Consolidated Sync**: Use `koad sync notion` to trigger a multi-database pass instead of manual querying.
 3. **Context Persistence**: Always run `koad boot` at session start.
 4. **Fact Harvesting**: Use `koad saveup` to capture learnings.

@@ -19,6 +19,11 @@ reqwest = { version = "0.11", default-features = false, features = ["blocking", 
 tokio = { version = "1", features = ["full"] }
 r2d2 = "0.8.10"
 r2d2_sqlite = "0.25.0"
+axum = { version = "0.8.8", features = ["ws"] }
+tower-http = { version = "0.6.8", features = ["fs", "cors"] }
+tungstenite = "0.28.0"
+url = "2.5.8"
+ctrlc = "3.5.2"
 
 [dev-dependencies]
 assert_cmd = "2.0"

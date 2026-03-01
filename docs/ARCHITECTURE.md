@@ -20,6 +20,13 @@ A local **SQLite** database that stores:
 A background service written in Rust that:
 - **Watches Directories**: Uses the `notify` crate to track file changes in real-time.
 - **Pre-computes Deltas**: Summarizes local activity so when an agent "wakes up", it already has an intuition of what changed.
+- **Broadcasts Events**: Connects to the local WebSocket server to push live updates.
+
+### D. The Dashboard (`koad host`)
+A native web server integrated into the CLI that:
+- **Serves Front-ends**: Hosts the Koad Dashboard or any experimental web project.
+- **WebSocket Bridge**: Acts as the communication hub between the Spine (daemon) and the browser.
+- **Live Monitoring**: Provides a real-time visual interface for file changes and task execution.
 
 ## 2. The Skill Subsystem
 Skills are external scripts (Python, JS, etc.) that the CLI dispatches to.

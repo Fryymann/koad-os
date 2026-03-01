@@ -19,6 +19,17 @@
 - **Project Awareness**: Automatically detects the active project via database lookup if the current path matches a registered project.
 - **Compact Mode**: Outputs a dense, label-free format for minimal token usage.
 
+### `koad host [--port <p>] [--dir <d>]`
+- **Purpose**: [AGENT/HUMAN] Host a local web server for testing front-ends or the Koad Dashboard.
+- **WebSockets**: Includes a `/ws` endpoint for live event broadcasting from the Koad Spine.
+- **Default**: Serves `~/.koad-os/data/dashboard/` if no directory is specified.
+
+### `koad serve [--stop]`
+- **Purpose**: [ADMIN] Manage the Koad background service (Cognitive Booster).
+- **PID Tracking**: Automatically creates and removes `~/.koad-os/daemon.pid` for elegant process management.
+- **Live Updates**: Connects to the local `koad host` server to push real-time file change events and task statuses to the dashboard.
+- **Logic**: Prevents multiple instances and allows for clean shutdown via `--stop`.
+
 ### `koad scan [<path>]`
 - **Purpose**: Database-aware project registration.
 - **Logic**: Searches for a `.koad` directory. If found, registers the project name and absolute path in the `projects` table for instant contextual booting.

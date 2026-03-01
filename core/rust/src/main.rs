@@ -12,6 +12,14 @@ use rusqlite::params;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 
+use axum::{
+    extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    routing::get,
+    Router,
+};
+use tokio::sync::broadcast;
+use tower_http::services::ServeDir;
+
 mod tui;
 mod airtable;
 
@@ -152,7 +160,11 @@ enum Commands {
         action: AirtableAction,
     },
     /// [ADMIN] Start the Koad background service (Cognitive Booster).
-    Serve,
+    Serve {
+        /// Stop the background daemon.
+        #[arg(short, long)]
+        stop: bool,
+    },
     /// [AGENT] Interact with the Koad Stream (Notion-backed communication channel).
     Stream {
         #[command(subcommand)]
@@ -252,6 +264,15 @@ enum Commands {
     Guide {
         /// Guide name (onboarding, development, architecture).
         topic: Option<String>,
+    },
+    /// [AGENT/HUMAN] Host a local web server for testing front-ends or the Koad Dashboard.
+    Host {
+        /// Port to bind the server to.
+        #[arg(short, long, default_value_t = 8080)]
+        port: u16,
+        /// Directory to serve (defaults to KoadOS dashboard if omitted).
+        #[arg(short, long)]
+        dir: Option<PathBuf>,
     },
 }
 #[derive(Subcommand)]
@@ -720,6 +741,28 @@ impl KoadDB {
         if let Some(row) = rows.next()? { Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?))) } else { Ok(None) }
     }
 
+    pub fn get_workflows(&self, status: Option<String>, limit: usize) -> Result<Vec<(i64, String, String, Option<String>)>> {
+        let conn = self.get_conn()?;
+        let mut query = String::from("SELECT id, title, status, project FROM workflows");
+        let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
+        if let Some(s) = status {
+            query.push_str(" WHERE status = ?1");
+            params_vec.push(s.into());
+        }
+        query.push_str(" ORDER BY priority DESC, last_update DESC LIMIT ?");
+        let limit_idx = params_vec.len() + 1;
+        params_vec.push((limit as i64).into());
+        
+        let mut stmt = conn.prepare(&query)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params_vec), |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?;
+        
+        let mut results = Vec::new();
+        for row in rows { results.push(row?); }
+        Ok(results)
+    }
+
     pub fn get_notion_index(&self) -> Result<Vec<(String, String, String, String, String)>> {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare("SELECT name, type, last_sync, cloud_edited, id FROM notion_index ORDER BY name ASC")?;
@@ -730,14 +773,22 @@ impl KoadDB {
     }
 }
 
-fn get_gh_pat_for_path(_path: &Path) -> (&'static str, &'static str) {
-    // For OSS, we default to the personal PAT. 
-    // Users can override this by setting KOAD_GH_PAT in their environment.
-    ("GITHUB_PERSONAL_PAT", "Personal")
+fn get_gh_pat_for_path(path: &Path) -> (&'static str, &'static str) {
+    let path_str = path.to_string_lossy();
+    if path_str.contains("/skylinks/") || path_str.contains("\\skylinks\\") {
+        ("GITHUB_SKYLINKS_PAT", "Skylinks")
+    } else {
+        ("GITHUB_PERSONAL_PAT", "Personal")
+    }
 }
 
-fn get_gdrive_token_for_path(_path: &Path) -> (&'static str, &'static str) {
-    ("GDRIVE_PERSONAL_TOKEN", "Personal")
+fn get_gdrive_token_for_path(path: &Path) -> (&'static str, &'static str) {
+    let path_str = path.to_string_lossy();
+    if path_str.contains("/skylinks/") || path_str.contains("\\skylinks\\") {
+        ("GDRIVE_SKYLINKS_TOKEN", "Skylinks")
+    } else {
+        ("GDRIVE_PERSONAL_TOKEN", "Personal")
+    }
 }
 
 fn detect_context_tags(path: &Path) -> Vec<String> {
@@ -883,6 +934,57 @@ fn main() -> Result<()> {
             }
         },
         Commands::Diagnostic { full } => run_diagnostic(full, &config)?,
+        Commands::Host { port, dir } => {
+            let target_dir = dir.unwrap_or_else(|| KoadConfig::get_home().unwrap().join("data/dashboard"));
+            if !target_dir.exists() {
+                println!("[INFO] Directory {} does not exist. Creating it...", target_dir.display());
+                std::fs::create_dir_all(&target_dir)?;
+                std::fs::write(target_dir.join("index.html"), "<!DOCTYPE html><html><head><title>KoadOS Dashboard</title><style>body { font-family: monospace; background: #121212; color: #0f0; padding: 2rem; }</style></head><body><h1>[KoadOS] Dashboard Active</h1><div id='updates'></div><script>const ws = new WebSocket(`ws://${location.host}/ws`); ws.onmessage = (e) => { const div = document.createElement('div'); div.innerText = `[${new Date().toLocaleTimeString()}] ${e.data}`; document.getElementById('updates').prepend(div); };</script></body></html>")?;
+            }
+            
+            println!("Starting web server on http://localhost:{} serving {}", port, target_dir.display());
+            
+            let (tx, _rx) = broadcast::channel::<String>(100);
+            let tx_clone = tx.clone();
+
+            async fn handle_socket(mut socket: WebSocket, tx: broadcast::Sender<String>) {
+                let mut rx = tx.subscribe();
+                loop {
+                    tokio::select! {
+                        msg = rx.recv() => {
+                            if let Ok(msg) = msg {
+                                if socket.send(Message::Text(msg.into())).await.is_err() { break; }
+                            }
+                        }
+                        msg = socket.recv() => {
+                            if let Some(Ok(Message::Text(text))) = msg {
+                                let _ = tx.send(text.to_string());
+                            } else if msg.is_none() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let app = Router::new()
+                .route("/ws", get(move |ws: WebSocketUpgrade| {
+                    let tx = tx_clone.clone();
+                    async move {
+                        ws.on_upgrade(move |socket| handle_socket(socket, tx))
+                    }
+                }))
+                .fallback_service(ServeDir::new(&target_dir));
+
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await.unwrap();
+                    axum::serve(listener, app).await.unwrap();
+                });
+        }
         Commands::Guide { topic } => {
             let docs_dir = KoadConfig::get_home()?.join("docs");
             if let Some(t) = topic {
@@ -1106,18 +1208,61 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Serve => {
+        Commands::Serve { stop } => {
+            let home = KoadConfig::get_home()?;
+            let pid_file = home.join("daemon.pid");
+
+            if stop {
+                if pid_file.exists() {
+                    let pid_str = std::fs::read_to_string(&pid_file)?;
+                    let pid = pid_str.trim().parse::<i32>()?;
+                    println!("Stopping Koad Daemon (PID: {})...", pid);
+                    
+                    // Simple kill command
+                    let status = Command::new("kill").arg(pid.to_string()).status()?;
+                    if status.success() {
+                        let _ = std::fs::remove_file(pid_file);
+                        println!("[PASS] Daemon stopped.");
+                    } else {
+                        println!("[FAIL] Could not kill process {}. Is it already dead?", pid);
+                        let _ = std::fs::remove_file(pid_file);
+                    }
+                } else {
+                    println!("[INFO] No PID file found. Is the daemon running?");
+                }
+                return Ok(());
+            }
+
+            if pid_file.exists() {
+                let pid_str = std::fs::read_to_string(&pid_file)?;
+                if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                    // Check if process still exists
+                    let check = Command::new("kill").arg("-0").arg(pid.to_string()).status();
+                    if let Ok(s) = check {
+                        if s.success() {
+                            anyhow::bail!("Koad Daemon is already running (PID: {}).", pid);
+                        }
+                    }
+                }
+            }
+
             if !config.preferences.booster_enabled {
                 anyhow::bail!("Cognitive Booster is disabled in koad.json. Enable it to use 'koad serve'.");
             }
-            let daemon_path = KoadConfig::get_home()?.join("bin/koad-daemon");
+            let daemon_path = home.join("bin/koad-daemon");
             if !daemon_path.exists() { anyhow::bail!("koad-daemon binary not found."); }
             
             println!("Starting Koad Cognitive Booster in background...");
-            Command::new(daemon_path)
+            let child = Command::new(daemon_path)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
                 .spawn()
                 .context("Failed to launch daemon")?;
-            println!("[PASS] Daemon launched.");
+            
+            let pid = child.id();
+            std::fs::write(pid_file, pid.to_string())?;
+            println!("[PASS] Daemon launched (PID: {}).", pid);
+            return Ok(());
         },
         Commands::Sync { source } => {
             if !has_privileged_access { anyhow::bail!("Access Denied."); }
@@ -1336,9 +1481,27 @@ mod tests {
 
     #[test]
     fn test_gh_pat_resolution() {
-        let path = Path::new("/any/path");
+        let path = Path::new("/home/ideans/data/personal/project1");
         let (var, label) = get_gh_pat_for_path(path);
         assert_eq!(var, "GITHUB_PERSONAL_PAT");
         assert_eq!(label, "Personal");
+
+        let path = Path::new("/home/ideans/data/skylinks/project2");
+        let (var, label) = get_gh_pat_for_path(path);
+        assert_eq!(var, "GITHUB_SKYLINKS_PAT");
+        assert_eq!(label, "Skylinks");
+    }
+
+    #[test]
+    fn test_gdrive_token_resolution() {
+        let path = Path::new("/home/ideans/data/personal/project1");
+        let (var, label) = get_gdrive_token_for_path(path);
+        assert_eq!(var, "GDRIVE_PERSONAL_TOKEN");
+        assert_eq!(label, "Personal");
+
+        let path = Path::new("/home/ideans/data/skylinks/project2");
+        let (var, label) = get_gdrive_token_for_path(path);
+        assert_eq!(var, "GDRIVE_SKYLINKS_TOKEN");
+        assert_eq!(label, "Skylinks");
     }
 }

@@ -10,13 +10,16 @@ use std::sync::Arc;
 use std::process::{Command, Stdio};
 use chrono::Local;
 
+use tungstenite::{connect, Message as WsMessage};
+
 struct Daemon {
     pool: Pool<SqliteConnectionManager>,
     log_path: PathBuf,
+    ws_tx: Option<std::sync::mpsc::Sender<String>>,
 }
 
 impl Daemon {
-    fn init() -> std::result::Result<Self, anyhow::Error> {
+    fn init(ws_tx: Option<std::sync::mpsc::Sender<String>>) -> std::result::Result<Self, anyhow::Error> {
         let home = std::env::var("KOAD_HOME")
             .map(PathBuf::from)
             .or_else(|_| dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Home dir not found")).map(|h| h.join(".koad-os")))?;
@@ -59,7 +62,13 @@ impl Daemon {
             [],
         )?;
         
-        Ok(Self { pool, log_path })
+        Ok(Self { pool, log_path, ws_tx })
+    }
+
+    fn broadcast(&self, msg: &str) {
+        if let Some(tx) = &self.ws_tx {
+            let _ = tx.send(msg.to_string());
+        }
     }
 
     fn debug_log(&self, msg: &str) {
@@ -67,6 +76,7 @@ impl Daemon {
             let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
             let _ = writeln!(file, "[{}] {}", now, msg);
         }
+        self.broadcast(msg);
     }
 
     fn log_change(&self, path: &Path, event_type: &str) -> std::result::Result<(), anyhow::Error> {
@@ -102,10 +112,10 @@ impl Daemon {
         }
 
         for (id, cmd, args) in pending {
-            // Pool is already thread-safe and cloneable (Arc-like)
             let daemon_clone = Arc::new(Self {
                 pool: self.pool.clone(),
                 log_path: self.log_path.clone(),
+                ws_tx: self.ws_tx.clone(),
             });
             
             std::thread::spawn(move || {
@@ -195,10 +205,43 @@ impl Daemon {
 
 fn main() -> anyhow::Result<()> {
     println!("Initializing Koad Daemon...");
-    let daemon = Arc::new(Daemon::init().map_err(|e| anyhow::anyhow!(e.to_string()))?);
+    
+    // Setup WebSocket bridge thread
+    let (ws_tx, ws_rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let addr = "ws://localhost:8080/ws";
+        loop {
+            match connect(addr) {
+                Ok((mut socket, _)) => {
+                    println!("Spine connected to Koad Dashboard.");
+                    while let Ok(msg) = ws_rx.recv() {
+                        if socket.send(WsMessage::Text(msg.into())).is_err() { break; }
+                    }
+                }
+                Err(_) => {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                }
+            }
+        }
+    });
+
+    let daemon = Arc::new(Daemon::init(Some(ws_tx)).map_err(|e| anyhow::anyhow!(e.to_string()))?);
     println!("Daemon initialized. Starting services...");
     daemon.debug_log("--- Daemon Started (Spine Mode) ---");
     
+    // Signal handling for clean PID cleanup
+    let home = std::env::var("KOAD_HOME")
+        .map(PathBuf::from)
+        .or_else(|_| dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Home dir not found")).map(|h| h.join(".koad-os")))?;
+    let pid_file = home.join("daemon.pid");
+    let pid_file_clone = pid_file.clone();
+    
+    ctrlc::set_handler(move || {
+        println!("\nShutting down Koad Daemon...");
+        let _ = std::fs::remove_file(&pid_file_clone);
+        std::process::exit(0);
+    })?;
+
     // Command Queue Polling Thread
     let daemon_poll = Arc::clone(&daemon);
     std::thread::spawn(move || {
@@ -228,7 +271,6 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     println!("Koad Spine is alive. (Passive Monitoring Only)");
-    // Keep the main thread alive
     loop {
         std::thread::sleep(std::time::Duration::from_secs(60));
     }
