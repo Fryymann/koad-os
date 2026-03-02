@@ -84,3 +84,32 @@ def test_koad_stat_json(spine, redis_client):
     assert result.returncode == 0
     data = json.loads(result.stdout)
     assert data["cpu_usage"] == 10.0
+
+def test_crew_manifest(spine, redis_client):
+    """Verify that koad crew shows live personnel and filters stale ones."""
+    from datetime import datetime, timedelta, timezone
+    
+    # 1. Inject a 'WAKE' agent (recent heartbeat)
+    wake_sid = "wake-123"
+    wake_data = {
+        "identity": {"name": "ActiveAgent", "rank": "Officer"},
+        "last_heartbeat": datetime.now(timezone.utc).isoformat()
+    }
+    redis_client.hset("koad:state", f"koad:session:{wake_sid}", json.dumps(wake_data))
+
+    # 2. Inject a 'DARK' agent (old heartbeat)
+    dark_sid = "dark-456"
+    dark_data = {
+        "identity": {"name": "IdleAgent", "rank": "Crew"},
+        "last_heartbeat": (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    }
+    redis_client.hset("koad:state", f"koad:session:{dark_sid}", json.dumps(dark_data))
+
+    # 3. Run koad crew
+    result = spine.run_koad(["crew"])
+    assert result.returncode == 0
+    assert "ActiveAgent" in result.stdout
+    assert "WAKE" in result.stdout
+    assert "IdleAgent" in result.stdout
+    assert "DARK" in result.stdout
+    assert "Total Wake Personnel: 1" in result.stdout

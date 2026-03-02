@@ -104,12 +104,37 @@ impl AgentSessionManager {
 
     pub async fn prune_sessions(&self, timeout_secs: i64) -> anyhow::Result<()> {
         let mut sessions = self.sessions.lock().await;
-        let original_count = sessions.len();
-        
-        sessions.retain(|_, s| s.is_active(timeout_secs));
-        
-        if sessions.len() < original_count {
-            println!("ASM: Pruned {} inactive sessions.", original_count - sessions.len());
+        let mut to_update = Vec::new();
+        let mut to_remove = Vec::new();
+
+        for (sid, session) in sessions.iter_mut() {
+            let diff = Utc::now().signed_duration_since(session.last_heartbeat);
+            if diff.num_seconds() > timeout_secs {
+                // Remove entirely if very old
+                if diff.num_seconds() > (timeout_secs * 5) {
+                    to_remove.push(sid.clone());
+                } else if session.metadata.get("presence") != Some(&"DARK".to_string()) {
+                    // Just mark as dark
+                    session.metadata.insert("presence".to_string(), "DARK".to_string());
+                    to_update.push((sid.clone(), session.clone()));
+                }
+            } else if session.metadata.get("presence") != Some(&"WAKE".to_string()) {
+                session.metadata.insert("presence".to_string(), "WAKE".to_string());
+                to_update.push((sid.clone(), session.clone()));
+            }
+        }
+
+        for sid in to_remove {
+            println!("ASM: Pruning abandoned session: {}", sid);
+            sessions.remove(&sid);
+            let _: () = self.storage.redis.client.hdel("koad:state", format!("koad:session:{}", sid)).await?;
+        }
+
+        for (sid, session) in to_update {
+            let payload = serde_json::to_value(&session)?;
+            self.storage.set_state(&format!("koad:session:{}", sid), payload.clone()).await?;
+            let msg = json!({ "type": "SESSION_UPDATE", "payload": payload });
+            let _: () = self.storage.redis.client.publish("koad:sessions", msg.to_string()).await?;
         }
         
         Ok(())

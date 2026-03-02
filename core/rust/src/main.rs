@@ -183,6 +183,7 @@ enum Commands {
         #[arg(short, long)]
         json: bool,
     },
+    Crew,
 }
 
 #[derive(Subcommand)]
@@ -641,6 +642,47 @@ async fn main() -> Result<()> {
                 SkillAction::List => { println!("Skills listing..."); }
                 SkillAction::Run { name, args } => { Command::new(KoadConfig::get_home()?.join("skills").join(name)).args(args).spawn()?.wait()?; }
             }
+        }
+        Commands::Crew => {
+            let home = KoadConfig::get_home()?;
+            let redis_conn = home.join("koad.sock");
+            if !redis_conn.exists() {
+                anyhow::bail!("Kernel offline (Redis UDS missing). Cannot fetch live crew manifest.");
+            }
+
+            let mut con = redis::Client::open(format!("redis+unix://{}", redis_conn.display()))?.get_connection()?;
+            let sessions: HashMap<String, String> = redis::cmd("HGETALL").arg("koad:state").query(&mut con)?;
+            
+            println!("--- KoadOS Crew Manifest (Live) ---");
+            println!("{:<15} {:<15} {:<10} {:<20}", "AGENT", "ROLE", "STATUS", "LAST SEEN");
+            println!("{:-<65}", "");
+
+            let mut found_wake = 0;
+            for (key, val) in sessions {
+                if key.starts_with("koad:session:") {
+                    if let Ok(data) = serde_json::from_str::<Value>(&val) {
+                        let agent = data["identity"]["name"].as_str().unwrap_or("Unknown");
+                        let role = data["identity"]["rank"].as_str().unwrap_or("Crew");
+                        let last_hb_str = data["last_heartbeat"].as_str().unwrap_or("");
+                        
+                        let status = if let Ok(last_hb) = chrono::DateTime::parse_from_rfc3339(last_hb_str) {
+                            let diff = Utc::now().signed_duration_since(last_hb.with_timezone(&Utc));
+                            if diff.num_seconds() < 60 {
+                                found_wake += 1;
+                                "\x1b[32mWAKE\x1b[0m" // Green
+                            } else {
+                                "\x1b[30mDARK\x1b[0m" // Grey/Dark
+                            }
+                        } else {
+                            "UNKNOWN"
+                        };
+
+                        println!("{:<15} {:<15} {:<10} {:<20}", agent, role, status, last_hb_str);
+                    }
+                }
+            }
+            println!("{:-<65}", "");
+            println!("Total Wake Personnel: {}", found_wake);
         }
         _ => println!("Other command."),
     }
