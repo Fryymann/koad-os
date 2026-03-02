@@ -79,8 +79,5 @@ Thumbs.db
 pub.key
 
 # --- Binaries ---
-bin/koad
-bin/kspine
-bin/koad-cli
-bin/kbooster
-bin/kgateway
+bin/
+!bin/*.sh
