@@ -71,4 +71,30 @@ impl GitHubClient {
 
         Ok(response.json().await?)
     }
+
+    /// Synchronize all open issues with the project board.
+    pub async fn sync_issues(&self, project_number: i32) -> Result<()> {
+        println!("Syncing repository issues with Project #{}...", project_number);
+        
+        // 1. Get Project ID
+        let project_id = self.get_project_id(project_number).await?;
+        
+        // 2. List current project items to avoid duplicates
+        let current_items = self.list_project_items(project_number).await?;
+        let existing_numbers: std::collections::HashSet<i32> = current_items.iter().filter_map(|i| i.number).collect();
+        
+        // 3. List open repository issues
+        let open_issues = self.list_open_issues().await?;
+        
+        // 4. Add missing issues to project
+        for (content_id, number, title) in open_issues {
+            if !existing_numbers.contains(&number) {
+                println!("Adding Issue #{}: {} to project...", number, title);
+                self.add_item_to_project(&project_id, &content_id).await?;
+            }
+        }
+        
+        println!("Sync complete.");
+        Ok(())
+    }
 }

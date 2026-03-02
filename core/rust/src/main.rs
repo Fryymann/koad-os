@@ -627,6 +627,9 @@ async fn main() -> Result<()> {
                         println!("{:<5} {:<50} {:<15} {:<15}", num, if item.title.len() > 48 { format!("{}...", &item.title[..45]) } else { item.title }, item.status, item.target_version.unwrap_or_default());
                     }
                 }
+                BoardAction::Sync => {
+                    client.sync_issues(2).await?;
+                }
                 _ => println!("Action not yet implemented."),
             }
         }

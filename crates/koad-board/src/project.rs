@@ -159,4 +159,85 @@ impl GitHubClient {
 
         Ok(items)
     }
+
+    pub async fn add_item_to_project(&self, project_id: &str, content_id: &str) -> Result<String> {
+        let query = r#"
+            mutation($projectId: ID!, $contentId: ID!) {
+              addProjectV2ItemById(input: {
+                projectId: $projectId,
+                contentId: $contentId
+              }) {
+                item {
+                  id
+                }
+              }
+            }
+        "#;
+
+        let variables = serde_json::json!({
+            "projectId": project_id,
+            "contentId": content_id,
+        });
+
+        let data: serde_json::Value = self.graphql(query, variables).await?;
+        data["addProjectV2ItemById"]["item"]["id"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow::anyhow!("Failed to add item to project"))
+    }
+
+    pub async fn get_repository_id(&self) -> Result<String> {
+        let query = r#"
+            query($owner: String!, $repo: String!) {
+              repository(owner: $owner, name: $repo) {
+                id
+              }
+            }
+        "#;
+
+        let variables = serde_json::json!({
+            "owner": self.owner,
+            "repo": self.repo,
+        });
+
+        let data: serde_json::Value = self.graphql(query, variables).await?;
+        data["repository"]["id"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow::anyhow!("Repository not found"))
+    }
+
+    pub async fn list_open_issues(&self) -> Result<Vec<(String, i32, String)>> {
+        let query = r#"
+            query($owner: String!, $repo: String!) {
+              repository(owner: $owner, name: $repo) {
+                issues(first: 100, states: OPEN) {
+                  nodes {
+                    id
+                    number
+                    title
+                  }
+                }
+              }
+            }
+        "#;
+
+        let variables = serde_json::json!({
+            "owner": self.owner,
+            "repo": self.repo,
+        });
+
+        let data: serde_json::Value = self.graphql(query, variables).await?;
+        
+        let mut issues = Vec::new();
+        if let Some(nodes) = data.get("repository").and_then(|r| r.get("issues")).and_then(|i| i.get("nodes")) {
+            for node in nodes.as_array().unwrap_or(&vec![]) {
+                let id = node["id"].as_str().unwrap_or_default().to_string();
+                let number = node["number"].as_i64().unwrap_or_default() as i32;
+                let title = node["title"].as_str().unwrap_or_default().to_string();
+                issues.push((id, number, title));
+            }
+        }
+        Ok(issues)
+    }
 }
