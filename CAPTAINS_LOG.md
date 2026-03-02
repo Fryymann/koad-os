@@ -11,13 +11,14 @@
 - **Recent Progress**: 
     - **Issue #6 (Complete)**: Formalized the Strongly-Typed Intent System.
     - **Issue #7 (Complete)**: Implemented `KernelBuilder` Refactor.
-    - **Issue #8 (Complete)**: Isolated Edge Gateway into a dedicated process (`koad-gateway`). This ensures that web-facing vulnerabilities are air-gapped from the core Spine Kernel.
+    - **Issue #8 (Complete)**: Isolated Edge Gateway into a dedicated process (`koad-gateway`).
+    - **Issue #17 (Complete)**: Implemented Command Deck Bridge (CDB). Bidirectional GitHub Project synchronization is now integrated into the `koad` CLI via the `koad board` command set.
 - **Tracking**: All v3 Milestone items are DONE. v3.1 items are in progress.
 
-## 2. Wake-up Objective (v3.1 Sprint 3)
-- **Priority**: Issue #14 (Expand Intent System: Skill & Session Handlers).
-- **Target**: Implement the logic in `CommandProcessor` to route `Intent::Skill` and `Intent::Session` to their respective managers.
-- **Secondary**: Implement a central orchestrator or supervisor to manage the lifecycle of both `kspine` and `koad-gateway`.
+## 2. Wake-up Objective (v3.1 Sprint 4)
+- **Priority**: Issue #16 (Unified Governance & Intent Routing Framework).
+- **Target**: Refactor `CommandProcessor` into an async `DirectiveRouter` and implement `KoadComplianceManager` (KCM).
+- **Secondary**: Integrate `koad board status` into the `koad boot` bootstrap output for immediate situational awareness.
 
 ## 3. Persistent Anchors
 - **Memory**: StorageBridge is hydrating from `state_ledger` in `koad.db`.

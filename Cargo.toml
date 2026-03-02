@@ -6,6 +6,7 @@ members = [
     "crates/koad-cli",
     "crates/koad-tui",
     "crates/koad-gateway",
+    "crates/koad-board",
     "crates/koad-skill-airtable",
     "core/rust"
 ]

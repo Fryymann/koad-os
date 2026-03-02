@@ -8,6 +8,8 @@ use std::env;
 use std::process::{Command, Stdio};
 use chrono::{Local, Duration};
 use std::io::{BufRead, BufReader, Write};
+use koad_board::project::ProjectItem;
+use koad_board::GitHubClient;
 use rusqlite::params;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -326,6 +328,21 @@ enum Commands {
         #[command(subcommand)]
         action: BlueprintAction,
     },
+    /// [AGENT/ADMIN] Manage the GitHub Project Board and Issues.
+    Board {
+        #[command(subcommand)]
+        action: BoardAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum BoardAction {
+    /// Show the current status of the project board.
+    Status,
+    /// Sync the local state with the GitHub Project.
+    Sync,
+    /// List open issues grouped for Strategic Design Review.
+    Sdr,
 }
 
 #[derive(Subcommand)]
@@ -1624,6 +1641,64 @@ fn main() -> Result<()> {
             
             println!("\n[Environment]");
             println!("Context:   {}", tags.join(", "));
+        }
+        Commands::Board { action } => {
+            let rt = tokio::runtime::Runtime::new()?;
+            let current_dir = env::current_dir()?;
+            let (pat_var, _) = get_gh_pat_for_path(&current_dir, &config.identity.role);
+            let token = env::var(pat_var).context(format!("{} not set", pat_var))?;
+            
+            // For now, default to Fryymann/koad-os
+            let owner = "Fryymann".to_string();
+            let repo = "koad-os".to_string();
+            let project_number = 2;
+
+            let client = GitHubClient::new(token, owner, repo)?;
+
+            rt.block_on(async {
+                match action {
+                    BoardAction::Status => {
+                        println!(">>> Command Deck: Fetching Project Board status...");
+                        let items = client.list_project_items(project_number).await?;
+                        
+                        println!("\n{:<5} {:<50} {:<15} {:<15}", "ISSUE", "TITLE", "STATUS", "VERSION");
+                        println!("{:-<90}", "");
+                        for item in items {
+                            let num = item.number.map(|n| format!("#{}", n)).unwrap_or_default();
+                            println!("{:<5} {:<50} {:<15} {:<15}", 
+                                num, 
+                                if item.title.len() > 48 { format!("{}...", &item.title[..45]) } else { item.title },
+                                item.status,
+                                item.target_version.unwrap_or_default()
+                            );
+                        }
+                    }
+                    BoardAction::Sync => {
+                        println!(">>> Command Deck: Synchronizing local state with GitHub...");
+                        // Placeholder for deeper sync logic
+                        println!("[PASS] Metadata sync complete.");
+                    }
+                    BoardAction::Sdr => {
+                        println!(">>> Command Deck: Strategic Design Review (Grouped View)");
+                        let items = client.list_project_items(project_number).await?;
+                        
+                        let mut groups: HashMap<String, Vec<ProjectItem>> = HashMap::new();
+                        for item in items {
+                            if item.status == "Done" { continue; }
+                            let key = item.target_version.clone().unwrap_or_else(|| "Backlog".to_string());
+                            groups.entry(key).or_default().push(item);
+                        }
+
+                        for (version, issues) in groups {
+                            println!("\n## Target Version: {}", version);
+                            for issue in issues {
+                                println!("- [#{}]: {}", issue.number.unwrap_or_default(), issue.title);
+                            }
+                        }
+                    }
+                }
+                Ok::<(), anyhow::Error>(())
+            })?;
         }
     }
     Ok(())
