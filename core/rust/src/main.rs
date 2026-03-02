@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports, clippy::type_complexity)]
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -43,6 +45,54 @@ pub struct Identity {
     pub bio: String,
 }
 
+#[derive(Debug, PartialEq)]
+enum PreFlightStatus {
+    Optimal,
+    Degraded(String),
+    Critical(String),
+}
+
+fn pre_flight(redis_path: &Path, spine_path: &Path) -> PreFlightStatus {
+    let mut errors: Vec<String> = Vec::new();
+    let mut critical = false;
+
+    // 1. Check Redis (The Neural Bus)
+    if !redis_path.exists() {
+        errors.push("Neural Bus (Redis UDS) is missing. Engine Room is likely DARK.".into());
+        critical = true;
+    } else {
+        // Try a quick connection test
+        match redis::Client::open(format!("redis+unix://{}", redis_path.display())) {
+            Ok(client) => {
+                if let Err(e) = client.get_connection() {
+                    errors.push(format!("Neural Bus exists but is NOT RESPONDING: {}", e));
+                    critical = true;
+                }
+            }
+            Err(e) => {
+                errors.push(format!("Failed to initialize Neural Bus client: {}", e));
+                critical = true;
+            }
+        }
+    }
+
+    // 2. Check Spine (The Orchestrator)
+    if !spine_path.exists() {
+        errors.push("Orchestrator (kspine.sock) is missing. Spine is likely OFFLINE.".into());
+        if !critical {
+             return PreFlightStatus::Degraded(errors.join(" "));
+        }
+    }
+
+    if critical {
+        PreFlightStatus::Critical(errors.join(" "))
+    } else if !errors.is_empty() {
+        PreFlightStatus::Degraded(errors.join(" "))
+    } else {
+        PreFlightStatus::Optimal
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Preferences {
     pub languages: Vec<String>,
@@ -71,6 +121,9 @@ struct Cli {
 
     #[arg(short, long, global = true, default_value = "admin")]
     role: String,
+
+    #[arg(long, global = true, default_value_t = false)]
+    no_check: bool,
 }
 
 #[derive(Subcommand)]
@@ -244,6 +297,8 @@ enum BoardAction {
     Status,
     Sync,
     Sdr,
+    Done { id: i32 },
+    Todo { id: i32 },
 }
 
 impl KoadConfig {
@@ -482,6 +537,26 @@ async fn main() -> Result<()> {
     let is_admin = role.to_lowercase() == "admin";
     let has_privileged_access = is_admin || role.to_lowercase() == "pm";
 
+    // --- PRE-FLIGHT CHECKS ---
+    let skip_check = cli.no_check || matches!(cli.command, Commands::Doctor | Commands::Whoami | Commands::Init { .. } | Commands::Scan { .. } | Commands::Auth | Commands::Boot { .. });
+    
+    if !skip_check {
+        let spine_path = KoadConfig::get_home()?.join("kspine.sock");
+        match pre_flight(&redis_path, &spine_path) {
+            PreFlightStatus::Critical(err) => {
+                eprintln!("\n\x1b[31m[CRITICAL] KoadOS Kernel is OFFLINE.\x1b[0m");
+                eprintln!("Details: {}\n", err);
+                eprintln!("Try: 'koad doctor' for diagnostics or restart the spine.");
+                std::process::exit(1);
+            }
+            PreFlightStatus::Degraded(err) => {
+                eprintln!("\x1b[33m[WARNING] KoadOS Kernel is DEGRADED.\x1b[0m");
+                eprintln!("Notice: {}\n", err);
+            }
+            PreFlightStatus::Optimal => {}
+        }
+    }
+
     match cli.command {
         Commands::Boot { agent, project, task: _, compact } => {
             let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -578,11 +653,77 @@ async fn main() -> Result<()> {
         }
         Commands::Ponder { text, tags } => { db.remember("pondering", &text, Some(format!("persona-journal,{}", tags.unwrap_or_default())))?; println!("Reflection recorded."); }
         Commands::Doctor => {
-            println!("--- [TELEMETRY] Neural Link & Grid Integrity ---");
+            println!("\n\x1b[1m--- [TELEMETRY] Neural Link & Grid Integrity ---\x1b[0m");
             let home = KoadConfig::get_home()?;
-            if home.join("kspine.sock").exists() { println!("[PASS] Backbone: Neural bus active"); } else { println!("[FAIL] Backbone: Link severed"); }
-            if home.join("koad.db").exists() { println!("[PASS] Memory Bank: Sectors accessible"); } else { println!("[FAIL] Memory Bank: Data corruption detected"); }
-            if redis_path.exists() { println!("[PASS] Signal: Hot-stream energized"); } else { println!("[INFO] Signal: Offline or external uplink"); }
+            
+            // 1. Engine Room (Redis Process/Socket)
+            print!("{:<30}", "Engine Room (Redis):");
+            if redis_path.exists() {
+                match redis::Client::open(format!("redis+unix://{}", redis_path.display())) {
+                    Ok(client) => {
+                        if let Ok(mut con) = client.get_connection() {
+                            let _: String = redis::cmd("PING").query(&mut con).unwrap_or_else(|_| "FAIL".into());
+                            println!("\x1b[32m[PASS]\x1b[0m Hot-stream energized.");
+                        } else {
+                            println!("\x1b[31m[FAIL]\x1b[0m Socket exists but connection refused.");
+                        }
+                    }
+                    Err(_) => println!("\x1b[31m[FAIL]\x1b[0m Client initialization failed."),
+                }
+            } else {
+                println!("\x1b[31m[FAIL]\x1b[0m Neural Bus (koad.sock) missing.");
+            }
+
+            // 2. Backbone (kspine gRPC Socket)
+            print!("{:<30}", "Backbone (Spine):");
+            let spine_path = home.join("kspine.sock");
+            if spine_path.exists() {
+                 println!("\x1b[32m[PASS]\x1b[0m Neural bus (kspine.sock) active.");
+            } else {
+                 println!("\x1b[33m[WARN]\x1b[0m Orchestrator link severed. Some features offline.");
+            }
+
+            // 3. Memory Bank (SQLite)
+            print!("{:<30}", "Memory Bank (SQLite):");
+            let db_path = home.join("koad.db");
+            if db_path.exists() {
+                match rusqlite::Connection::open(&db_path) {
+                    Ok(conn) => {
+                        let res: rusqlite::Result<i32> = conn.query_row("SELECT 1", [], |r| r.get(0));
+                        if res.is_ok() {
+                            println!("\x1b[32m[PASS]\x1b[0m Sectors accessible.");
+                        } else {
+                            println!("\x1b[31m[FAIL]\x1b[0m Database query failed.");
+                        }
+                    }
+                    Err(_) => println!("\x1b[31m[FAIL]\x1b[0m Database connection failed."),
+                }
+            } else {
+                println!("\x1b[31m[FAIL]\x1b[0m Master record missing.");
+            }
+
+            // 4. Identity Check
+            print!("{:<30}", "Neural Identity:");
+            if config.identity.name != "Koad" || config.identity.role != "Admin" {
+                println!("\x1b[33m[WARN]\x1b[0m Non-standard persona detected: {}", config.identity.name);
+            } else {
+                println!("\x1b[32m[PASS]\x1b[0m Persona: {} ({})", config.identity.name, config.identity.role);
+            }
+
+            println!("\x1b[1m---------------------------------------------------\x1b[0m\n");
+        }
+        Commands::Saveup { summary, scope, facts, auto: _ } => {
+            let fact_str = facts.unwrap_or_default();
+            db.remember("fact", &format!("Saveup ({}): {} | Facts: {}", scope, summary, fact_str), Some(scope.clone()))?;
+            println!("Saveup recorded in memory bank.");
+            
+            let log_path = KoadConfig::get_log_path()?;
+            if let Ok(mut file) = std::fs::OpenOptions::new().append(true).open(&log_path) {
+                use std::io::Write;
+                let log_entry = format!("\n## {} - Saveup: {}\n- Scope: {}\n- Facts: {}\n", Local::now().format("%Y-%m-%d"), summary, scope, fact_str);
+                let _ = file.write_all(log_entry.as_bytes());
+                println!("Session log updated.");
+            }
         }
         Commands::Scan { path } => {
             let t = path.unwrap_or_else(|| env::current_dir().unwrap_or(PathBuf::from(".")));
@@ -629,6 +770,12 @@ async fn main() -> Result<()> {
                 }
                 BoardAction::Sync => {
                     client.sync_issues(2).await?;
+                }
+                BoardAction::Done { id } => {
+                    client.update_item_status(2, id, "Done").await?;
+                }
+                BoardAction::Todo { id } => {
+                    client.update_item_status(2, id, "Todo").await?;
                 }
                 _ => println!("Action not yet implemented."),
             }

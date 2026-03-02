@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports, clippy::type_complexity)]
+
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},

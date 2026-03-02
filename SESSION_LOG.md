@@ -1,4 +1,3 @@
-
 ## 2026-02-22 - Final Bureaucracy Wipeout & CLI-First Transition
 - Scope: KoadOS Core
 - Facts added to memory.
@@ -335,3 +334,14 @@
 - **Testing**: Deployed 13-test parallel E2E Framework in tests/e2e.
 - **Discovery**: Established MAP.md as the central navigation spine.
 - **Issues**: Closed #16, #19, #20, #21, #23, #27. Tracked v4.0/v5.0 backlog (#22, #24, #25, #26).
+
+## 2026-03-02 - Session Close: Issue #29 Kernel Outage Awareness & Pre-Flight Checks
+- **Status**: CONDITION GREEN (v4.0.0 Target)
+- **Core**: Enhanced `koad doctor` to explicitly ping Redis, Spine gRPC, and SQLite DB.
+- **Agent**: Implemented pre-flight health-checks in koad CLI to detect backend outage before command execution, displaying actionable, color-coded degradation alerts.
+- **Orchestrator**: Handled zero compiler warnings across all core workspace crates `cargo clippy -- -D warnings`.
+- **Issues**: Closed #29.
+
+## 2026-03-02 - Saveup: Implemented Kernel Outage Awareness and Pre-Flight checks. Upgraded koad doctor with deep telemetry. Resolved all workspace clippy warnings. Expanded E2E test suite to 31 tests.
+- Scope: Ops/Integrity
+- Facts: Issue #29 closed, Pre-flight active, Doctor telemetry pass, Workspace clippy-clean

@@ -64,6 +64,86 @@ impl GitHubClient {
         Ok(())
     }
 
+    pub async fn get_status_field_id(&self, project_id: &str) -> Result<String> {
+        let query = r#"
+            query($projectId: ID!) {
+              node(id: $projectId) {
+                ... on ProjectV2 {
+                  fields(first: 50) {
+                    nodes {
+                      ... on ProjectV2Field {
+                        id
+                        name
+                      }
+                      ... on ProjectV2SingleSelectField {
+                        id
+                        name
+                      }
+                    }
+                  }
+                }
+              }
+            }
+        "#;
+
+        let variables = serde_json::json!({
+            "projectId": project_id,
+        });
+
+        let data: serde_json::Value = self.graphql(query, variables).await?;
+        let fields = data["node"]["fields"]["nodes"].as_array().ok_or_else(|| anyhow::anyhow!("No fields found"))?;
+        
+        for field in fields {
+            if field["name"].as_str() == Some("Status") {
+                return field["id"].as_str().map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("Field ID missing"));
+            }
+        }
+        
+        anyhow::bail!("Status field not found in project")
+    }
+
+    pub async fn get_status_option_id(&self, project_id: &str, option_name: &str) -> Result<String> {
+        let query = r#"
+            query($projectId: ID!) {
+              node(id: $projectId) {
+                ... on ProjectV2 {
+                  fields(first: 50) {
+                    nodes {
+                      ... on ProjectV2SingleSelectField {
+                        name
+                        options {
+                          id
+                          name
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+        "#;
+
+        let variables = serde_json::json!({
+            "projectId": project_id,
+        });
+
+        let data: serde_json::Value = self.graphql(query, variables).await?;
+        let fields = data["node"]["fields"]["nodes"].as_array().ok_or_else(|| anyhow::anyhow!("No fields found"))?;
+        
+        for field in fields {
+            if field["name"].as_str() == Some("Status") {
+                let options = field["options"].as_array().ok_or_else(|| anyhow::anyhow!("No options found for Status field"))?;
+                for option in options {
+                    if option["name"].as_str() == Some(option_name) {
+                        return option["id"].as_str().map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("Option ID missing"));
+                    }
+                }
+            }
+        }
+        
+        anyhow::bail!("Status option '{}' not found in project", option_name)
+    }
+
     pub async fn list_project_items(&self, project_number: i32) -> Result<Vec<ProjectItem>> {
         let query = r#"
             query($owner: String!, $number: Int!) {

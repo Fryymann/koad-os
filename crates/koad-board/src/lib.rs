@@ -97,4 +97,48 @@ impl GitHubClient {
         println!("Sync complete.");
         Ok(())
     }
+
+    /// Update the status of a project item.
+    pub async fn update_item_status(&self, project_number: i32, issue_number: i32, status: &str) -> Result<()> {
+        println!("Moving Issue #{} to {}...", issue_number, status);
+        
+        // 1. Get Project and Status IDs
+        let project_id = self.get_project_id(project_number).await?;
+        let status_field_id = self.get_status_field_id(&project_id).await?;
+        let status_option_id = self.get_status_option_id(&project_id, status).await?;
+        
+        // 2. Find Item ID for the issue
+        let items = self.list_project_items(project_number).await?;
+        let item_id = items.iter()
+            .find(|i| i.number == Some(issue_number))
+            .map(|i| i.id.clone())
+            .ok_or_else(|| anyhow::anyhow!("Issue #{} not found in Project #{}", issue_number, project_number))?;
+            
+        // 3. Update the item
+        let query = r#"
+            mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                updateProjectV2ItemFieldValue(
+                    input: {
+                        projectId: $projectId,
+                        itemId: $itemId,
+                        fieldId: $fieldId,
+                        value: { singleSelectOptionId: $optionId }
+                    }
+                ) {
+                    projectV2Item { id }
+                }
+            }
+        "#;
+        
+        let variables = serde_json::json!({
+            "projectId": project_id,
+            "itemId": item_id,
+            "fieldId": status_field_id,
+            "optionId": status_option_id
+        });
+        
+        let _: serde_json::Value = self.graphql(query, variables).await?;
+        println!("Issue #{} successfully moved to {}.", issue_number, status);
+        Ok(())
+    }
 }

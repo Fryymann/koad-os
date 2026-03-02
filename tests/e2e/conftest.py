@@ -22,6 +22,7 @@ class KoadTestEnvironment:
         self.koad_home.mkdir(parents=True, exist_ok=True)
         self.bin_dir.mkdir(parents=True, exist_ok=True)
         
+        release_bins = source_root / "target" / "release"
         debug_bins = source_root / "target" / "debug"
         bin_mapping = {
             "koad": "koad",
@@ -31,11 +32,15 @@ class KoadTestEnvironment:
             "koad-tui": "kdash"
         }
         for src_name, dest_name in bin_mapping.items():
-            src = debug_bins / src_name
+            # Try release first, then debug, then root bin
+            src = release_bins / src_name
+            if not src.exists():
+                src = debug_bins / src_name
+            
             if src.exists():
                 shutil.copy(src, self.bin_dir / dest_name)
             else:
-                # Fallback to bin/ if not in target/debug (e.g. pre-built)
+                # Fallback to bin/ if not in target/
                 alt_src = source_root / "bin" / src_name
                 if alt_src.exists():
                     shutil.copy(alt_src, self.bin_dir / dest_name)

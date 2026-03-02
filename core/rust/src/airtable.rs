@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports, clippy::type_complexity)]
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use reqwest::blocking::Client;

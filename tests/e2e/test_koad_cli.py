@@ -114,3 +114,56 @@ def test_crew_manifest(spine, redis_client):
     assert "IdleAgent" in result.stdout
     assert "DARK" in result.stdout
     assert "Total Wake Personnel:" in result.stdout
+
+def test_koad_doctor_full_pass(spine):
+    """Verify koad doctor reports PASS when all systems are up."""
+    result = spine.run_koad(["doctor"])
+    assert result.returncode == 0
+    assert "Neural Link & Grid Integrity" in result.stdout
+    assert "PASS" in result.stdout
+    assert "Engine Room (Redis):" in result.stdout
+    assert "Backbone (Spine):" in result.stdout
+    assert "Memory Bank (SQLite):" in result.stdout
+    assert "Neural Identity:" in result.stdout
+
+def test_preflight_critical_redis_down(koad_env):
+    """Verify that a command fails immediately if Redis is down."""
+    # koad_env starts redis by default, so we stop it
+    koad_env.redis_proc.terminate()
+    koad_env.redis_proc.wait()
+    
+    # Try to run query (which is not excluded from pre-flight)
+    result = koad_env.run_koad(["query", "test"])
+    assert result.returncode != 0
+    assert "CRITICAL" in result.stderr
+    assert "KoadOS Kernel is OFFLINE." in result.stderr
+    assert "Neural Bus (Redis UDS) is missing" in result.stderr
+
+def test_preflight_degraded_spine_down(koad_env):
+    """Verify that a command warns but proceeds if only Spine is down."""
+    # Redis is up (default in koad_env), but spine is not started
+    # Ensure spine socket doesn't exist
+    spine_socket = koad_env.koad_home / "kspine.sock"
+    assert not spine_socket.exists()
+    
+    # Run query
+    result = koad_env.run_koad(["query", "test"])
+    # Should proceed to query logic (which might find nothing but return 0)
+    assert "WARNING" in result.stderr
+    assert "KoadOS Kernel is DEGRADED." in result.stderr
+    assert "Orchestrator (kspine.sock) is missing" in result.stderr
+    # It shouldn't exit with 1
+    assert result.returncode == 0
+
+def test_preflight_skip_check_for_doctor(koad_env):
+    """Verify that 'doctor' command skips pre-flight check so it can diagnose outages."""
+    koad_env.redis_proc.terminate()
+    koad_env.redis_proc.wait()
+    
+    result = koad_env.run_koad(["doctor"])
+    # Should not have the [CRITICAL] header from pre-flight
+    assert "CRITICAL" not in result.stderr
+    assert "KoadOS Kernel is OFFLINE." not in result.stderr
+    # But doctor itself should report the failure
+    assert "FAIL" in result.stdout
+    assert "Engine Room (Redis):" in result.stdout
