@@ -6,19 +6,19 @@
 
 ## 1. Handover State (2026-03-01)
 - **Active Version**: v3.1 (Hardening Phase)
-- **Repo Status**: [CONDITION GREEN] - Active development on **nightly**.
-- **Kernel State**: Spine gRPC (50051) and Gateway (3000) are now separate processes.
+- **Repo Status**: [CONDITION GREEN] - All local changes pushed to **nightly**.
+- **Kernel State**: Spine gRPC (50051) and Gateway (3000) are separate processes.
+- **Project Deck**: Unified [**KoadOS**](https://github.com/users/Fryymann/projects/2) project is the authoritative source of truth.
 - **Recent Progress**: 
-    - **Issue #6 (Complete)**: Formalized the Strongly-Typed Intent System.
-    - **Issue #7 (Complete)**: Implemented `KernelBuilder` Refactor.
-    - **Issue #8 (Complete)**: Isolated Edge Gateway into a dedicated process (`koad-gateway`).
-    - **Issue #17 (Complete)**: Implemented Command Deck Bridge (CDB). Bidirectional GitHub Project synchronization is now integrated into the `koad` CLI via the `koad board` command set.
-- **Tracking**: All v3 Milestone items are DONE. v3.1 items are in progress.
+    - **CDB Bridge**: `koad board` CLI is live.
+    - **Web Deck**: Enhanced with Agent/Issue visibility (v3.2 Early Access).
+    - **Backlog**: Issue #19 (Bug) and #20 (Metrics) banked for v3.2 release.
+- **Learnings**: Strict adherence to "Issue-First" and "Hard Stop" protocols prevents ad-hoc drift.
 
 ## 2. Wake-up Objective (v3.1 Sprint 4)
 - **Priority**: Issue #16 (Unified Governance & Intent Routing Framework).
 - **Target**: Refactor `CommandProcessor` into an async `DirectiveRouter` and implement `KoadComplianceManager` (KCM).
-- **Secondary**: Integrate `koad board status` into the `koad boot` bootstrap output for immediate situational awareness.
+- **Secondary**: Address Issue #19 (Agent Session Visibility Failure) in the Web Deck.
 
 ## 3. Persistent Anchors
 - **Memory**: StorageBridge is hydrating from `state_ledger` in `koad.db`.
