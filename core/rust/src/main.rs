@@ -578,11 +578,11 @@ async fn main() -> Result<()> {
         }
         Commands::Ponder { text, tags } => { db.remember("pondering", &text, Some(format!("persona-journal,{}", tags.unwrap_or_default())))?; println!("Reflection recorded."); }
         Commands::Doctor => {
-            println!("--- KoadOS v3 Doctor ---");
+            println!("--- [TELEMETRY] Hull Integrity & Core Systems ---");
             let home = KoadConfig::get_home()?;
-            if home.join("kspine.sock").exists() { println!("[PASS] Kernel: Socket active"); } else { println!("[FAIL] Kernel: Offline"); }
-            if home.join("koad.db").exists() { println!("[PASS] Storage: Database found"); } else { println!("[FAIL] Storage: Database missing"); }
-            if redis_path.exists() { println!("[PASS] Bus: Redis UDS active"); } else { println!("[INFO] Bus: Redis offline or using TCP"); }
+            if home.join("kspine.sock").exists() { println!("[PASS] Spine: Control bus active"); } else { println!("[FAIL] Spine: Comms blackout"); }
+            if home.join("koad.db").exists() { println!("[PASS] Data Core: Log files accessible"); } else { println!("[FAIL] Data Core: Memory corruption detected"); }
+            if redis_path.exists() { println!("[PASS] Reactor: Hot-path bus energized"); } else { println!("[INFO] Reactor: Cold boot or external bus"); }
         }
         Commands::Scan { path } => {
             let t = path.unwrap_or_else(|| env::current_dir().unwrap_or(PathBuf::from(".")));
@@ -618,9 +618,9 @@ async fn main() -> Result<()> {
             let client = GitHubClient::new(token, "Fryymann".into(), "koad-os".into())?;
             match action {
                 BoardAction::Status => {
-                    println!(">>> Command Deck: Fetching Project Board status...");
+                    println!(">>> [BRIDGE] Accessing Command Deck: Tactical Overview...");
                     let items = client.list_project_items(2).await?;
-                    println!("\n{:<5} {:<50} {:<15} {:<15}", "ISSUE", "TITLE", "STATUS", "VERSION");
+                    println!("\n{:<5} {:<50} {:<15} {:<15}", "REF", "MISSION OBJECTIVE", "STATUS", "VERSION");
                     println!("{:-<90}", "");
                     for item in items {
                         let num = item.number.map(|n| format!("#{}", n)).unwrap_or_default();
