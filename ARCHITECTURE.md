@@ -40,7 +40,7 @@ graph TD
     EDGE -->|TCP 0.0.0.0| TUI(Windows TUI)
     
     %% Diagnostics
-    SPINE --- DOC[Koad Doctor]
+    SPINE --- DOC[Koad Doctor: Pre-flight & Ghost Detection]
 ```
 
 ## 3. Core Component Definitions

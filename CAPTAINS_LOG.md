@@ -4,17 +4,17 @@
 > Admin (Koad) is in SLEEP MODE. 
 > The Spine Kernel is active in the background.
 
-## 1. Handover State (2026-03-01)
+## 1. Handover State (2026-03-02)
 - **Active Version**: v4.0.0 (Stable)
-- **Repo Status**: [CONDITION GREEN] - v3.3 E2E Framework Active; v4.0 Hydration live.
-- **Kernel State**: `DirectiveRouter` unified intent handling; `KoadComplianceManager` (KCM) active.
-- **Agent Hydration**: [v4.0] Enhanced `ASM` with real-time session monitoring and "Intelligence Package" hydration (Mission Briefings) live.
-- **Web Deck**: Command Deck (Vite) upgraded with real-time session tracking, sparklines, and log filtering.
-- **Testing**: [v3.3] Comprehensive E2E Test Suite (`pytest`) established in `tests/e2e/`. Full system verification (Parallel) now mandatory for "Condition Green".
-- **Project Deck**: Unified [**KoadOS**](https://github.com/users/Fryymann/projects/2) project is the authoritative source of truth.
-- **Identity**: `Overseer` role authorized for governance tools.
+- **Repo Status**: [CONDITION GREEN] - v4.0 Outage Awareness & Process Hygiene Live.
+- **Kernel State**: `koad` CLI upgraded with backend-aware pre-flight checks and deep telemetry.
+- **Process Hygiene**: E2E framework hardened with process group termination; ghost detection active in `doctor`.
+- **Testing**: [v4.0] E2E suite expanded to 31 tests covering outage scenarios and telemetry validation.
+- **Project Deck**: Issue #29 and #30 closed.
 
 ## 2. Completed Mission Objectives
+- **Issue #29**: Kernel Outage Awareness & Pre-Flight Checks.
+- **Issue #30**: Process Hygiene & E2E Ghosting Prevention.
 - **Issue #16**: Unified Governance & Intent Routing Framework.
 - **Issue #19**: Agent Session Visibility Failure.
 - **Issue #20**: Advanced System Monitoring & Diagnostics.
