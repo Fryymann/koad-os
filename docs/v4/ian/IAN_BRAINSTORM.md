@@ -14,3 +14,4 @@
 
 ---
 
+So lets talk about the 

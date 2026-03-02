@@ -27,6 +27,7 @@ ctrlc = "3.5.2"
 sysinfo = "0.38.2"
 uuid = { version = "1.21.0", features = ["v4"] }
 koad-board = { path = "../../crates/koad-board" }
+redis = { version = "0.24", features = ["tokio-comp"] }
 
 [dev-dependencies]
 assert_cmd = "2.0"

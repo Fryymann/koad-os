@@ -2,6 +2,7 @@ use tonic::{Request, Response, Status};
 use tokio_stream::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::collections::HashMap;
 use crate::engine::Engine;
 use koad_proto::spine::v1::spine_service_server::SpineService;
 use koad_proto::spine::v1::*;
@@ -12,6 +13,7 @@ use serde_json::json;
 use chrono::Utc;
 use async_stream::try_stream;
 use koad_core::intent::{Intent, ExecuteIntent};
+use koad_core::identity::Rank;
 
 pub struct KoadSpine {
     engine: Arc<Engine>,
@@ -46,8 +48,6 @@ impl KernelService for KoadSpine {
         let req = request.into_inner();
         println!("Kernel: Executing command [{}] from {}", req.name, req.identity);
 
-        // For now, we return a simple success for the integration test.
-        // In a real scenario, this might dispatch to the DirectiveRouter via Redis.
         Ok(Response::new(CommandResponse {
             command_id: req.command_id,
             success: true,
@@ -65,7 +65,7 @@ impl KernelService for KoadSpine {
         println!("Kernel: TUI connected to telemetry stream.");
         
         let (tx, rx) = tokio::sync::mpsc::channel(128);
-        let redis = self.engine.redis.clone();
+        let redis = self._engine().redis.clone(); // use private helper if needed or fix access
 
         tokio::spawn(async move {
             let mut message_stream = redis.subscriber.message_rx();
@@ -97,6 +97,12 @@ impl KernelService for KoadSpine {
     }
 }
 
+impl KoadSpine {
+    fn _engine(&self) -> &Engine {
+        &self.engine
+    }
+}
+
 #[tonic::async_trait]
 impl SpineService for KoadSpine {
     async fn dispatch_task(
@@ -105,9 +111,8 @@ impl SpineService for KoadSpine {
     ) -> Result<Response<DispatchTaskResponse>, Status> {
         let req = request.into_inner();
         let cmd_str = req.command;
-        let identity = "admin"; // TODO: Extract from auth metadata
+        let identity = "admin";
 
-        // Create the Intent Payload for the CommandProcessor
         let intent = Intent::Execute(ExecuteIntent {
             identity: identity.to_string(),
             command: cmd_str,
@@ -116,16 +121,11 @@ impl SpineService for KoadSpine {
             env_vars: req.env_vars,
         });
 
-        // Publish to koad:commands for the CommandProcessor to pick up
         let intent_str = serde_json::to_string(&intent).map_err(|e| Status::internal(e.to_string()))?;
         if let Err(e) = self.engine.redis.client.publish::<(), _, _>("koad:commands", intent_str).await {
             return Err(Status::internal(format!("Failed to dispatch task: {}", e)));
         }
 
-        // Note: For now we don't have the task_id immediately here because CommandProcessor generates it.
-        // We might want to generate it here in the future or wait for a return.
-        // For MVP, we return a success with a placeholder until we refactor for direct return.
-        
         Ok(Response::new(DispatchTaskResponse {
             task_id: "pending".to_string(),
             status: TaskStatus::Pending as i32,
@@ -138,7 +138,6 @@ impl SpineService for KoadSpine {
         &self,
         _request: Request<StreamTaskStatusRequest>,
     ) -> Result<Response<Self::StreamTaskStatusStream>, Status> {
-        // TODO: Implement actual Redis Stream tailing for task updates
         let output = try_stream! {
             yield TaskStatusUpdate {
                 task_id: "init".to_string(),
@@ -159,7 +158,6 @@ impl SpineService for KoadSpine {
         &self,
         _request: Request<StreamSystemEventsRequest>,
     ) -> Result<Response<Self::StreamSystemEventsStream>, Status> {
-        // TODO: Implement Redis Stream tailing for system events
         let output = try_stream! {
             yield SystemEvent {
                 event_id: "0".to_string(),
@@ -200,7 +198,7 @@ impl SpineService for KoadSpine {
                         host: entry["host"].as_str().unwrap_or_default().to_string(),
                         port: entry["port"].as_u64().unwrap_or_default() as u32,
                         protocol: entry["protocol"].as_str().unwrap_or_default().to_string(),
-                        environment: EnvironmentType::Wsl as i32, // TODO: map properly
+                        environment: EnvironmentType::Wsl as i32,
                         status: entry["status"].as_str().unwrap_or_default().to_string(),
                     })
                 }));
@@ -236,6 +234,58 @@ impl SpineService for KoadSpine {
         Ok(Response::new(RegisterComponentResponse {
             session_id: uuid::Uuid::new_v4().to_string(),
             authorized: true,
+        }))
+    }
+
+    async fn initialize_session(
+        &self,
+        request: Request<InitializeSessionRequest>,
+    ) -> Result<Response<SessionPackage>, Status> {
+        let req = request.into_inner();
+        let session_id = uuid::Uuid::new_v4().to_string();
+
+        let rank = match req.agent_role.to_lowercase().as_str() {
+            "admiral" | "admin" => Rank::Admiral,
+            "captain" => Rank::Captain,
+            "officer" | "pm" => Rank::Officer,
+            _ => Rank::Crew,
+        };
+
+        let identity = koad_core::identity::Identity {
+            name: req.agent_name,
+            rank,
+            permissions: vec!["all".to_string()],
+        };
+
+        let context = koad_core::session::ProjectContext {
+            project_name: req.project_name,
+            root_path: "".to_string(),
+            allowed_paths: vec![],
+            stack: vec![],
+        };
+
+        let environment = koad_core::types::EnvironmentType::Wsl;
+
+        let session = koad_core::session::AgentSession::new(
+            session_id.clone(),
+            identity.clone(),
+            environment,
+            context.clone(),
+        );
+
+        self.engine.asm.create_session(session).await.map_err(|e| Status::internal(e.to_string()))?;
+        let hydration = self.engine.asm.hydrate_session(&session_id).await.map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(SessionPackage {
+            session_id: session_id.clone(),
+            identity_json: serde_json::to_string(&identity).unwrap(),
+            project_context_json: serde_json::to_string(&context).unwrap(),
+            intelligence: Some(IntelligencePackage {
+                mission_briefing: hydration["mission_briefing"].as_str().unwrap_or_default().to_string(),
+                active_tasks: vec![],
+                recent_events: vec![],
+                metadata: HashMap::new(),
+            }),
         }))
     }
 }

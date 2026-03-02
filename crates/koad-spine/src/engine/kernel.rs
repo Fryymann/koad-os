@@ -57,6 +57,9 @@ impl KernelBuilder {
         let storage_drain = engine.storage.clone();
         tokio::spawn(async move { storage_drain.start_drain_loop().await; });
 
+        let asm = engine.asm.clone();
+        tokio::spawn(async move { asm.start_session_monitor().await; });
+
         let diagnostics = engine.diagnostics.clone();
         tokio::spawn(async move { diagnostics.start_health_monitor().await; });
 

@@ -13,6 +13,7 @@ pub struct Identity {
 
 /// The hierarchical rank structure of KoadOS.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum Rank {
     /// The Fleet Admiral (Ian). Full system control.
     Admiral,

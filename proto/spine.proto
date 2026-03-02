@@ -20,6 +20,32 @@ service SpineService {
 
   // Identity & Discovery
   rpc RegisterComponent(RegisterComponentRequest) returns (RegisterComponentResponse);
+
+  // Agent Session Lifecycle & Hydration (v4.0)
+  rpc InitializeSession(InitializeSessionRequest) returns (SessionPackage);
+}
+
+// --- Agent Hydration Messages ---
+
+message InitializeSessionRequest {
+  string agent_name = 1;
+  string agent_role = 2;
+  string project_name = 3;
+  EnvironmentType environment = 4;
+}
+
+message SessionPackage {
+  string session_id = 1;
+  string identity_json = 2; // Identity details
+  string project_context_json = 3; // ProjectContext details
+  IntelligencePackage intelligence = 4;
+}
+
+message IntelligencePackage {
+  string mission_briefing = 1; // Tailored task summary for the agent
+  repeated TaskStatusUpdate active_tasks = 2;
+  repeated SystemEvent recent_events = 3;
+  map<string, string> metadata = 4;
 }
 
 // --- Service Discovery Messages ---

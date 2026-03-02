@@ -121,13 +121,13 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
             if let Ok(wfs) = db.get_workflows(None, 20) {
                 app.items_counts[0] = wfs.len();
                 for (_, title, status, project) in wfs {
-                    let style = match status.as_str() {
-                        "Active" => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-                        "Pinned" => Style::default().fg(Color::Yellow),
+                    let style = match status.as_deref() {
+                        Some("Active") => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        Some("Pinned") => Style::default().fg(Color::Yellow),
                         _ => Style::default().fg(Color::White),
                     };
-                    let prefix = if status == "Pinned" { "📌 " } else { "   " };
-                    plan_items.push(ListItem::new(format!("{}[{}] {}", prefix, project.unwrap_or("N/A".into()), title)).style(style));
+                    let prefix = if status.as_deref() == Some("Pinned") { "📌 " } else { "   " };
+                    plan_items.push(ListItem::new(format!("{}[{}] {}", prefix, project, title)).style(style));
                 }
             }
             render_stateful_column(f, " [PLAN] Pinned & Pending ", plan_items, body_chunks[0], &mut app.states[0], app.active_column == 0);

@@ -26,6 +26,7 @@ pub enum TicketStatus {
 
 /// The environment in which a session or task is executing.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum EnvironmentType {
     Wsl,
     Windows,
