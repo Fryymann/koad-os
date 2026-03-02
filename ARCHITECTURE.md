@@ -64,7 +64,16 @@ The execution engine for the OS. It translates agent Intents into literal shell 
 The consolidated I/O edge of KoadOS. Instead of scattered servers causing port collisions, the Edge Gateway acts as a unified reverse-proxy and protocol upgrade layer (HTTP, WebSocket, gRPC) ensuring clean cross-environment connectivity (e.g., WSL to Windows 11).
 
 ## 4. KoadOS Development Canon
-...
+The management of KoadOS is strictly governed by the following protocols to ensure system integrity:
+- **Ticket-First Workflow**: ALL work begins with a local `Ticket` object (Problem/Solution/Implementation) which mirrors to a GitHub Issue.
+- **Anti-Overengineering Protocol (AOP)**: Every ticket MUST undergo a four-pillar evaluation before implementation:
+    1. **Relevance Evaluation**: Does this feature align with the "Agentic OS" vision, or is it a legacy human tool?
+    2. **Value Validation**: Does the security/utility gain outweigh the friction introduced to development and testing?
+    3. **Utility Audit**: Is there a simpler, native way to achieve the goal without adding new dependencies or host-level state?
+    4. **YAGNI Review**: "You Aren't Gonna Need It." Eliminate "just-in-case" architecture before the first line of code is written.
+- **Tight Git Coupling**: Incremental development is enforced via surgical, issue-linked commits.
+- **GitHub Orchestration**: All planning and status tracking is handled via GitHub Projects and Milestones.
+- **Automated Compliance**: The `repo-clean` tool enforces zero-drift repository hygiene.
 - **Self-Documenting Charts**: Architecture maps must be updated in real-time.
 
 ## 5. Security & Isolation (Strategic Direction)

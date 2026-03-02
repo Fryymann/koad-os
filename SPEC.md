@@ -156,8 +156,12 @@ Maintains an audit trail of all Koad actions.
 Achieve absolute process and filesystem isolation for KoadOS agents by utilizing native Unix users.
 
 ### 2. Decision Summary (2026-03-01)
-- **Outcome**: The implementation was fully developed but subsequently **aborted** following a YAGNI review. 
-- **Rationale**: Unix-user isolation introduced excessive friction for development, broke user-space toolchains (Cargo, NVM, Venv), and created non-scalable host-level state management.
+- **Outcome**: The implementation was fully developed but subsequently **aborted** following a formal **Anti-Overengineering Protocol (AOP)** review. 
+- **Rationale**: Unix-user isolation failed all four AOP pillars:
+    1. **Relevance**: Host-level users are human-centric artifacts, not agentic ones.
+    2. **Value**: Security gain was offset by extreme brittle-state cost in E2E tests.
+    3. **Utility**: Native user-space toolchains (Cargo/NVM) were broken by isolation.
+    4. **YAGNI**: We don't need OS-level users for ephemeral micro-agents.
 - **Pivot**: KoadOS will remain a **Consolidated User-Space Architecture**. Isolation will be handled via software-level sandboxing (Sandbox policy) and future process-level isolation using lightweight user-space tools (e.g., `bwrap`).
 - **Benefits**: Improved agility, easier testing, and better alignment with the dynamic lifecycle of AI Micro-Agents.
 
