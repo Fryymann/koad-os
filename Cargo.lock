@@ -1503,7 +1503,7 @@ dependencies = [
 
 [[package]]
 name = "koad-board"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1518,7 +1518,7 @@ dependencies = [
 
 [[package]]
 name = "koad-cli"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1536,7 +1536,7 @@ dependencies = [
 
 [[package]]
 name = "koad-core"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1549,7 +1549,7 @@ dependencies = [
 
 [[package]]
 name = "koad-gateway"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
@@ -1567,7 +1567,7 @@ dependencies = [
 
 [[package]]
 name = "koad-proto"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "prost",
  "prost-types",
@@ -1578,7 +1578,7 @@ dependencies = [
 
 [[package]]
 name = "koad-skill-airtable"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "anyhow",
  "koad-proto",
@@ -1593,7 +1593,7 @@ dependencies = [
 
 [[package]]
 name = "koad-spine"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1621,7 +1621,7 @@ dependencies = [
 
 [[package]]
 name = "koad-tui"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "anyhow",
  "crossterm",

@@ -5,6 +5,7 @@ use koad_core::session::AgentSession;
 use crate::engine::storage_bridge::KoadStorageBridge;
 use koad_core::storage::StorageBridge;
 use chrono::Utc;
+use serde_json::json;
 
 pub struct AgentSessionManager {
     storage: Arc<KoadStorageBridge>,

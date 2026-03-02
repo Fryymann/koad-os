@@ -5,7 +5,7 @@ use tokio::time::sleep;
 use chrono::Utc;
 use sysinfo::System;
 use serde::{Serialize, Deserialize};
-use fred::interfaces::{PubsubInterface, HashesInterface, StreamsInterface};
+use fred::interfaces::{PubsubInterface, HashesInterface, StreamsInterface, SetsInterface, ListInterface};
 
 use crate::discovery::SkillRegistry;
 use tokio::sync::Mutex;
@@ -67,12 +67,12 @@ impl ShipDiagnostics {
 
     async fn run_integrity_scan(&self) -> anyhow::Result<()> {
         let mut sys = self.sys.lock().await;
-        sys.refresh_cpu();
+        sys.refresh_cpu_usage();
         sys.refresh_memory();
 
         let skill_count = {
             let registry = self.skill_registry.lock().await;
-            registry.list_skills().len()
+            registry.skills.len()
         };
 
         // Get active tasks from Redis set
@@ -115,8 +115,6 @@ impl ShipDiagnostics {
     }
 
     async fn check_services(&self) -> anyhow::Result<()> {
-        // Simple TCP health check for the Web Deck (Placeholder logic)
-        // In the future, this will probe the actual Axum port.
         let web_deck = ServiceEntry {
             name: "web-deck".to_string(),
             host: "0.0.0.0".to_string(),

@@ -1046,24 +1046,29 @@ fn main() -> Result<()> {
         }
         Commands::Doctor => {
             println!("--- KoadOS v3 Doctor ---");
-            let res = reqwest::blocking::get("http://localhost:8080/health");
-            match res {
-                Ok(resp) => {
-                    let health: Value = resp.json()?;
-                    println!("[PASS] Kernel: Online (Uptime: {}s)", health["uptime"]);
-                    println!("[PASS] Database: {}", health["database"]);
-                    println!("[PASS] Event Bus: {}", health["event_bus"]);
-                }
-                Err(_) => println!("[FAIL] Kernel: Offline. Run 'kspine start' to fix."),
+            
+            let home = KoadConfig::get_home()?;
+            let spine_socket = home.join("kspine.sock");
+            
+            if spine_socket.exists() {
+                println!("[PASS] Kernel: Socket active ({})", spine_socket.display());
+            } else {
+                println!("[FAIL] Kernel: Offline. Run 'kspine start' to fix.");
             }
             
-            let db_path = KoadConfig::get_home()?.join("koad.db");
-            if db_path.exists() { println!("[PASS] Storage: Database found."); }
-            else { println!("[FAIL] Storage: Database missing!"); }
+            let db_path = home.join("koad.db");
+            if db_path.exists() {
+                println!("[PASS] Storage: Database found.");
+            } else {
+                println!("[FAIL] Storage: Database missing!");
+            }
 
-            let booster_pid = KoadConfig::get_home()?.join("kbooster.pid");
-            if booster_pid.exists() { println!("[INFO] Booster: Active."); }
-            else { println!("[INFO] Booster: Idle/Not running."); }
+            let redis_socket = home.join("koad.sock");
+            if redis_socket.exists() {
+                println!("[PASS] Bus: Redis UDS active.");
+            } else {
+                println!("[INFO] Bus: Redis offline or using TCP.");
+            }
         }
         Commands::Stat { json } => {
             let mut cmd = Command::new("kspine");
@@ -1316,11 +1321,24 @@ fn main() -> Result<()> {
             let url = format!("http://localhost:8080/knowledge?term={}&limit={}&tags={}", 
                 url::form_urlencoded::byte_serialize(term.as_bytes()).collect::<String>(),
                 limit,
-                tags.unwrap_or_default());
-            let res = reqwest::blocking::get(url)?.json::<Vec<Value>>()?;
-            for item in res {
-                println!("- ID:{} [{}] ({}) {}", 
-                    item["id"], item["category"], item["timestamp"], item["content"]);
+                tags.clone().unwrap_or_default());
+            
+            let res = reqwest::blocking::get(url);
+            match res {
+                Ok(resp) => {
+                    let items = resp.json::<Vec<Value>>()?;
+                    for item in items {
+                        println!("- ID:{} [{}] ({}) {}", 
+                            item["id"], item["category"], item["timestamp"], item["content"]);
+                    }
+                }
+                Err(_) => {
+                    // Fallback to local DB
+                    let results = db.query(&term, limit, tags)?;
+                    for (id, cat, content, ts) in results {
+                        println!("- ID:{} [{}] ({}) {}", id, cat, ts, content);
+                    }
+                }
             }
         }
         Commands::Remember { category } => {
@@ -1331,15 +1349,23 @@ fn main() -> Result<()> {
             };
             
             let client = reqwest::blocking::Client::new();
-            client.post("http://localhost:8080/knowledge")
+            let res = client.post("http://localhost:8080/knowledge")
                 .json(&serde_json::json!({
                     "category": cat_str,
                     "content": text,
-                    "tags": tags
+                    "tags": tags.clone()
                 }))
-                .send()?;
+                .timeout(std::time::Duration::from_millis(500))
+                .send();
             
-            println!("Memory updated via Kernel.");
+            match res {
+                Ok(_) => println!("Memory updated via Kernel."),
+                Err(_) => {
+                    // Fallback to local DB
+                    db.remember(cat_str, &text, tags)?;
+                    println!("Kernel offline. Memory updated in local KoadDB.");
+                }
+            }
         }
         Commands::Ponder { text, tags } => {
             let p_tags = format!("persona-journal,{}", tags.unwrap_or_default());

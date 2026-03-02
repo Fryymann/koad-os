@@ -59,9 +59,20 @@ impl KoadComplianceManager {
     }
 
     async fn run_repo_clean(&self) -> anyhow::Result<()> {
-        println!("KCM: Running Repository Cleanup...");
-        let output = Command::new("python3")
-            .arg("/home/ideans/.koad-os/doodskills/repo-clean.py")
+        let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+        let script_path = format!("{}/doodskills/repo-clean.py", koad_home);
+        
+        // Try to find python in venv first
+        let venv_python = format!("{}/venv/bin/python3", koad_home);
+        let python_exe = if std::path::Path::new(&venv_python).exists() {
+            venv_python
+        } else {
+            "python3".to_string()
+        };
+
+        println!("KCM: Running Repository Cleanup at {} using {}...", script_path, python_exe);
+        let output = Command::new(python_exe)
+            .arg(&script_path)
             .output()
             .await?;
         
@@ -74,9 +85,13 @@ impl KoadComplianceManager {
     }
 
     async fn run_audit(&self) -> anyhow::Result<()> {
-        println!("KCM: Running System Audit...");
-        let output = Command::new("/home/ideans/.koad-os/bin/koad")
+        let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+        let koad_bin = format!("{}/bin/koad", koad_home);
+
+        println!("KCM: Running System Audit via {}...", koad_bin);
+        let output = Command::new(&koad_bin)
             .arg("doctor")
+            .env("KOAD_HOME", &koad_home)
             .output()
             .await?;
         
@@ -89,10 +104,14 @@ impl KoadComplianceManager {
     }
 
     async fn sync_board(&self) -> anyhow::Result<()> {
-        println!("KCM: Synchronizing Project Board...");
-        let output = Command::new("/home/ideans/.koad-os/bin/koad")
+        let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+        let koad_bin = format!("{}/bin/koad", koad_home);
+
+        println!("KCM: Synchronizing Project Board via {}...", koad_bin);
+        let output = Command::new(&koad_bin)
             .arg("board")
             .arg("sync")
+            .env("KOAD_HOME", &koad_home)
             .output()
             .await?;
         

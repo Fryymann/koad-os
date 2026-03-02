@@ -81,3 +81,11 @@ Those tasks don't need reasoning — they need **deterministic execution with an
 | **Code linter / checker** | Codestral | Purpose-built for code patterns |
 
 The big Koad agents stay focused on *decisions and orchestration*. The micro-agents handle *enforcement and extraction*. Clean separation of concerns — same philosophy as your Notion agent taxonomy, just one layer deeper.
+
+---
+
+## Micro Agents
+
+#### Git Agent
+Something to help maintain git hygiene and enforce compliance with our git protocols.
+

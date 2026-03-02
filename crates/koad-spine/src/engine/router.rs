@@ -34,11 +34,16 @@ impl DirectiveRouter {
             if payload_str.is_empty() { continue; }
 
             let intent = match serde_json::from_str::<Intent>(&payload_str) {
-                Ok(i) => i,
-                Err(_) => {
+                Ok(i) => {
+                    println!("DirectiveRouter: Parsed Intent: {:?}", i);
+                    i
+                },
+                Err(e) => {
+                    println!("DirectiveRouter: JSON Parse Error: {}. Payload: {}", e, payload_str);
                     // Fallback to legacy/raw string as Execute intent
                     match serde_json::from_str::<serde_json::Value>(&payload_str) {
                         Ok(json) => {
+                             println!("DirectiveRouter: Falling back to legacy JSON Execute");
                              Intent::Execute(ExecuteIntent {
                                  identity: json["identity"].as_str().unwrap_or("unknown").to_string(),
                                  command: json["command"].as_str().unwrap_or("").to_string(),
@@ -48,6 +53,7 @@ impl DirectiveRouter {
                              })
                         }
                         Err(_) => {
+                            println!("DirectiveRouter: Falling back to raw string Execute");
                             Intent::Execute(ExecuteIntent {
                                 identity: "admin".to_string(),
                                 command: payload_str,
