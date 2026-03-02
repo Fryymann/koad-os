@@ -267,6 +267,10 @@ enum Commands {
         #[command(subcommand)]
         action: BoardAction,
     },
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
+    },
     Stat {
         #[arg(short, long)]
         json: bool,
@@ -325,6 +329,15 @@ enum TemplateAction {
 enum SkillAction {
     List,
     Run { name: String, #[arg(last = true)] args: Vec<String> },
+}
+
+#[derive(Subcommand)]
+enum ProjectAction {
+    List,
+    Register { name: String, path: Option<PathBuf> },
+    Sync { id: Option<i32> },
+    Info { id: i32 },
+    Retire { id: i32 },
 }
 
 #[derive(Subcommand)]
@@ -392,7 +405,18 @@ impl KoadDB {
         
         // Ensure tables exist
         conn.execute("CREATE TABLE IF NOT EXISTS knowledge (id INTEGER PRIMARY KEY, category TEXT, content TEXT, tags TEXT, timestamp TEXT, active INTEGER DEFAULT 1)", [])?;
-        conn.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY, name TEXT UNIQUE, path TEXT, role TEXT, stack TEXT, last_boot TEXT)", [])?;
+        conn.execute("CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY, 
+            name TEXT UNIQUE, 
+            path TEXT, 
+            role TEXT, 
+            stack TEXT, 
+            last_boot TEXT,
+            branch TEXT,
+            health TEXT,
+            last_sync TEXT,
+            active INTEGER DEFAULT 1
+        )", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY, agent TEXT, role TEXT, status TEXT, last_heartbeat TEXT, pid INTEGER)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, content TEXT, timestamp TEXT)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS brainstorms (id INTEGER PRIMARY KEY, content TEXT, category TEXT, timestamp TEXT)", [])?;
@@ -441,18 +465,79 @@ impl KoadDB {
         Ok(results)
     }
 
+    fn get_active_project(&self, path: &str) -> Result<Option<(String, Option<String>, Option<String>)>> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT name, role, stack FROM projects WHERE ?1 LIKE path || '%' AND active = 1 ORDER BY length(path) DESC LIMIT 1")?;
+        let mut rows = stmt.query(params![path])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?)))
+        } else {
+            Ok(None)
+        }
+    }
+
     fn register_project(&self, name: &str, path: &str) -> Result<()> {
         let conn = self.get_conn()?;
-        conn.execute("INSERT INTO projects (name, path, last_boot) VALUES (?1, ?2, ?3) ON CONFLICT(name) DO UPDATE SET path=?2, last_boot=?3", params![name, path, Local::now().to_rfc3339()])?;
+        conn.execute(
+            "INSERT INTO projects (name, path, last_sync, health) VALUES (?1, ?2, ?3, 'unknown') 
+             ON CONFLICT(name) DO UPDATE SET path=?2",
+            params![name, path, Local::now().to_rfc3339()],
+        )?;
         Ok(())
     }
 
-    fn get_active_project(&self, path: &str) -> Result<Option<(String, Option<String>, Option<String>)>> {
+    fn list_projects(&self) -> Result<Vec<(i32, String, String, String, String)>> {
         let conn = self.get_conn()?;
-        let mut stmt = conn.prepare("SELECT name, role, stack FROM projects WHERE ?1 LIKE path || '%' ORDER BY length(path) DESC LIMIT 1")?;
-        let mut rows = stmt.query([path])?;
-        if let Some(row) = rows.next()? { Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?))) }
-        else { Ok(None) }
+        let mut stmt = conn.prepare("SELECT id, name, path, branch, health FROM projects WHERE active = 1")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "unknown".into()),
+                row.get::<_, Option<String>>(4)?.unwrap_or_else(|| "unknown".into()),
+            ))
+        })?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
+    fn get_project(&self, id: i32) -> Result<Option<(String, String, Option<String>, Option<String>, Option<String>)>> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT name, path, branch, health, last_sync FROM projects WHERE id = ?1")?;
+        let mut rows = stmt.query(params![id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn update_project_status(&self, id: i32, branch: Option<String>, health: Option<String>) -> Result<()> {
+        let conn = self.get_conn()?;
+        let ts = Local::now().to_rfc3339();
+        match (branch, health) {
+            (Some(b), Some(h)) => {
+                conn.execute("UPDATE projects SET branch = ?1, health = ?2, last_sync = ?3 WHERE id = ?4", params![b, h, ts, id])?;
+            }
+            (Some(b), None) => {
+                conn.execute("UPDATE projects SET branch = ?1, last_sync = ?2 WHERE id = ?3", params![b, ts, id])?;
+            }
+            (None, Some(h)) => {
+                conn.execute("UPDATE projects SET health = ?1, last_sync = ?2 WHERE id = ?3", params![h, ts, id])?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn retire_project(&self, id: i32) -> Result<()> {
+        let conn = self.get_conn()?;
+        conn.execute("UPDATE projects SET active = 0 WHERE id = ?1", params![id])?;
+        Ok(())
     }
 
     fn get_project_by_path(&self, path: &str) -> Result<Option<ProjectItemData>> {
@@ -771,19 +856,29 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Scan { path } => {
-            let t = path.unwrap_or_else(|| env::current_dir().unwrap_or(PathBuf::from(".")));
+            let t = path.unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
             let output = Command::new("fdfind").arg(".koad").arg("--type").arg("d").arg("--hidden").arg("--absolute-path").arg(&t).output();
             match output {
                 Ok(out) if out.status.success() => {
                     let mut count = 0;
                     for line in String::from_utf8_lossy(&out.stdout).lines() {
-                        let project_root = PathBuf::from(line).parent().unwrap().to_path_buf();
-                        let name = project_root.file_name().unwrap().to_string_lossy();
-                        if db.register_project(&name, &project_root.to_string_lossy()).is_ok() { println!("[PASS] Registered: {}", name); count += 1; }
+                        if let Some(project_root) = PathBuf::from(line).parent() {
+                            let name = project_root.file_name().unwrap_or_default().to_string_lossy();
+                            if db.register_project(&name, &project_root.to_string_lossy()).is_ok() { 
+                                println!("[PASS] Registered: {}", name); 
+                                count += 1; 
+                            }
+                        }
                     }
                     println!("Scan complete. {} projects registered.", count);
                 },
-                _ => { if t.join(".koad").exists() { db.register_project(&t.file_name().unwrap().to_string_lossy(), &t.to_string_lossy())?; println!("Project registered."); } }
+                _ => { 
+                    if t.join(".koad").exists() { 
+                        let name = t.file_name().unwrap_or_default().to_string_lossy();
+                        db.register_project(&name, &t.to_string_lossy())?; 
+                        println!("Project '{}' registered.", name); 
+                    } 
+                }
             }
         }
         Commands::Publish { message } => {
@@ -823,6 +918,87 @@ async fn main() -> Result<()> {
                     client.update_item_status(2, id, "Todo").await?;
                 }
                 _ => println!("Action not yet implemented."),
+            }
+        }
+        Commands::Project { action } => {
+            match action {
+                ProjectAction::List => {
+                    let projects = db.list_projects()?;
+                    println!("\n\x1b[1m--- KoadOS Master Project Map ---\x1b[0m");
+                    println!("{:<4} {:<20} {:<15} {:<10} {}", "ID", "NAME", "BRANCH", "HEALTH", "PATH");
+                    println!("{}", "-".repeat(80));
+                    for (id, name, path, branch, health) in projects {
+                        let health_color = match health.as_str() {
+                            "green" => "\x1b[32m",
+                            "yellow" => "\x1b[33m",
+                            "red" => "\x1b[31m",
+                            _ => "\x1b[0m",
+                        };
+                        println!("{:<4} {:<20} {:<15} {}{:<10}\x1b[0m {}", id, name, branch, health_color, health, path);
+                    }
+                    println!();
+                }
+                ProjectAction::Register { name, path } => {
+                    let p = path.unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+                    let abs_path = std::fs::canonicalize(p)?;
+                    db.register_project(&name, &abs_path.to_string_lossy())?;
+                    println!("Project '{}' registered at {}.", name, abs_path.display());
+                }
+                ProjectAction::Sync { id } => {
+                    let project_id = match id {
+                        Some(i) => i,
+                        None => {
+                            let current_dir = env::current_dir()?;
+                            let mut project_id = None;
+                            let projects = db.list_projects()?;
+                            for (id, _, path, _, _) in projects {
+                                if current_dir.to_string_lossy().starts_with(&path) {
+                                    project_id = Some(id);
+                                    break;
+                                }
+                            }
+                            project_id.ok_or_else(|| anyhow::anyhow!("Not inside a registered project. Provide an ID."))?
+                        }
+                    };
+                    
+                    let (_, path, _, _, _) = db.get_project(project_id)?.ok_or_else(|| anyhow::anyhow!("Project not found"))?;
+                    
+                    // Simple logic: Get git branch
+                    let branch_out = Command::new("git").arg("-C").arg(&path).arg("rev-parse").arg("--abbrev-ref").arg("HEAD").output();
+                    let branch = if let Ok(out) = branch_out {
+                        if out.status.success() {
+                            Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+                        } else { None }
+                    } else { None };
+
+                    // Simple logic: Check for 'package.json' or 'Cargo.toml' or 'koad.json'
+                    let health = if Path::new(&path).join("package.json").exists() || 
+                                    Path::new(&path).join("Cargo.toml").exists() ||
+                                    Path::new(&path).join("koad.json").exists() {
+                        Some("green".into())
+                    } else {
+                        Some("unknown".into())
+                    };
+
+                    db.update_project_status(project_id, branch, health)?;
+                    println!("Project #{} status updated.", project_id);
+                }
+                ProjectAction::Info { id } => {
+                    if let Some((name, path, branch, health, last_sync)) = db.get_project(id)? {
+                        println!("\n\x1b[1m--- Project Info: {} ---\x1b[0m", name);
+                        println!("{:<15} {}", "Path:", path);
+                        println!("{:<15} {}", "Branch:", branch.unwrap_or_else(|| "unknown".into()));
+                        println!("{:<15} {}", "Health:", health.unwrap_or_else(|| "unknown".into()));
+                        println!("{:<15} {}", "Last Sync:", last_sync.unwrap_or_else(|| "never".into()));
+                        println!();
+                    } else {
+                        println!("Project #{} not found.", id);
+                    }
+                }
+                ProjectAction::Retire { id } => {
+                    db.retire_project(id)?;
+                    println!("Project #{} retired.", id);
+                }
             }
         }
         Commands::Stat { json } => {
