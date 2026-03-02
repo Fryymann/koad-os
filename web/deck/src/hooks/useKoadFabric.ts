@@ -14,9 +14,27 @@ export interface TelemetryEvent {
   level: number;
 }
 
+export interface AgentSession {
+  session_id: string;
+  agent: string;
+  role: string;
+  status: string;
+  last_heartbeat: string;
+}
+
+export interface ProjectIssue {
+  id: string;
+  title: string;
+  status: string;
+  number?: number;
+  target_version?: string;
+}
+
 export function useKoadFabric() {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [logs, setLogs] = useState<TelemetryEvent[]>([]);
+  const [agents, setAgents] = useState<AgentSession[]>([]);
+  const [issues, setIssues] = useState<ProjectIssue[]>([]);
   const ws = useRef<WebSocket | null>(null);
 
   const sendCommand = (cmd: string) => {
@@ -41,7 +59,10 @@ export function useKoadFabric() {
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.cpu_usage !== undefined) {
+          if (data.type === 'SYSTEM_SYNC') {
+            setAgents(data.payload.agents);
+            setIssues(data.payload.issues);
+          } else if (data.cpu_usage !== undefined) {
             setStats(data);
           } else if (data.message) {
             setLogs(prev => [data, ...prev].slice(0, 100));
@@ -67,5 +88,5 @@ export function useKoadFabric() {
     return () => ws.current?.close();
   }, []);
 
-  return { stats, logs, sendCommand };
+  return { stats, logs, agents, issues, sendCommand };
 }

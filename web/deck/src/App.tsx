@@ -3,7 +3,7 @@ import { useKoadFabric } from './hooks/useKoadFabric'
 import { CommandConsole } from './components/CommandConsole'
 
 const App: React.FC = () => {
-  const { stats, logs, sendCommand } = useKoadFabric();
+  const { stats, logs, agents, issues, sendCommand } = useKoadFabric();
 
   return (
     <div style={{
@@ -42,10 +42,34 @@ const App: React.FC = () => {
         </section>
 
         {/* Fabric Panel */}
-        <section style={{ border: '1px solid #00ff00', padding: '1.5rem', background: '#0a0a0a' }}>
+        <section style={{ border: '1px solid #00ff00', padding: '1.5rem', background: '#0a0a0a', overflowY: 'auto' }}>
           <h2 style={{ color: '#00ffff', borderBottom: '1px solid #222' }}>ACTIVE FABRIC</h2>
-          <div style={{ marginTop: '1rem', color: '#444' }}>
-            Scanning hangar for active connections...
+          <div style={{ marginTop: '1rem' }}>
+            <h3 style={{ fontSize: '0.8rem', color: '#888' }}>AGENTS IN SESSION</h3>
+            {agents.length === 0 && <div style={{ color: '#444', fontStyle: 'italic' }}>No active sessions.</div>}
+            {agents.map(a => (
+              <div key={a.session_id} style={{ padding: '0.5rem', border: '1px solid #222', marginBottom: '0.5rem' }}>
+                <div style={{ fontWeight: 'bold', color: '#00ff00' }}>{a.agent} <span style={{ color: '#888', fontWeight: 'normal' }}>({a.role})</span></div>
+                <div style={{ fontSize: '0.7rem', color: '#555' }}>ID: {a.session_id.slice(0,8)}...</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ marginTop: '2rem' }}>
+            <h3 style={{ fontSize: '0.8rem', color: '#888' }}>COMMAND DECK (ISSUES)</h3>
+            {issues.length === 0 && <div style={{ color: '#444', fontStyle: 'italic' }}>No issues found.</div>}
+            {issues.map(i => (
+              <div key={i.id} style={{ padding: '0.5rem', border: '1px solid #222', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
+                <div style={{ fontWeight: 'bold' }}>
+                  {i.number && <span style={{ color: '#00ffff', marginRight: '0.5rem' }}>#{i.number}</span>}
+                  {i.title}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.3rem' }}>
+                  <span style={{ color: i.status === 'Done' ? '#00ff00' : '#ffa500' }}>[{i.status.toUpperCase()}]</span>
+                  {i.target_version && <span style={{ color: '#888' }}>{i.target_version}</span>}
+                </div>
+              </div>
+            ))}
           </div>
         </section>
 
