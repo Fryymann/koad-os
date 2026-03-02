@@ -75,6 +75,10 @@ The management of KoadOS is strictly governed by the following protocols to ensu
 - **GitHub Orchestration**: All planning and status tracking is handled via GitHub Projects and Milestones.
 - **Automated Compliance**: The `repo-clean` tool enforces zero-drift repository hygiene.
 - **Master Manifest**: The `MANIFEST.md` file acts as the authoritative source inventory and role-based ownership map.
+- **Debris Sweep**: Regular purging of "dead weight" from the construct:
+    1. **Dead Code Sweep**: Identification and removal of unreachable or unused functions and modules.
+    2. **Ghost File Purge**: Deletion of orphaned assets, stale temporary files, and backup debris.
+    3. **Artifact Cleanup**: Aggressive clearing of build caches (`target/`, `node_modules/`, `venv/`) when they exceed baseline capacity.
 - **Deep-Grid Testing Protocol (DTP)**: Every construct component MUST maintain 100% "Test Surface" coverage:
     1. **Full-Spectrum Audit**: No exclusion. Every logic path must have Unit, Integration, and E2E coverage.
     2. **Integration Matrix Review**: Automated verification of cross-system links (e.g., Gateway-to-Spine).
