@@ -142,6 +142,27 @@ Maintains an audit trail of all Koad actions.
 
 ---
 
-## 4. Development & Testing
+## 5. Development & Testing
 - **Language**: Rust 2021.
 - **Test Suite**: `cargo test` (Includes auth, serialization, and harvest logic).
+
+---
+
+# v4.0.x Technical Specifications
+
+## v4.0.x Core: Unix-Based Agent Isolation (System Native) [STATUS: ABORTED/PIVOTED]
+
+### 1. Objective (Historical)
+Achieve absolute process and filesystem isolation for KoadOS agents by utilizing native Unix users.
+
+### 2. Decision Summary (2026-03-01)
+- **Outcome**: The implementation was fully developed but subsequently **aborted** following a YAGNI review. 
+- **Rationale**: Unix-user isolation introduced excessive friction for development, broke user-space toolchains (Cargo, NVM, Venv), and created non-scalable host-level state management.
+- **Pivot**: KoadOS will remain a **Consolidated User-Space Architecture**. Isolation will be handled via software-level sandboxing (Sandbox policy) and future process-level isolation using lightweight user-space tools (e.g., `bwrap`).
+- **Benefits**: Improved agility, easier testing, and better alignment with the dynamic lifecycle of AI Micro-Agents.
+
+### 3. Cleanup Complete
+- [x] `koad-setup` utility removed.
+- [x] `sudo` wrapping removed from `DirectiveRouter`.
+- [x] Directory paths reverted to `~/.koad-os/`.
+- [x] E2E Tests updated and passing in user-space.

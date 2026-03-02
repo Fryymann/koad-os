@@ -3,21 +3,21 @@ import json
 import time
 
 def test_koad_doctor_report(spine):
-    """Verify that koad doctor runs and reports a healthy system."""
+    """Verify that koad doctor reports on system health."""
     result = spine.run_koad(["doctor"])
     assert result.returncode == 0
-    assert "Kernel: Socket active" in result.stdout
-    assert "Storage: Database found" in result.stdout
+    assert "[PASS] Kernel: Socket active" in result.stdout
+    assert "[PASS] Storage: Database found" in result.stdout
 
 def test_governance_clean_execution(spine, redis_client):
     """Verify that a Governance::Clean intent is routed and executed."""
     # repo-clean.py requires a git repo to run git commands
     import subprocess
     subprocess.run(["git", "init"], cwd=spine.koad_home, check=True)
-    
+
     # Give kspine a moment to subscribe
     time.sleep(2)
-    
+
     # 1. Dispatch Governance Intent
     intent = {
         "type": "governance",
@@ -27,7 +27,7 @@ def test_governance_clean_execution(spine, redis_client):
         }
     }
     redis_client.publish("koad:commands", json.dumps(intent))
-    
+
     # 2. Wait for KCM execution event
     found_success = False
     for _ in range(50):
@@ -40,5 +40,5 @@ def test_governance_clean_execution(spine, redis_client):
                     break
         if found_success: break
         time.sleep(0.1)
-        
+
     assert found_success, "KCM should have executed and logged the CLEAN governance action"

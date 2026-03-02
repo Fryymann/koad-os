@@ -299,12 +299,15 @@ impl KoadDB {
         let manager = SqliteConnectionManager::file(path);
         let pool = Pool::new(manager)?;
         let conn = pool.get()?;
+        
+        // Ensure tables exist
         conn.execute("CREATE TABLE IF NOT EXISTS knowledge (id INTEGER PRIMARY KEY, category TEXT, content TEXT, tags TEXT, timestamp TEXT, active INTEGER DEFAULT 1)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY, name TEXT UNIQUE, path TEXT, role TEXT, stack TEXT, last_boot TEXT)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY, agent TEXT, role TEXT, status TEXT, last_heartbeat TEXT, pid INTEGER)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, content TEXT, timestamp TEXT)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS brainstorms (id INTEGER PRIMARY KEY, content TEXT, category TEXT, timestamp TEXT)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS executions (id INTEGER PRIMARY KEY, command TEXT, args TEXT, timestamp TEXT, status TEXT)", [])?;
+        
         Ok(Self { pool })
     }
 
@@ -465,8 +468,16 @@ fn get_gdrive_token_for_path(path: &Path) -> (String, String) {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let config = KoadConfig::load().unwrap_or_else(|_| KoadConfig::default_initial());
+    
     let db_path = KoadConfig::get_home()?.join("koad.db");
     let db = KoadDB::new(&db_path)?;
+    
+    let redis_path = if let Ok(env_socket) = env::var("REDIS_SOCKET") {
+        PathBuf::from(env_socket)
+    } else {
+        KoadConfig::get_home()?.join("koad.sock")
+    };
+
     let role = cli.role.clone();
     let is_admin = role.to_lowercase() == "admin";
     let has_privileged_access = is_admin || role.to_lowercase() == "pm";
@@ -505,9 +516,9 @@ async fn main() -> Result<()> {
                     "last_heartbeat": Utc::now().to_rfc3339(),
                     "metadata": {}
                 });
-                let redis_conn = KoadConfig::get_home()?.join("koad.sock");
-                if redis_conn.exists() {
-                    let client = redis::Client::open(format!("redis+unix://{}", redis_conn.display()))?;
+                
+                if redis_path.exists() {
+                    let client = redis::Client::open(format!("redis+unix://{}", redis_path.display()))?;
                     if let Ok(mut con) = client.get_connection() {
                         let _: () = redis::cmd("HSET").arg("koad:state").arg(format!("koad:session:{}", session_id)).arg(session_data.to_string()).query(&mut con)?;
                         let _: () = redis::cmd("PUBLISH").arg("koad:sessions").arg(serde_json::json!({ "type": "session_update", "data": session_data }).to_string()).query(&mut con)?;
@@ -571,7 +582,7 @@ async fn main() -> Result<()> {
             let home = KoadConfig::get_home()?;
             if home.join("kspine.sock").exists() { println!("[PASS] Kernel: Socket active"); } else { println!("[FAIL] Kernel: Offline"); }
             if home.join("koad.db").exists() { println!("[PASS] Storage: Database found"); } else { println!("[FAIL] Storage: Database missing"); }
-            if home.join("koad.sock").exists() { println!("[PASS] Bus: Redis UDS active"); } else { println!("[INFO] Bus: Redis offline or using TCP"); }
+            if redis_path.exists() { println!("[PASS] Bus: Redis UDS active"); } else { println!("[INFO] Bus: Redis offline or using TCP"); }
         }
         Commands::Scan { path } => {
             let t = path.unwrap_or_else(|| env::current_dir().unwrap_or(PathBuf::from(".")));
@@ -620,9 +631,8 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Stat { json } => {
-            let redis_conn = KoadConfig::get_home()?.join("koad.sock");
-            if redis_conn.exists() {
-                let mut con = redis::Client::open(format!("redis+unix://{}", redis_conn.display()))?.get_connection()?;
+            if redis_path.exists() {
+                let mut con = redis::Client::open(format!("redis+unix://{}", redis_path.display()))?.get_connection()?;
                 let res: Option<String> = redis::cmd("HGET").arg("koad:state").arg("system_stats").query(&mut con)?;
                 if let Some(s) = res { 
                     if json { println!("{}", s); }
@@ -644,13 +654,11 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Crew => {
-            let home = KoadConfig::get_home()?;
-            let redis_conn = home.join("koad.sock");
-            if !redis_conn.exists() {
+            if !redis_path.exists() {
                 anyhow::bail!("Kernel offline (Redis UDS missing). Cannot fetch live crew manifest.");
             }
 
-            let mut con = redis::Client::open(format!("redis+unix://{}", redis_conn.display()))?.get_connection()?;
+            let mut con = redis::Client::open(format!("redis+unix://{}", redis_path.display()))?.get_connection()?;
             let sessions: HashMap<String, String> = redis::cmd("HGETALL").arg("koad:state").query(&mut con)?;
             
             println!("--- KoadOS Crew Manifest (Live) ---");

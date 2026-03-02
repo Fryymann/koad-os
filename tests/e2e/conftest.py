@@ -42,7 +42,7 @@ class KoadTestEnvironment:
                 if item.is_file():
                     shutil.copy(item, dest_skills / item.name)
 
-        # Symlink venv so KCM can find python with rich
+        # Symlink venv
         venv_src = source_root / "venv"
         venv_dest = self.koad_home / "venv"
         if venv_src.exists():
@@ -110,25 +110,20 @@ class KoadTestEnvironment:
     def stop(self):
         if self.spine_proc:
             self.spine_proc.terminate()
-            try:
-                self.spine_proc.wait(timeout=5)
-            except:
-                self.spine_proc.kill()
+            try: self.spine_proc.wait(timeout=5)
+            except: self.spine_proc.kill()
         if self.spine_log_handle:
             self.spine_log_handle.close()
             
         if self.redis_proc:
             self.redis_proc.terminate()
-            try:
-                self.redis_proc.wait(timeout=5)
-            except:
-                self.redis_proc.kill()
+            try: self.redis_proc.wait(timeout=5)
+            except: self.redis_proc.kill()
 
     def run_koad(self, args, env=None):
         my_env = os.environ.copy()
         my_env["KOAD_HOME"] = str(self.koad_home)
-        if env:
-            my_env.update(env)
+        if env: my_env.update(env)
         cmd = [str(self.bin_dir / "koad")] + args
         return subprocess.run(cmd, capture_output=True, text=True, env=my_env)
 
@@ -158,7 +153,6 @@ def redis_client(koad_env):
 
 @pytest.fixture
 def db_conn(koad_env):
-    # koad remember creates the DB if missing
     koad_env.run_koad(["whoami"]) 
     conn = sqlite3.connect(koad_env.db_path)
     yield conn

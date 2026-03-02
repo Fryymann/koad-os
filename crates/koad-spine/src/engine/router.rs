@@ -184,7 +184,7 @@ impl DirectiveRouter {
         }
 
         // 5. Execute Command
-        let output = tokio::process::Command::new("/usr/bin/bash")
+        let output = tokio::process::Command::new("bash")
             .arg("-c")
             .arg(&cmd_str)
             .env("PATH", path)
@@ -201,6 +201,7 @@ impl DirectiveRouter {
 
                 let final_state = json!({
                     "task_id": task_id,
+                    "command": cmd_str,
                     "status": final_status,
                     "exit_code": status_code,
                     "stdout": stdout,

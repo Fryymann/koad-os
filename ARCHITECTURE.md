@@ -64,9 +64,13 @@ The execution engine for the OS. It translates agent Intents into literal shell 
 The consolidated I/O edge of KoadOS. Instead of scattered servers causing port collisions, the Edge Gateway acts as a unified reverse-proxy and protocol upgrade layer (HTTP, WebSocket, gRPC) ensuring clean cross-environment connectivity (e.g., WSL to Windows 11).
 
 ## 4. KoadOS Development Canon
-The management of KoadOS is strictly governed by the following protocols to ensure system integrity:
-- **Ticket-First Workflow**: ALL work begins with a local `Ticket` object (Problem/Solution/Implementation) which mirrors to a GitHub Issue.
-- **Tight Git Coupling**: Incremental development is enforced via surgical, issue-linked commits.
-- **GitHub Orchestration**: All planning and status tracking is handled via GitHub Projects and Milestones.
-- **Automated Compliance**: The `repo-clean` tool enforces zero-drift repository hygiene.
+...
 - **Self-Documenting Charts**: Architecture maps must be updated in real-time.
+
+## 5. Security & Isolation (Strategic Direction)
+
+KoadOS prioritizes **Agility and Scalability** for AI Micro-Agents. While Unix-user isolation was explored, the system has reverted to a **Consolidated User-Space Architecture** at `~/.koad-os/` to avoid host-level friction.
+
+### 🛡 Sandbox Policy
+- **Software-Level Isolation**: The `Sandbox` engine enforces command blacklisting (e.g., preventing `sudo` or access to sensitive Admin paths).
+- **Process Isolation**: Future micro-agents will utilize lightweight user-space sandboxing (like `bwrap` or WASM) to ensure process integrity without requiring root-level Unix users.
