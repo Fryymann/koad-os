@@ -156,11 +156,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
 
     // Relay Task: Redis PubSub (Real-time Stats) -> WebSocket
     let mut message_stream = subscriber.message_rx();
-    let _ = subscriber.subscribe(vec!["koad:telemetry", "koad:telemetry:stats"]).await;
+    let _ = subscriber.subscribe(vec!["koad:telemetry", "koad:telemetry:stats", "koad:sessions"]).await;
 
     let relay_handle = tokio::spawn(async move {
         while let Ok(message) = message_stream.recv().await {
             let payload = message.value.as_string().unwrap_or_default();
+            
+            // If it's a session update, we might want to wrap it or send as is
+            // The frontend hook currently expects some specific formats
             if sender.send(Message::Text(payload)).await.is_err() {
                 break;
             }

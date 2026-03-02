@@ -1,4 +1,4 @@
-# KoadOS v3.1 Technical Specification
+# KoadOS v3.2 Technical Specification
 
 ## 1. Schema Definition (`koad.json`)
 

@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 pub struct KoadStorageBridge {
-    redis: Arc<RedisClient>,
+    pub redis: Arc<RedisClient>,
     sqlite: Arc<Mutex<Connection>>,
     drain_interval: Duration,
 }

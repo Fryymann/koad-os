@@ -11,6 +11,8 @@ pub struct AgentSessionManager {
     sessions: Arc<Mutex<HashMap<String, AgentSession>>>,
 }
 
+use fred::interfaces::PubsubInterface;
+
 impl AgentSessionManager {
     pub fn new(storage: Arc<KoadStorageBridge>) -> Self {
         Self {
@@ -25,10 +27,17 @@ impl AgentSessionManager {
         
         // 1. Persist to Storage Bridge
         let payload = serde_json::to_value(&session)?;
-        self.storage.set_state(&format!("koad:session:{}", session_id), payload).await?;
+        self.storage.set_state(&format!("koad:session:{}", session_id), payload.clone()).await?;
         
         // 2. Add to active memory
         sessions.insert(session_id, session);
+
+        // 3. Notify subscribers
+        let msg = json!({
+            "type": "SESSION_UPDATE",
+            "payload": payload
+        });
+        let _: () = self.storage.redis.client.publish("koad:sessions", msg.to_string()).await?;
         
         Ok(())
     }
@@ -40,7 +49,15 @@ impl AgentSessionManager {
             
             // Sync heartbeat to storage
             let payload = serde_json::to_value(&session)?;
-            self.storage.set_state(&format!("koad:session:{}", session_id), payload).await?;
+            self.storage.set_state(&format!("koad:session:{}", session_id), payload.clone()).await?;
+
+            // Notify subscribers
+            let msg = json!({
+                "type": "SESSION_UPDATE",
+                "payload": payload
+            });
+            let _: () = self.storage.redis.client.publish("koad:sessions", msg.to_string()).await?;
+
             Ok(())
         } else {
             anyhow::bail!("Session not found")

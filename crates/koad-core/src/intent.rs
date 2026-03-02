@@ -15,6 +15,8 @@ pub enum Intent {
     Session(SessionIntent),
     /// A system-level lifecycle event.
     System(SystemIntent),
+    /// A governance or compliance action.
+    Governance(GovernanceIntent),
 }
 
 /// Details for a shell command execution.
@@ -81,6 +83,26 @@ pub enum SystemAction {
     SyncNotion,
     /// Clear system caches and temporary files.
     PruneCache,
+}
+
+/// Details for a governance or compliance action.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GovernanceIntent {
+    /// The specific governance action to perform.
+    pub action: GovernanceAction,
+    /// Optional target or scope for the action.
+    pub target: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum GovernanceAction {
+    /// Clean the repository of transient state files (e.g., logs, PIDs).
+    Clean,
+    /// Audit the repository and system health.
+    Audit,
+    /// Synchronize local metadata with the Project Board.
+    Sync,
 }
 
 #[cfg(test)]

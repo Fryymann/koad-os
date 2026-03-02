@@ -5,6 +5,9 @@ export interface SystemStats {
   memory_usage: number;
   uptime: number;
   timestamp: number;
+  skill_count: number;
+  active_tasks: number;
+  history?: SystemStats[];
 }
 
 export interface TelemetryEvent {
@@ -16,10 +19,18 @@ export interface TelemetryEvent {
 
 export interface AgentSession {
   session_id: string;
-  agent: string;
-  role: string;
-  status: string;
+  identity: {
+    name: string;
+    rank: string;
+    permissions: string[];
+  };
+  environment: string;
+  context: {
+    project_name: string;
+    root_path: string;
+  };
   last_heartbeat: string;
+  metadata: Record<string, string>;
 }
 
 export interface ProjectIssue {
@@ -62,8 +73,21 @@ export function useKoadFabric() {
           if (data.type === 'SYSTEM_SYNC') {
             setAgents(data.payload.agents);
             setIssues(data.payload.issues);
+          } else if (data.type === 'SESSION_UPDATE') {
+            const updatedSession = data.payload;
+            setAgents(prev => {
+              const exists = prev.find(a => a.session_id === updatedSession.session_id);
+              if (exists) {
+                return prev.map(a => a.session_id === updatedSession.session_id ? updatedSession : a);
+              } else {
+                return [...prev, updatedSession];
+              }
+            });
           } else if (data.cpu_usage !== undefined) {
-            setStats(data);
+            setStats(prev => ({
+              ...data,
+              history: prev ? [...(prev.history || []), data].slice(-20) : [data]
+            }));
           } else if (data.message) {
             setLogs(prev => [data, ...prev].slice(0, 100));
           }

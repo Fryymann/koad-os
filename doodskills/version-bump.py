@@ -47,8 +47,7 @@ def bump_version(new_version):
         rpc_path.write_text(new_content)
         print(f"[OK] Updated {rpc_path}")
 
-    print("
-Version bump complete. Remember to run 'koad publish' if everything looks correct.")
+    print(f"Version bump to {new_version} complete. Remember to run 'koad board sync' if everything looks correct.")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

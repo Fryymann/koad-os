@@ -21,8 +21,33 @@ impl Sandbox {
             return Self::evaluate_agent_policy(command);
         }
 
+        // Compliance Agent Policies (Overseer)
+        if role == "compliance" || role == "overseer" {
+            return Self::evaluate_compliance_policy(command);
+        }
+
         // Default Deny for unknown identities
         PolicyResult::Denied(format!("Unknown identity role: {}", identity))
+    }
+
+    fn evaluate_compliance_policy(command: &str) -> PolicyResult {
+        let cmd_lower = command.to_lowercase();
+        // Allowed tools for compliance
+        let allowed_tools = [
+            "koad board", 
+            "koad doctor", 
+            "python3 /home/ideans/.koad-os/doodskills/repo-clean.py",
+            "git status",
+            "ls "
+        ];
+        
+        for tool in allowed_tools.iter() {
+            if cmd_lower.contains(tool) {
+                return PolicyResult::Allowed;
+            }
+        }
+        
+        PolicyResult::Denied("Compliance role is restricted to governance and inspection tools.".to_string())
     }
 
     fn evaluate_agent_policy(command: &str) -> PolicyResult {
@@ -76,5 +101,12 @@ mod tests {
     #[test]
     fn test_developer_allowed() {
          assert!(matches!(Sandbox::evaluate("developer", "cargo build"), PolicyResult::Allowed));
+    }
+
+    #[test]
+    fn test_compliance_policy() {
+        assert!(matches!(Sandbox::evaluate("compliance", "koad board status"), PolicyResult::Allowed));
+        assert!(matches!(Sandbox::evaluate("overseer", "git status"), PolicyResult::Allowed));
+        assert!(matches!(Sandbox::evaluate("compliance", "rm -rf /"), PolicyResult::Denied(_)));
     }
 }

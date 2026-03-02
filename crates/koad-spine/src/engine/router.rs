@@ -1,17 +1,17 @@
 use std::sync::Arc;
 use crate::engine::Engine;
 use crate::engine::sandbox::{Sandbox, PolicyResult};
-use fred::interfaces::{PubsubInterface, HashesInterface, StreamsInterface, EventInterface};
+use fred::interfaces::{PubsubInterface, HashesInterface, StreamsInterface, EventInterface, SetsInterface};
 use serde_json::json;
 use uuid::Uuid;
 use chrono::Utc;
-use koad_core::intent::Intent;
+use koad_core::intent::{Intent, SessionAction, SystemAction, ExecuteIntent};
 
-pub struct CommandProcessor {
+pub struct DirectiveRouter {
     engine: Arc<Engine>,
 }
 
-impl CommandProcessor {
+impl DirectiveRouter {
     pub fn new(engine: Arc<Engine>) -> Self {
         Self { engine }
     }
@@ -21,11 +21,11 @@ impl CommandProcessor {
         let mut message_stream = redis.subscriber.message_rx();
 
         if let Err(e) = redis.subscriber.subscribe("koad:commands").await {
-            eprintln!("CommandProcessor: Failed to subscribe to Redis: {}", e);
+            eprintln!("DirectiveRouter: Failed to subscribe to Redis: {}", e);
             return;
         }
 
-        println!("CommandProcessor: Listening for commands on 'koad:commands'...");
+        println!("DirectiveRouter: Listening for intents on 'koad:commands'...");
 
         while let Ok(message) = message_stream.recv().await {
             if message.channel != "koad:commands" { continue; }
@@ -33,40 +33,78 @@ impl CommandProcessor {
             let payload_str = message.value.as_string().unwrap_or_default();
             if payload_str.is_empty() { continue; }
 
-            // Parse the Intent Payload
-            // 1. Try modern Intent enum (strongly-typed)
-            // 2. Fallback to legacy JSON format
-            // 3. Fallback to raw string (admin)
-            let (identity, cmd_str) = match serde_json::from_str::<Intent>(&payload_str) {
-                Ok(Intent::Execute(exec)) => (exec.identity, exec.command),
-                Ok(other) => {
-                    // Log but skip for now until Skill/Session handlers are added
-                    eprintln!("CommandProcessor: Received non-execute intent: {:?}", other);
-                    continue;
-                }
+            let intent = match serde_json::from_str::<Intent>(&payload_str) {
+                Ok(i) => i,
                 Err(_) => {
-                    // Fallback path
+                    // Fallback to legacy/raw string as Execute intent
                     match serde_json::from_str::<serde_json::Value>(&payload_str) {
                         Ok(json) => {
-                            let id = json["identity"].as_str().unwrap_or("unknown").to_string();
-                            let cmd = json["command"].as_str().unwrap_or("").to_string();
-                            (id, cmd)
+                             Intent::Execute(ExecuteIntent {
+                                 identity: json["identity"].as_str().unwrap_or("unknown").to_string(),
+                                 command: json["command"].as_str().unwrap_or("").to_string(),
+                                 args: vec![],
+                                 working_dir: None,
+                                 env_vars: std::collections::HashMap::new(),
+                             })
                         }
                         Err(_) => {
-                            // Raw string fallback
-                            ("admin".to_string(), payload_str)
+                            Intent::Execute(ExecuteIntent {
+                                identity: "admin".to_string(),
+                                command: payload_str,
+                                args: vec![],
+                                working_dir: None,
+                                env_vars: std::collections::HashMap::new(),
+                            })
                         }
                     }
                 }
             };
 
-            if cmd_str.is_empty() { continue; }
-
             let engine = self.engine.clone();
             tokio::spawn(async move {
-                let task_id = Uuid::new_v4().to_string();
-                Self::execute_task(engine, task_id, identity, cmd_str).await;
+                Self::route_intent(engine, intent).await;
             });
+        }
+    }
+
+    async fn route_intent(engine: Arc<Engine>, intent: Intent) {
+        match intent {
+            Intent::Execute(exec) => {
+                let task_id = Uuid::new_v4().to_string();
+                Self::execute_task(engine, task_id, exec.identity, exec.command).await;
+            }
+            Intent::Governance(gov) => {
+                if let Err(e) = engine.kcm.handle_intent(gov).await {
+                    eprintln!("DirectiveRouter: Governance Action Failed: {}", e);
+                }
+            }
+            Intent::Session(session) => {
+                match session.action {
+                    SessionAction::Heartbeat => {
+                        let _ = engine.asm.heartbeat(&session.session_id).await;
+                    }
+                    SessionAction::Stop => {
+                        println!("DirectiveRouter: Stopping session {}", session.session_id);
+                    }
+                    _ => {
+                        eprintln!("DirectiveRouter: Unhandled Session Action: {:?}", session.action);
+                    }
+                }
+            }
+            Intent::System(sys) => {
+                match sys.action {
+                    SystemAction::Reboot => {
+                        println!("DirectiveRouter: System REBOOT initiated.");
+                        std::process::exit(0);
+                    }
+                    _ => {
+                        eprintln!("DirectiveRouter: Unhandled System Action: {:?}", sys.action);
+                    }
+                }
+            }
+            Intent::Skill(skill) => {
+                eprintln!("DirectiveRouter: Skill intent routing not yet fully implemented: {:?}", skill);
+            }
         }
     }
 
@@ -95,9 +133,9 @@ impl CommandProcessor {
                     ]
                 ).await.unwrap_or_default();
                 
-                return; // Abort Execution
+                return;
             }
-            PolicyResult::Allowed => {} // Proceed
+            PolicyResult::Allowed => {}
         }
 
         // 2. Initial State in Redis
@@ -109,8 +147,9 @@ impl CommandProcessor {
             "updated_at": timestamp
         });
         let _: () = engine.redis.client.hset(format!("koad:task:{}", task_id), ("state", initial_state.to_string())).await.unwrap_or_default();
+        let _: () = engine.redis.client.sadd("koad:active_tasks", task_id.clone()).await.unwrap_or_default();
 
-        // 3. Broadcast START Event to Stream
+        // 3. Broadcast START Event
         let _: () = engine.redis.client.xadd(
             "koad:events:stream", 
             false, 
@@ -126,17 +165,12 @@ impl CommandProcessor {
         ).await.unwrap_or_default();
 
         // 4. Construct Environment
-        // We explicitly inject a robust PATH to ensure systemd and other restricted 
-        // environments can find the necessary binaries.
         let mut path = std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".to_string());
-        
-        // Ensure Koad-critical paths are present
         let koad_paths = vec![
             "/home/ideans/.cargo/bin",
             "/home/ideans/.nvm/versions/node/v22.21.1/bin",
             "/home/ideans/.koad-os/bin"
         ];
-        
         for p in koad_paths {
             if !path.contains(p) {
                 path = format!("{}:{}", p, path);
@@ -159,7 +193,6 @@ impl CommandProcessor {
                 let status_code = out.status.code().unwrap_or(-1);
                 let final_status = if status_code == 0 { "SUCCESS" } else { "FAILED" };
 
-                // 5. Update State in Redis
                 let final_state = json!({
                     "task_id": task_id,
                     "status": final_status,
@@ -169,8 +202,8 @@ impl CommandProcessor {
                     "updated_at": final_timestamp
                 });
                 let _: () = engine.redis.client.hset(format!("koad:task:{}", task_id), ("state", final_state.to_string())).await.unwrap_or_default();
+                let _: () = engine.redis.client.srem("koad:active_tasks", task_id.clone()).await.unwrap_or_default();
 
-                // 6. Broadcast END Event to Stream
                 if let Err(e) = engine.redis.client.xadd::<String, _, _, _, _>(
                     "koad:events:stream", 
                     false, 
@@ -184,10 +217,11 @@ impl CommandProcessor {
                         ("timestamp", &final_timestamp.to_string())
                     ]
                 ).await {
-                    eprintln!("CommandProcessor: xadd failed: {}", e);
+                    eprintln!("DirectiveRouter: xadd failed: {}", e);
                 }
             },
             Err(e) => {
+                let _: () = engine.redis.client.srem("koad:active_tasks", task_id.clone()).await.unwrap_or_default();
                 let _: () = engine.redis.client.xadd(
                     "koad:events:stream", 
                     false, 
@@ -205,4 +239,3 @@ impl CommandProcessor {
         }
     }
 }
-

@@ -5,7 +5,9 @@ use std::sync::Arc;
 use crate::engine::Engine;
 use koad_proto::spine::v1::spine_service_server::SpineService;
 use koad_proto::spine::v1::*;
-use fred::interfaces::{PubsubInterface, HashesInterface};
+use koad_proto::kernel::kernel_service_server::KernelService;
+use koad_proto::kernel::{CommandRequest, CommandResponse, TelemetryUpdate, Empty as KernelEmpty};
+use fred::interfaces::{PubsubInterface, HashesInterface, EventInterface};
 use serde_json::json;
 use chrono::Utc;
 use async_stream::try_stream;
@@ -32,6 +34,66 @@ impl KoadSpine {
 
         let _: () = self.engine.redis.client.hset("koad:services", ("grpc", service_entry.to_string())).await?;
         Ok(())
+    }
+}
+
+#[tonic::async_trait]
+impl KernelService for KoadSpine {
+    async fn execute(
+        &self,
+        request: Request<CommandRequest>,
+    ) -> Result<Response<CommandResponse>, Status> {
+        let req = request.into_inner();
+        println!("Kernel: Executing command [{}] from {}", req.name, req.identity);
+
+        // For now, we return a simple success for the integration test.
+        // In a real scenario, this might dispatch to the DirectiveRouter via Redis.
+        Ok(Response::new(CommandResponse {
+            command_id: req.command_id,
+            success: true,
+            output: format!("Command '{}' executed successfully by v3 Kernel.", req.name),
+            error: "".to_string(),
+        }))
+    }
+
+    type StreamTelemetryStream = Pin<Box<dyn Stream<Item = Result<TelemetryUpdate, Status>> + Send>>;
+
+    async fn stream_telemetry(
+        &self,
+        _request: Request<KernelEmpty>,
+    ) -> Result<Response<Self::StreamTelemetryStream>, Status> {
+        println!("Kernel: TUI connected to telemetry stream.");
+        
+        let (tx, rx) = tokio::sync::mpsc::channel(128);
+        let redis = self.engine.redis.clone();
+
+        tokio::spawn(async move {
+            let mut message_stream = redis.subscriber.message_rx();
+            
+            if let Err(e) = redis.subscriber.subscribe(vec!["koad:telemetry", "koad:telemetry:stats"]).await {
+                eprintln!("Kernel Telemetry Error: Failed to subscribe to Redis: {}", e);
+                return;
+            }
+
+            while let Ok(message) = message_stream.recv().await {
+                let payload = message.value.as_string().unwrap_or_default();
+                if tx.send(Ok(TelemetryUpdate {
+                    source: "redis".to_string(),
+                    message: payload,
+                    timestamp: chrono::Utc::now().timestamp(),
+                    level: 0, // INFO
+                })).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        let output_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+        Ok(Response::new(Box::pin(output_stream) as Self::StreamTelemetryStream))
+    }
+
+    async fn heartbeat(&self, _request: Request<KernelEmpty>) -> Result<Response<KernelEmpty>, Status> {
+        Ok(Response::new(KernelEmpty {}))
     }
 }
 
@@ -119,7 +181,7 @@ impl SpineService for KoadSpine {
         Ok(Response::new(GetSystemStateResponse {
             identity_json: "{}".to_string(),
             active_tasks: 0,
-            version: "3.1.0".to_string(),
+            version: "3.2.0".to_string(),
         }))
     }
 

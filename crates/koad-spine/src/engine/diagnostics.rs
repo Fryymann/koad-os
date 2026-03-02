@@ -7,12 +7,17 @@ use sysinfo::System;
 use serde::{Serialize, Deserialize};
 use fred::interfaces::{PubsubInterface, HashesInterface, StreamsInterface};
 
+use crate::discovery::SkillRegistry;
+use tokio::sync::Mutex;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemStats {
     pub cpu_usage: f32,
     pub memory_usage: u64,
     pub uptime: u64,
     pub timestamp: i64,
+    pub skill_count: usize,
+    pub active_tasks: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,16 +32,18 @@ pub struct ServiceEntry {
 
 pub struct ShipDiagnostics {
     redis: Arc<RedisClient>,
-    sys: Arc<tokio::sync::Mutex<System>>,
+    sys: Arc<Mutex<System>>,
+    skill_registry: Arc<Mutex<SkillRegistry>>,
 }
 
 impl ShipDiagnostics {
-    pub fn new(redis: Arc<RedisClient>) -> Self {
+    pub fn new(redis: Arc<RedisClient>, skill_registry: Arc<Mutex<SkillRegistry>>) -> Self {
         let mut sys = System::new_all();
         sys.refresh_all();
         Self { 
             redis,
-            sys: Arc::new(tokio::sync::Mutex::new(sys)),
+            sys: Arc::new(Mutex::new(sys)),
+            skill_registry,
         }
     }
 
@@ -63,17 +70,31 @@ impl ShipDiagnostics {
         sys.refresh_cpu();
         sys.refresh_memory();
 
+        let skill_count = {
+            let registry = self.skill_registry.lock().await;
+            registry.list_skills().len()
+        };
+
+        // Get active tasks from Redis set
+        let active_tasks: usize = self.redis.client.scard("koad:active_tasks").await.unwrap_or(0);
+
         let stats = SystemStats {
             cpu_usage: sys.global_cpu_info().cpu_usage(),
             memory_usage: sys.used_memory() / 1024 / 1024, // MB
             uptime: System::uptime(),
             timestamp: Utc::now().timestamp(),
+            skill_count,
+            active_tasks,
         };
 
         let payload = serde_json::to_string(&stats)?;
         
         // Publish to Hot Path (PubSub)
         let _: () = self.redis.client.publish("koad:telemetry:stats", payload.clone()).await?;
+
+        // 1.2 Push to History List (Sparklines)
+        let _: () = self.redis.client.lpush("koad:stats:history", payload.clone()).await?;
+        let _: () = self.redis.client.ltrim("koad:stats:history", 0, 99).await?;
 
         // Add to Event Stream (Persistence)
         let _: () = self.redis.client.xadd(

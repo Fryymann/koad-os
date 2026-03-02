@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::engine::redis::RedisClient;
-    use crate::engine::commands::CommandProcessor;
+    use crate::engine::router::DirectiveRouter;
     use crate::engine::Engine;
     use std::sync::Arc;
     use fred::interfaces::{PubsubInterface, EventInterface, StreamsInterface, ClientLike, KeysInterface};
@@ -24,7 +24,7 @@ mod tests {
         let db_path = format!("{}/test_exec.db", home);
         let engine = Arc::new(Engine::new(home, &db_path).await.unwrap());
         
-        let proc = CommandProcessor::new(engine.clone());
+        let proc = DirectiveRouter::new(engine.clone());
         let _proc_handle = tokio::spawn(async move {
             proc.start().await;
         });
@@ -67,7 +67,7 @@ mod tests {
             if found { break; }
         }
 
-        assert!(found, "CommandProcessor should execute command and log to event stream");
+        assert!(found, "DirectiveRouter should execute command and log to event stream");
     }
 
     #[tokio::test]
@@ -77,7 +77,7 @@ mod tests {
         let db_path = format!("{}/test_path.db", home);
         let engine = Arc::new(Engine::new(home, &db_path).await.unwrap());
         
-        let proc = CommandProcessor::new(engine.clone());
+        let proc = DirectiveRouter::new(engine.clone());
         let _proc_handle = tokio::spawn(async move {
             proc.start().await;
         });
@@ -117,6 +117,6 @@ mod tests {
             if output_ok { break; }
         }
 
-        assert!(output_ok, "CommandProcessor should be able to find and execute 'cargo'");
+        assert!(output_ok, "DirectiveRouter should be able to find and execute 'cargo'");
     }
 }
