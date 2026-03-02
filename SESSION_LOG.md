@@ -1,3 +1,4 @@
+
 ## 2026-02-22 - Final Bureaucracy Wipeout & CLI-First Transition
 - Scope: KoadOS Core
 - Facts added to memory.
@@ -342,6 +343,13 @@
 - **Orchestrator**: Handled zero compiler warnings across all core workspace crates `cargo clippy -- -D warnings`.
 - **Issues**: Closed #29.
 
-## 2026-03-02 - Saveup: Implemented Kernel Outage Awareness and Pre-Flight checks. Upgraded koad doctor with deep telemetry. Resolved all workspace clippy warnings. Expanded E2E test suite to 31 tests.
-- Scope: Ops/Integrity
-- Facts: Issue #29 closed, Pre-flight active, Doctor telemetry pass, Workspace clippy-clean
+## 2026-03-02 - Session Close: Issue #30 Process Hygiene & E2E Ghosting Prevention
+- **Status**: CONDITION GREEN (v4.0.0 Target)
+- **E2E**: Implemented process group termination (os.killpg) and setsid in conftest.py to prevent orphaned processes during test failures.
+- **Diagnostics**: Added 'Ghost Process Detection' to `koad doctor`, identifying misaligned Redis or Spine instances via `sysinfo`.
+- **Hygiene**: Deployed automated zombie sweeps before E2E environment setup.
+- **Issues**: Closed #30.
+
+## 2026-03-02 - Saveup: Hardened E2E process management and implemented Ghost Process Detection in koad doctor.
+- Scope: Ops/Process-Hygiene
+- Facts: Issue #30 closed, os.killpg active in E2E, Ghost detection deployed

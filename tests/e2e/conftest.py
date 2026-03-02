@@ -5,6 +5,7 @@ import time
 import pytest
 import sqlite3
 import redis
+import signal
 from pathlib import Path
 
 class KoadTestEnvironment:
@@ -19,6 +20,7 @@ class KoadTestEnvironment:
         self.spine_log_handle = None
 
     def setup(self, source_root: Path):
+        self.zombie_sweep()
         self.koad_home.mkdir(parents=True, exist_ok=True)
         self.bin_dir.mkdir(parents=True, exist_ok=True)
         
@@ -82,11 +84,24 @@ class KoadTestEnvironment:
 """
         (self.koad_home / "koad.json").write_text(koad_json_content)
 
+    def zombie_sweep(self):
+        """Kill any lingering kspine or redis-server processes from previous failed runs."""
+        # Simple sweep using pkill for the specific test binary names
+        # Note: This might kill non-test processes if they share the same name, 
+        # but in our E2E env we use 'kspine' specifically for the test binary.
+        try:
+            subprocess.run(["pkill", "-9", "-f", str(self.bin_dir / "kspine")], stderr=subprocess.DEVNULL)
+            # Only kill redis if it's pointing to our specific test socket
+            subprocess.run(["pkill", "-9", "-f", f"redis-server.*{self.socket_path}"], stderr=subprocess.DEVNULL)
+        except:
+            pass
+
     def start_redis(self):
         self.redis_proc = subprocess.Popen(
             ["redis-server", "--port", "0", "--unixsocket", str(self.socket_path)],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
+            preexec_fn=os.setsid # Start in new process group
         )
         for _ in range(50):
             if self.socket_path.exists():
@@ -107,7 +122,8 @@ class KoadTestEnvironment:
             stdout=self.spine_log_handle,
             stderr=self.spine_log_handle,
             env=my_env,
-            text=True
+            text=True,
+            preexec_fn=os.setsid # Start in new process group
         )
         spine_socket = self.koad_home / "kspine.sock"
         for _ in range(200):
@@ -121,16 +137,21 @@ class KoadTestEnvironment:
 
     def stop(self):
         if self.spine_proc:
-            self.spine_proc.terminate()
-            try: self.spine_proc.wait(timeout=5)
-            except: self.spine_proc.kill()
+            try:
+                os.killpg(os.getpgid(self.spine_proc.pid), signal.SIGKILL)
+            except:
+                pass
+            self.spine_proc.wait()
+            
         if self.spine_log_handle:
             self.spine_log_handle.close()
             
         if self.redis_proc:
-            self.redis_proc.terminate()
-            try: self.redis_proc.wait(timeout=5)
-            except: self.redis_proc.kill()
+            try:
+                os.killpg(os.getpgid(self.redis_proc.pid), signal.SIGKILL)
+            except:
+                pass
+            self.redis_proc.wait()
 
     def run_koad(self, args, env=None):
         my_env = os.environ.copy()

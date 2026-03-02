@@ -15,6 +15,7 @@ use koad_board::GitHubClient;
 use rusqlite::params;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
+use sysinfo::{System, Process, Pid};
 
 mod tui;
 mod airtable;
@@ -91,6 +92,40 @@ fn pre_flight(redis_path: &Path, spine_path: &Path) -> PreFlightStatus {
     } else {
         PreFlightStatus::Optimal
     }
+}
+
+fn find_ghosts(home: &Path) -> Vec<(u32, String)> {
+    let mut ghosts = Vec::new();
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let expected_redis_socket = home.join("koad.sock").to_string_lossy().into_owned();
+
+    for (pid, process) in sys.processes() {
+        let name = process.name().to_string_lossy();
+        let cmd_parts: Vec<String> = process.cmd().iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        let cmd = cmd_parts.join(" ");
+        
+        // 1. Check for redis-server ghosts
+        if name.contains("redis-server") && !cmd.contains(&expected_redis_socket) {
+            ghosts.push((pid.as_u32(), format!("Ghost Redis: {}", cmd)));
+        }
+        
+        // 2. Check for kspine ghosts
+        if name.contains("kspine") || name.contains("koad-spine") {
+             let process_home = process.environ().iter()
+                .map(|s| s.to_string_lossy())
+                .find(|s| s.starts_with("KOAD_HOME="))
+                .map(|s| s.split_once('=').unwrap().1.to_string());
+             
+             if let Some(ph) = process_home {
+                 if ph != home.to_string_lossy() {
+                     ghosts.push((pid.as_u32(), format!("Ghost Spine (Home: {})", ph)));
+                 }
+             }
+        }
+    }
+    ghosts
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -708,6 +743,16 @@ async fn main() -> Result<()> {
                 println!("\x1b[33m[WARN]\x1b[0m Non-standard persona detected: {}", config.identity.name);
             } else {
                 println!("\x1b[32m[PASS]\x1b[0m Persona: {} ({})", config.identity.name, config.identity.role);
+            }
+
+            // 5. Ghost Process Detection
+            let ghosts = find_ghosts(&home);
+            if !ghosts.is_empty() {
+                println!("\n\x1b[33m[WARN] Ghost Processes Detected ({}):\x1b[0m", ghosts.len());
+                for (pid, info) in ghosts {
+                    println!("  - PID {}: {}", pid, info);
+                }
+                println!("  Try: 'pkill -9 kspine' or manual cleanup if these interfere with your session.");
             }
 
             println!("\x1b[1m---------------------------------------------------\x1b[0m\n");
