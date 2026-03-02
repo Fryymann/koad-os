@@ -2,42 +2,42 @@
 
 This manifest serves as the authoritative inventory of the KoadOS source tree, defining the role, ownership, and technical stack of every component.
 
-## 1. System Core (The Kernel Swarm)
+## 1. System Core (The Construct)
 | Component | Path | Language | Agent Owner | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
-| **Koad Kernel** | `crates/koad-spine` | Rust | **Koad (Admin)** | Central event hub, gRPC server, and service orchestrator. |
-| **Edge Gateway** | `crates/koad-gateway` | Rust | **Network Agent** | Unified I/O proxy for Web and WebSocket traffic. |
-| **Koad CLI** | `core/rust` | Rust | **Koad (Admin)** | The primary control plane binary used by humans and agents. |
-| **Proto Spec** | `proto/` | Protobuf | **Architect** | Language-agnostic definitions for gRPC services. |
+| **Koad Spine** | `crates/koad-spine` | Rust | **Koad (Admin)** | Central neural hub, gRPC server, and construct orchestrator. |
+| **Koad Gateway** | `crates/koad-gateway` | Rust | **Network Agent** | Unified virtual proxy for Web and WebSocket uplinks. |
+| **Koad CLI** | `core/rust` | Rust | **Koad (Admin)** | The primary terminal interface for jacking into the construct. |
+| **Koad Proto** | `proto/` | Protobuf | **Architect** | Digital blueprints for inter-component communication. |
 
 ## 2. Shared Foundations
 | Library | Path | Language | Purpose |
 | :--- | :--- | :--- | :--- |
-| **koad-core** | `crates/koad-core` | Rust | Shared types, strongly-typed Intents, and Storage traits. |
-| **koad-proto** | `crates/koad-proto` | Rust | Compiled Rust bindings for Protobuf definitions. |
-| **koad-board** | `crates/koad-board` | Rust | Logic for GitHub Project Board synchronization. |
+| **Koad Core** | `crates/koad-core` | Rust | Shared logic, strongly-typed Intents, and Buffer traits. |
+| **Koad Proto** | `crates/koad-proto` | Rust | Hard-wired Rust bindings for Protobuf blueprints. |
+| **Koad Board** | `crates/koad-board` | Rust | Logic for synchronizing with the master Mission Log. |
 
-## 3. Interaction Layers
+## 3. Interface Layers
 | Interface | Path | Stack | Purpose |
 | :--- | :--- | :--- | :--- |
-| **Web Deck** | `web/deck` | React/TS | Visual command center for situational awareness. |
-| **Terminal UI** | `crates/koad-tui` | Rust | Local high-performance monitoring dashboard (Ratatui). |
-| **CLI Bridge** | `crates/koad-cli` | Rust | Lightweight gRPC client for scripted control. |
+| **Command Deck** | `web/deck` | React/TS | Visual HUD for real-time grid situational awareness. |
+| **Terminal HUD** | `crates/koad-tui` | Rust | High-performance terminal dashboard (Ratatui). |
+| **Uplink Bridge** | `crates/koad-cli` | Rust | Lightweight gRPC bridge for scripted control. |
 
-## 4. Automation & Skills (DoodSkills)
+## 4. Automation & Skills (Neural Imprints)
 | Skill | Path | Language | Purpose |
 | :--- | :--- | :--- | :--- |
-| **Repo Clean** | `doodskills/repo-clean.py` | Python | Enforces repository hygiene and zero-drift state. |
-| **Board Sync** | `crates/koad-board` | Rust | Synchronizes local tasks with GitHub Project #2. |
-| **Micro-Agents** | `skills/` | Polyglot | Directory for ephemeral AI agent logic (Ollama/Gemini). |
+| **Grid Clean** | `doodskills/repo-clean.py` | Python | Enforces repository hygiene and prevents sector drift. |
+| **Log Sync** | `crates/koad-board` | Rust | Synchronizes local data fragments with the Mission Log. |
+| **Micro-Agents** | `skills/` | Polyglot | Directory for ephemeral AI neural imprints (Ollama/Gemini). |
 
-## 5. System State (Locality of State)
+## 5. System State (Buffer Locality)
 | Resource | Path | Type | Description |
 | :--- | :--- | :--- | :--- |
-| **Control Config** | `koad.json` | JSON | Identity, preferences, and driver bootstrap. |
-| **Master DB** | `koad.db` | SQLite | Cold path storage for history, projects, and memory. |
-| **Control Bus** | `koad.sock` | UDS | Redis Unix Domain Socket for the hot path. |
-| **Event Logs** | `SESSION_LOG.md` | Markdown | Append-only audit trail of system-wide actions. |
+| **Neural Config** | `koad.json` | JSON | Identity, neural preferences, and driver bootstrap. |
+| **Master Memory** | `koad.db` | SQLite | Durable storage for history, project nodes, and memory. |
+| **Control Signal** | `koad.sock` | UDS | Redis Unix Domain Socket for hot-path data. |
+| **Uplink Logs** | `SESSION_LOG.md` | Markdown | Append-only audit trail of grid-wide sequences. |
 
 ## 6. Development Artifacts
 | Artifact | Path | Purpose |

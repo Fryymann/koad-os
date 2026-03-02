@@ -26,12 +26,19 @@ class KoadTestEnvironment:
         bin_mapping = {
             "koad": "koad",
             "koad-spine": "kspine",
-            "koad-cli": "koad-cli"
+            "koad-cli": "koad-cli",
+            "koad-gateway": "kgateway",
+            "koad-tui": "kdash"
         }
         for src_name, dest_name in bin_mapping.items():
             src = debug_bins / src_name
             if src.exists():
                 shutil.copy(src, self.bin_dir / dest_name)
+            else:
+                # Fallback to bin/ if not in target/debug (e.g. pre-built)
+                alt_src = source_root / "bin" / src_name
+                if alt_src.exists():
+                    shutil.copy(alt_src, self.bin_dir / dest_name)
 
         # Copy doodskills for KCM
         dest_skills = self.koad_home / "doodskills"

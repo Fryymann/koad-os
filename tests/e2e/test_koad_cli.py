@@ -74,7 +74,7 @@ def test_koad_board_status_graceful_failure(koad_env):
     env = {"GITHUB_PERSONAL_PAT": "dummy_token"}
     result = koad_env.run_koad(["board", "status"], env=env)
     # It might return 1 due to API failure, but shouldn't panic
-    assert "Fetching Project Board status" in result.stdout
+    assert "Accessing Neural Log" in result.stdout
 
 def test_koad_stat_json(spine, redis_client):
     """Verify that koad stat --json returns raw JSON."""

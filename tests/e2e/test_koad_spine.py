@@ -6,8 +6,8 @@ def test_koad_doctor_report(spine):
     """Verify that koad doctor reports on system health."""
     result = spine.run_koad(["doctor"])
     assert result.returncode == 0
-    assert "[PASS] Kernel: Socket active" in result.stdout
-    assert "[PASS] Storage: Database found" in result.stdout
+    assert "[PASS] Backbone: Neural bus active" in result.stdout
+    assert "[PASS] Memory Bank: Sectors accessible" in result.stdout
 
 def test_governance_clean_execution(spine, redis_client):
     """Verify that a Governance::Clean intent is routed and executed."""

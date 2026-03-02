@@ -75,12 +75,17 @@ The management of KoadOS is strictly governed by the following protocols to ensu
 - **GitHub Orchestration**: All planning and status tracking is handled via GitHub Projects and Milestones.
 - **Automated Compliance**: The `repo-clean` tool enforces zero-drift repository hygiene.
 - **Master Manifest**: The `MANIFEST.md` file acts as the authoritative source inventory and role-based ownership map.
+- **Deep-Grid Testing Protocol (DTP)**: Every construct component MUST maintain 100% "Test Surface" coverage:
+    1. **Full-Spectrum Audit**: No exclusion. Every logic path must have Unit, Integration, and E2E coverage.
+    2. **Integration Matrix Review**: Automated verification of cross-system links (e.g., Gateway-to-Spine).
+    3. **Surface Audit**: Every exposed port, socket, and API node must have a corresponding "Sentinel" probe test.
+    4. **The Sentinel Hook**: The `repo-clean` tool enforces test existence. If a component is in the `MANIFEST.md` without a corresponding test suite, the construct fails the **Condition Green** audit.
 - **Self-Documenting Charts**: Architecture maps must be updated in real-time.
 
 ## 5. Security & Isolation (Strategic Direction)
 
-KoadOS prioritizes **Agility and Scalability** for AI Micro-Agents. While Unix-user isolation was explored, the system has reverted to a **Consolidated User-Space Architecture** at `~/.koad-os/` to avoid host-level friction.
+KoadOS prioritizes **Agility and Scalability** for AI Micro-Agents. The system operates as a **Consolidated Virtual Construct** at `~/.koad-os/`, utilizing software-defined boundaries to maintain system integrity.
 
-### 🛡 Sandbox Policy
-- **Software-Level Isolation**: The `Sandbox` engine enforces command blacklisting (e.g., preventing `sudo` or access to sensitive Admin paths).
-- **Process Isolation**: Future micro-agents will utilize lightweight user-space sandboxing (like `bwrap` or WASM) to ensure process integrity without requiring root-level Unix users.
+### 🛡 Sandbox Policy (The ICE)
+- **Software-Level Isolation**: The `Sandbox` engine acts as the construct's ICE (Intrusion Countermeasures Electronics), enforcing command blacklisting (e.g., preventing unauthorized `sudo` or access to sensitive Admin memory sectors).
+- **Process Isolation**: Future micro-agents (Neural Imprints) will utilize lightweight user-space sandboxing (like `bwrap` or WASM) to ensure process integrity within the construct without requiring host-level Unix users.
