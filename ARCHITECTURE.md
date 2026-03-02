@@ -74,6 +74,7 @@ The management of KoadOS is strictly governed by the following protocols to ensu
 - **Tight Git Coupling**: Incremental development is enforced via surgical, issue-linked commits.
 - **GitHub Orchestration**: All planning and status tracking is handled via GitHub Projects and Milestones.
 - **Automated Compliance**: The `repo-clean` tool enforces zero-drift repository hygiene.
+- **Master Manifest**: The `MANIFEST.md` file acts as the authoritative source inventory and role-based ownership map.
 - **Self-Documenting Charts**: Architecture maps must be updated in real-time.
 
 ## 5. Security & Isolation (Strategic Direction)
