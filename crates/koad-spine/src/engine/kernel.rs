@@ -8,9 +8,22 @@ use tonic::transport::Server;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
 
+use tokio::sync::watch;
+
 /// The central nervous system of KoadOS.
 pub struct Kernel {
     pub engine: Arc<Engine>,
+    shutdown_tx: watch::Sender<bool>,
+}
+
+impl Kernel {
+    pub async fn shutdown(self) {
+        println!("Kernel: Initiating graceful shutdown signal...");
+        let _ = self.shutdown_tx.send(true);
+        // Wait a moment for background tasks to notice
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        println!("Kernel: Engine Room shutdown complete.");
+    }
 }
 
 /// A builder for the KoadOS Spine Kernel.
@@ -49,26 +62,52 @@ impl KernelBuilder {
 
         println!("Kernel: Initializing Engine Room at {}...", home_dir.display());
 
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+
         // 1. Engine & State Initialization (Handles Skill Discovery internally now)
         let engine = Arc::new(Engine::new(&home_dir.to_string_lossy(), &db_path.to_string_lossy()).await?);
 
         // 3. Launch Core Background Loops
         let storage_drain = engine.storage.clone();
-        tokio::spawn(async move { storage_drain.start_drain_loop().await; });
+        let mut rx_drain = shutdown_rx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = storage_drain.start_drain_loop() => {},
+                _ = rx_drain.changed() => { println!("Kernel: Storage drain loop stopping."); }
+            }
+        });
 
         let asm = engine.asm.clone();
-        tokio::spawn(async move { asm.start_session_monitor().await; });
+        let mut rx_asm = shutdown_rx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = asm.start_session_monitor() => {},
+                _ = rx_asm.changed() => { println!("Kernel: ASM monitor stopping."); }
+            }
+        });
 
         let diagnostics = engine.diagnostics.clone();
-        tokio::spawn(async move { diagnostics.start_health_monitor().await; });
+        let mut rx_diag = shutdown_rx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = diagnostics.start_health_monitor() => {},
+                _ = rx_diag.changed() => { println!("Kernel: Health monitor stopping."); }
+            }
+        });
 
         let directive_router = crate::engine::router::DirectiveRouter::new(engine.clone());
-        tokio::spawn(async move { directive_router.start().await; });
+        let mut rx_router = shutdown_rx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = directive_router.start() => {},
+                _ = rx_router.changed() => { println!("Kernel: Directive router stopping."); }
+            }
+        });
 
         // 5. Start gRPC Bridges if configured
         if let (Some(tcp_addr_str), Some(uds_path)) = (self.tcp_addr, self.uds_path) {
             let tcp_addr: std::net::SocketAddr = tcp_addr_str.parse()?;
-            
+
             // Cleanup UDS socket if it exists
             if std::fs::metadata(&uds_path).is_ok() {
                 std::fs::remove_file(&uds_path)?;
@@ -76,36 +115,33 @@ impl KernelBuilder {
 
             let spine_service = KoadSpine::new(engine.clone());
             let spine_service_arc = Arc::new(spine_service);
-            
+
             // Register gRPC service in Redis inventory
             spine_service_arc.register_in_inventory("0.0.0.0", 50051).await?;
 
             // TCP Server
             let tcp_spine = spine_service_arc.clone();
+            let mut rx_tcp = shutdown_rx.clone();
             tokio::spawn(async move {
                 println!("Kernel: Launching Bridge gRPC (TCP) on {}...", tcp_addr);
-                if let Err(e) = Server::builder()
+                let _ = Server::builder()
                     .add_service(SpineServiceServer::from_arc(tcp_spine))
-                    .serve(tcp_addr)
-                    .await {
-                        eprintln!("Kernel: gRPC TCP Server Error: {}", e);
-                    }
+                    .serve_with_shutdown(tcp_addr, async move { let _ = rx_tcp.changed().await; })
+                    .await;
             });
 
             // UDS Server
             let uds_spine = spine_service_arc.clone();
+            let mut rx_uds = shutdown_rx.clone();
             let uds_listener = UnixListener::bind(&uds_path).expect("Failed to bind UDS");
             let uds_stream = UnixListenerStream::new(uds_listener);
             tokio::spawn(async move {
                 println!("Kernel: Launching Bridge gRPC (UDS) on {}...", uds_path.display());
-                if let Err(e) = Server::builder()
+                let _ = Server::builder()
                     .add_service(SpineServiceServer::from_arc(uds_spine))
-                    .serve_with_incoming(uds_stream)
-                    .await {
-                        eprintln!("Kernel: gRPC UDS Server Error: {}", e);
-                    }
+                    .serve_with_incoming_shutdown(uds_stream, async move { let _ = rx_uds.changed().await; })
+                    .await;
             });
-
         }
 
         println!("Kernel: Engine Room stable.");
@@ -113,7 +149,9 @@ impl KernelBuilder {
 
         Ok(Kernel {
             engine,
+            shutdown_tx,
         })
+
     }
 }
 

@@ -40,9 +40,8 @@ async fn main() -> anyhow::Result<()> {
         },
     }
 
-    info!("Koad-Spine: Server stopped. Cleaning up child processes...");
-    // The drop of kernel will trigger engine drop, which kills Redis.
-    drop(kernel);
+    info!("Koad-Spine: Server stopping. Cleaning up...");
+    kernel.shutdown().await;
     
     Ok(())
 }

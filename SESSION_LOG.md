@@ -95,3 +95,13 @@
 ## 2026-03-02 - Saveup: Finalized the liquidation of major technical debt and unified the system configuration.
 - Scope: Ops/Stabilization
 - Facts: Issue #40 closed, Architectural unification complete, E2E suite hardened
+
+## 2026-03-02 - Session Close: v4.0 Channel Resilience & Graceful Shutdowns (Issue #33, #34)
+- **Status**: CONDITION GREEN (Refactor Complete)
+- **Spine**: Implemented system-wide shutdown signaling using `watch` channels; refactored gRPC to support graceful teardown.
+- **Gateway**: Integrated `axum` graceful shutdown and implemented a 30s WebSocket heartbeat loop with an outbox pattern.
+- **Issues**: Closed #33, #34.
+
+## 2026-03-02 - Saveup: Implemented graceful shutdowns and WebSocket keep-alive across the gateway and spine.
+- Scope: Core/Resilience
+- Facts: Issue #33, #34 closed, Graceful shutdown live, Heartbeat active

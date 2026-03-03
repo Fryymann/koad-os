@@ -8,7 +8,7 @@ use axum::{
 use std::sync::Arc;
 use tower_http::services::ServeDir;
 use tower_http::cors::CorsLayer;
-use fred::interfaces::{PubsubInterface, EventInterface, HashesInterface};
+use fred::interfaces::{PubsubInterface, HashesInterface};
 use fred::prelude::*;
 use serde_json::{json, Value};
 use futures::{StreamExt, SinkExt};
@@ -25,6 +25,7 @@ use crate::deck::DeckManager;
 use tracing::{info, error, warn};
 use koad_core::logging::init_logging;
 use koad_core::config::KoadConfig as CoreConfig;
+use std::collections::HashMap;
 
 #[derive(Parser)]
 struct Cli {
@@ -115,10 +116,39 @@ async fn main() -> anyhow::Result<()> {
     let _: () = state.client.hset::<(), _, _>("koad:services", ("web-deck", service_entry.to_string())).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
     let listener = tokio::net::TcpListener::bind(&config.gateway_addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
+    info!("Gateway: Shutdown complete.");
     drop(deck_manager);
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    info!("Gateway: Termination signal received. Commencing graceful shutdown...");
 }
 
 async fn ws_handler(
@@ -132,13 +162,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
     info!("Gateway: WebSocket client connected.");
     let (mut sender, mut receiver) = socket.split();
     let client = state.client.clone();
-    let _subscriber = state.subscriber.clone();
     
+    // Outbox channel: All tasks send messages here, one task sends to WebSocket
+    let (outbox_tx, mut outbox_rx) = tokio::sync::mpsc::channel::<Message>(64);
+
     // 1. Initial Sync (Agents + Issues + Projects)
     let mut agents = vec![];
     info!("Gateway: Syncing agents from Redis...");
     if let Ok(all_state) = client.hgetall::<std::collections::HashMap<String, String>, _>("koad:state").await {
-        info!("Gateway: Found {} items in koad:state", all_state.len());
         for (key, val) in all_state {
             if key.starts_with("koad:session:") {
                 // Try strict parsing first, then fallback to raw JSON if it has session_id
@@ -159,8 +190,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
                 }
             }
         }
-    } else {
-        println!("Gateway: Failed to HGETALL koad:state");
     }
 
     let mut issues = vec![];
@@ -200,10 +229,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
         }
     });
 
-    let _ = sender.send(Message::Text(sync_msg.to_string())).await;
+    let _ = outbox_tx.send(Message::Text(sync_msg.to_string())).await;
 
-    // Relay Task: Spine gRPC (Real-time Events) -> WebSocket
+    // Relay Task: Spine gRPC (Real-time Events) -> Outbox
     let spine_addr = state.config.spine_grpc_addr.clone();
+    let tx_relay = outbox_tx.clone();
     let relay_handle = tokio::spawn(async move {
         if let Ok(mut client) = SpineServiceClient::connect(spine_addr).await {
             if let Ok(response) = client.stream_system_events(StreamSystemEventsRequest { filter_sources: vec![] }).await {
@@ -219,14 +249,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
                                 "type": "SESSION_UPDATE",
                                 "payload": json["data"].take()
                             });
-                            if sender.send(Message::Text(normalized.to_string())).await.is_err() {
+                            if tx_relay.send(Message::Text(normalized.to_string())).await.is_err() {
                                 break;
                             }
                             continue;
                         }
                     }
 
-                    if sender.send(Message::Text(payload_str)).await.is_err() {
+                    if tx_relay.send(Message::Text(payload_str)).await.is_err() {
                         break;
                     }
                 }
@@ -234,29 +264,54 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
         }
     });
 
-    // Command Task: WebSocket -> Redis (Sandbox-aware Command Intents)
+    // Heartbeat Task: Keep connection alive
+    let tx_hb = outbox_tx.clone();
+    let hb_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            if tx_hb.send(Message::Ping(vec![])).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Outbox Sender: Send all messages to WebSocket
+    let outbox_sender_handle = tokio::spawn(async move {
+        while let Some(msg) = outbox_rx.recv().await {
+            if sender.send(msg).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Receiver: WebSocket -> Redis
     while let Some(Ok(msg)) = receiver.next().await {
-        if let Message::Text(text) = msg {
-            if let Ok(json) = serde_json::from_str::<Value>(&text) {
-                if json["type"] == "COMMAND" {
-                    if let Some(cmd) = json["payload"].as_str() {
-                        // WRAP: Convert to strongly-typed Intent
-                        let intent = Intent::Execute(ExecuteIntent {
-                            identity: "admin".to_string(),
-                            command: cmd.to_string(),
-                            args: vec![],
-                            working_dir: None,
-                            env_vars: std::collections::HashMap::new(),
-                        });
-                        
-                        if let Ok(intent_str) = serde_json::to_string(&intent) {
-                            let _: Result<(), _> = client.publish("koad:commands", intent_str).await;
+        match msg {
+            Message::Text(text) => {
+                if let Ok(json) = serde_json::from_str::<Value>(&text) {
+                    if json["type"] == "COMMAND" {
+                        if let Some(cmd) = json["payload"].as_str() {
+                            let intent = Intent::Execute(ExecuteIntent {
+                                identity: "admin".into(),
+                                command: cmd.into(),
+                                args: vec![],
+                                working_dir: None,
+                                env_vars: std::collections::HashMap::new(),
+                            });
+                            if let Ok(intent_str) = serde_json::to_string(&intent) {
+                                let _: Result<(), _> = client.publish("koad:commands", intent_str).await;
+                            }
                         }
                     }
                 }
             }
+            Message::Close(_) => break,
+            _ => {}
         }
     }
 
     relay_handle.abort();
+    hb_handle.abort();
+    outbox_sender_handle.abort();
 }
