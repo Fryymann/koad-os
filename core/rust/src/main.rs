@@ -102,25 +102,58 @@ fn find_ghosts(home: &Path) -> Vec<(u32, String)> {
     let expected_redis_socket = home.join("koad.sock").to_string_lossy().into_owned();
 
     for (pid, process) in sys.processes() {
+        let pid_u32 = pid.as_u32();
         let name = process.name().to_string_lossy();
         let cmd_parts: Vec<String> = process.cmd().iter().map(|s| s.to_string_lossy().into_owned()).collect();
         let cmd = cmd_parts.join(" ");
         
         // 1. Check for redis-server ghosts
         if name.contains("redis-server") && !cmd.contains(&expected_redis_socket) {
-            ghosts.push((pid.as_u32(), format!("Ghost Redis: {}", cmd)));
+            ghosts.push((pid_u32, format!("Ghost Redis: {}", cmd)));
         }
         
-        // 2. Check for kspine ghosts
-        if name.contains("kspine") || name.contains("koad-spine") {
-             let process_home = process.environ().iter()
-                .map(|s| s.to_string_lossy())
-                .find(|s| s.starts_with("KOAD_HOME="))
-                .map(|s| s.split_once('=').unwrap().1.to_string());
+        // 2. Check for kspine/kgateway ghosts and staleness
+        let is_spine = name.contains("kspine") || name.contains("koad-spine");
+        let is_gateway = name.contains("kgateway") || name.contains("koad-gateway");
+
+        if is_spine || is_gateway {
+             let mut process_home = None;
+             for env_var in process.environ() {
+                 let s = env_var.to_string_lossy();
+                 if s.starts_with("KOAD_HOME=") {
+                     process_home = Some(s.split_once('=').unwrap().1.to_string());
+                     break;
+                 }
+             }
              
              if let Some(ph) = process_home {
-                 if ph != home.to_string_lossy() {
-                     ghosts.push((pid.as_u32(), format!("Ghost Spine (Home: {})", ph)));
+                 let ph_can = Path::new(&ph).canonicalize().ok();
+                 let home_can = home.canonicalize().ok();
+                 
+                 // eprintln!("DEBUG: Found {}, reported home: {:?}, our home: {:?}", name, ph_can, home_can);
+
+                 if ph_can != home_can {
+                     continue;
+                 }
+
+                 // If it reports OUR home, check for STALENESS
+                 if let Some(exe_path) = process.exe() {
+                     let real_exe = std::fs::read_link(exe_path).unwrap_or_else(|_| exe_path.to_path_buf());
+                     if let (Ok(exe_can), Ok(home_bin_can)) = (real_exe.canonicalize(), home.join("bin").canonicalize()) {
+                         if exe_can.starts_with(home_bin_can) {
+                             if let Ok(metadata) = std::fs::metadata(&exe_can) {
+                                 if let Ok(modified) = metadata.modified() {
+                                     let start_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(process.start_time());
+                                     if modified > start_time {
+                                         ghosts.push((pid_u32, format!("STALE {}: Binary updated since process started.", name)));
+                                     }
+                                 }
+                             }
+                         } else {
+                             // Reports OUR home, but binary is somewhere else? GHOST.
+                             ghosts.push((pid_u32, format!("Ghost {} (Foreign Binary: reports our KOAD_HOME)", name)));
+                         }
+                     }
                  }
              }
         }

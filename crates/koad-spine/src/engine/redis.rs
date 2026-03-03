@@ -19,12 +19,7 @@ impl RedisClient {
         let socket_path = if let Ok(env_socket) = std::env::var("REDIS_SOCKET") {
             PathBuf::from(env_socket)
         } else {
-            let legacy = home_path.join("koad.sock");
-            if legacy.exists() {
-                legacy
-            } else {
-                home_path.join("kspine.sock")
-            }
+            home_path.join("koad.sock")
         };
         
         let pid_path = home_path.join("redis.pid");

@@ -6,6 +6,7 @@ import pytest
 import sqlite3
 import redis
 import signal
+import socket
 from pathlib import Path
 
 class KoadTestEnvironment:
@@ -56,11 +57,16 @@ class KoadTestEnvironment:
                 if item.is_file():
                     shutil.copy(item, dest_skills / item.name)
 
-        # Symlink venv
+        # Symlink venv and web
         venv_src = source_root / "venv"
         venv_dest = self.koad_home / "venv"
         if venv_src.exists():
             os.symlink(venv_src, venv_dest)
+            
+        web_src = source_root / "web"
+        web_dest = self.koad_home / "web"
+        if web_src.exists():
+            os.symlink(web_src, web_dest)
 
         koad_json_content = """
 {
@@ -135,7 +141,43 @@ class KoadTestEnvironment:
                 raise RuntimeError(f"kspine crashed. See {log_path}")
             raise RuntimeError(f"kspine failed to start at {spine_socket}")
 
+    def start_gateway(self):
+        my_env = os.environ.copy()
+        my_env["KOAD_HOME"] = str(self.koad_home)
+        
+        # Disable GitHub sync for tests unless needed
+        my_env["GITHUB_ADMIN_PAT"] = "test_token"
+        
+        log_path = self.koad_home / "kgateway.log"
+        self.gateway_log_handle = open(log_path, "w")
+        
+        self.gateway_proc = subprocess.Popen(
+            [str(self.bin_dir / "kgateway"), "--addr", "127.0.0.1:3005"], # Use unique port
+            stdout=self.gateway_log_handle,
+            stderr=self.gateway_log_handle,
+            env=my_env,
+            text=True,
+            preexec_fn=os.setsid
+        )
+        # Wait for port 3005
+        for _ in range(100):
+            try:
+                with socket.create_connection(("127.0.0.1", 3005), timeout=0.1):
+                    break
+            except:
+                time.sleep(0.1)
+        else:
+            raise RuntimeError(f"kgateway failed to start on port 3005. See {log_path}")
+
     def stop(self):
+        if hasattr(self, 'gateway_proc') and self.gateway_proc:
+            try: os.killpg(os.getpgid(self.gateway_proc.pid), signal.SIGKILL)
+            except: pass
+            self.gateway_proc.wait()
+        
+        if hasattr(self, 'gateway_log_handle') and self.gateway_log_handle:
+            self.gateway_log_handle.close()
+
         if self.spine_proc:
             try:
                 os.killpg(os.getpgid(self.spine_proc.pid), signal.SIGKILL)
@@ -178,6 +220,12 @@ def koad_env(tmp_path):
 @pytest.fixture
 def spine(koad_env):
     koad_env.start_spine()
+    return koad_env
+
+@pytest.fixture
+def gateway(koad_env):
+    koad_env.start_spine()
+    koad_env.start_gateway()
     return koad_env
 
 @pytest.fixture

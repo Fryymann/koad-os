@@ -127,20 +127,38 @@ async fn ws_handler(
 }
 
 async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
+    println!("Gateway: WebSocket client connected.");
     let (mut sender, mut receiver) = socket.split();
     let client = state.client.clone();
     let subscriber = state.subscriber.clone();
     
-    // 1. Initial Sync (Agents + Issues)
+    // 1. Initial Sync (Agents + Issues + Projects)
     let mut agents = vec![];
+    println!("Gateway: Syncing agents from Redis...");
     if let Ok(all_state) = client.hgetall::<std::collections::HashMap<String, String>, _>("koad:state").await {
+        println!("Gateway: Found {} items in koad:state", all_state.len());
         for (key, val) in all_state {
             if key.starts_with("koad:session:") {
+                // Try strict parsing first, then fallback to raw JSON if it has session_id
                 if let Ok(session) = serde_json::from_str::<AgentSession>(&val) {
-                    agents.push(session);
+                    agents.push(json!(session));
+                } else if let Ok(mut raw_json) = serde_json::from_str::<Value>(&val) {
+                    // Check if it's wrapped in a 'data' field (from Spine hydration)
+                    if let Some(inner_data) = raw_json.get("data") {
+                        if inner_data["session_id"].is_string() {
+                            agents.push(inner_data.clone());
+                            continue;
+                        }
+                    }
+                    
+                    if raw_json["session_id"].is_string() {
+                        agents.push(raw_json);
+                    }
                 }
             }
         }
+    } else {
+        println!("Gateway: Failed to HGETALL koad:state");
     }
 
     let mut issues = vec![];
@@ -188,11 +206,24 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
 
     let relay_handle = tokio::spawn(async move {
         while let Ok(message) = message_stream.recv().await {
-            let payload = message.value.as_string().unwrap_or_default();
+            let payload_str = message.value.as_string().unwrap_or_default();
             
-            // If it's a session update, we might want to wrap it or send as is
-            // The frontend hook currently expects some specific formats
-            if sender.send(Message::Text(payload)).await.is_err() {
+            // Normalize messages for the Frontend
+            if let Ok(mut json) = serde_json::from_str::<Value>(&payload_str) {
+                let msg_type = json["type"].as_str().unwrap_or_default().to_lowercase();
+                if msg_type == "session_update" {
+                    let mut normalized = json!({
+                        "type": "SESSION_UPDATE",
+                        "payload": json["data"].take()
+                    });
+                    if sender.send(Message::Text(normalized.to_string())).await.is_err() {
+                        break;
+                    }
+                    continue;
+                }
+            }
+
+            if sender.send(Message::Text(payload_str)).await.is_err() {
                 break;
             }
         }

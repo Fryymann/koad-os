@@ -34,3 +34,15 @@
 ## 2026-03-02 - Saveup: Implemented Unified Monitoring across both the Web Deck and the native CLI TUI, merging koad-tui into 'koad dash'.
 - Scope: Ops/Visualization
 - Facts: Issue #28 closed, koad dash live, Web Deck rendering Master Project Map
+
+## 2026-03-02 - Session Close: Codebase Deep Audit & System Restoration
+- **Status**: CONDITION GREEN (Audit Complete)
+- **Audit**: Performed exhaustive systems review across all layers (Spine, Gateway, CLI).
+- **Gaps**: Identified and documented 8 major gaps (#32-#39) including gRPC fragmentation and log structure debt.
+- **Recovery**: Fixed critical Redis socket mismatch in Spine engine; restored Web Deck visibility.
+- **Hygiene**: Implemented Stale Process Detection in `koad doctor` and Full-Stack Loopback E2E tests.
+- **Issues**: Closed #28, #22, #29, #30. Created #40 (Master Audit Summary).
+
+## 2026-03-02 - Saveup: Conducted codebase-wide Deep Audit and restored full-stack service integrity.
+- Scope: Ops/Audit
+- Facts: Issue #40 created, 37 E2E tests passing, Spine path fixed

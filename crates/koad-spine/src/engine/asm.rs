@@ -88,14 +88,12 @@ impl AgentSessionManager {
             active_tasks.len()
         );
 
-        let package = json!({
-            "session_id": session.session_id,
-            "mission_briefing": briefing,
-            "active_tasks": active_tasks,
-            "recent_events": events.into_iter().map(|e| e.1).collect::<Vec<_>>(),
-            "context": session.context,
-            "identity": session.identity
-        });
+        let mut package = serde_json::to_value(session)?;
+        if let Some(obj) = package.as_object_mut() {
+            obj.insert("mission_briefing".to_string(), json!(briefing));
+            obj.insert("active_tasks".to_string(), json!(active_tasks));
+            obj.insert("recent_events".to_string(), json!(events.into_iter().map(|e| e.1).collect::<Vec<_>>()));
+        }
 
         self.storage.set_state(&format!("koad:session:{}", session_id), package.clone()).await?;
 
@@ -156,15 +154,14 @@ impl AgentSessionManager {
                 if msg["type"] == "session_update" || msg["type"] == "SESSION_UPDATE" {
                     println!("ASM: Processing session update for {}", msg["data"]["session_id"]);
                     if let Ok(session) = serde_json::from_value::<AgentSession>(msg["data"].clone()) {
+                        let sid = session.session_id.clone();
                         let mut sessions = self.sessions.lock().await;
-                        if !sessions.contains_key(&session.session_id) {
-                            println!("ASM: Registered external session: {}", session.session_id);
-                            let sid = session.session_id.clone();
-                            sessions.insert(sid.clone(), session);
-                            
-                            drop(sessions);
-                            let _ = self.hydrate_session(&sid).await;
-                        }
+                        
+                        println!("ASM: Registered/Updated session: {}", sid);
+                        sessions.insert(sid.clone(), session);
+                        
+                        drop(sessions);
+                        let _ = self.hydrate_session(&sid).await;
                     } else {
                         eprintln!("ASM: Failed to parse AgentSession from data: {:?}", msg["data"]);
                     }
