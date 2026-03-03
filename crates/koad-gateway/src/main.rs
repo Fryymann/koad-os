@@ -191,8 +191,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
                         &raw_json
                     };
 
-                    // CRITICAL FILTER: Only push active sessions to the UI
-                    if data["status"] == "active" {
+                    // CRITICAL FILTER: Only push active or idle sessions to the UI
+                    let status = data["status"].as_str().unwrap_or("unknown");
+                    if status == "active" || status == "idle" {
                         agents.push(data.clone());
                     }
                 }

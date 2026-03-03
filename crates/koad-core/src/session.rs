@@ -11,6 +11,7 @@ pub struct AgentSession {
     pub identity: Identity,
     pub environment: EnvironmentType,
     pub context: ProjectContext,
+    pub status: String,
     pub last_heartbeat: DateTime<Utc>,
     pub metadata: HashMap<String, String>,
 }
@@ -36,6 +37,7 @@ impl AgentSession {
             identity,
             environment,
             context,
+            status: "active".to_string(),
             last_heartbeat: Utc::now(),
             metadata: HashMap::new(),
         }

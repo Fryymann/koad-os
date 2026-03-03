@@ -974,22 +974,17 @@ async fn main() -> Result<()> {
                     },
                     "environment": "wsl",
                     "context": { "project_name": if project { "active" } else { "default" }, "root_path": current_path_str, "allowed_paths": [], "stack": [] },
+                    "status": "active",
                     "last_heartbeat": Utc::now().to_rfc3339(),
                     "metadata": { "bio": final_bio.clone(), "model_tier": model_tier }
-                });
+                    });
 
-                if config.redis_socket.exists() {
-                    let client = redis::Client::open(format!(
-                        "redis+unix://{}",
-                        config.redis_socket.display()
-                    ))?;
+                    if config.redis_socket.exists() {
+                    let client = redis::Client::open(format!("redis+unix://{}", config.redis_socket.display()))?;
                     if let Ok(mut con) = client.get_connection() {
-                        let _: () = redis::cmd("HSET")
-                            .arg("koad:state")
-                            .arg(format!("koad:session:{}", session_id))
-                            .arg(session_data.to_string())
-                            .query(&mut con)?;
-                        let _: () = redis::cmd("PUBLISH").arg("koad:sessions").arg(serde_json::json!({ "type": "session_update", "data": session_data }).to_string()).query(&mut con)?;
+                        let _: () = redis::cmd("HSET").arg("koad:state").arg(format!("koad:session:{}", session_id)).arg(session_data.to_string()).query(&mut con)?;
+                        let _: () = redis::cmd("PUBLISH").arg("koad:sessions").arg(serde_json::json!({ "type": "SESSION_UPDATE", "data": session_data }).to_string()).query(&mut con)?;
+
                         std::thread::sleep(std::time::Duration::from_millis(500));
                         if let Ok(Some(json_str)) = redis::cmd("HGET")
                             .arg("koad:state")

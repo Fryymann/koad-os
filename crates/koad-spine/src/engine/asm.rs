@@ -41,7 +41,7 @@ impl AgentSessionManager {
 
         let msg = json!({
             "type": "SESSION_UPDATE",
-            "payload": payload
+            "data": payload
         });
         let _: () = self
             .storage
@@ -70,7 +70,7 @@ impl AgentSessionManager {
 
             let msg = json!({
                 "type": "SESSION_UPDATE",
-                "payload": payload
+                "data": payload
             });
             let _: () = self
                 .storage
@@ -88,6 +88,31 @@ impl AgentSessionManager {
     pub async fn list_active_sessions(&self) -> Vec<AgentSession> {
         let sessions = self.sessions.lock().await;
         sessions.values().cloned().collect()
+    }
+
+    pub async fn hydrate_from_db(&self) -> anyhow::Result<()> {
+        println!("ASM: Hydrating active sessions from database...");
+        // Note: In v4.1, we rely on the storage bridge to fetch from SQLite if Redis is empty.
+        // But for the ASM memory, we'll perform a direct query to find 'active' sessions.
+        let mut sessions = self.sessions.lock().await;
+        
+        // We'll use the storage bridge's internal redis client to fetch all keys starting with koad:session
+        if let Ok(all_state) = self.storage.redis.client.hgetall::<std::collections::HashMap<String, String>, _>("koad:state").await {
+            for (key, val) in all_state {
+                if key.starts_with("koad:session:") {
+                    if let Ok(mut raw_json) = serde_json::from_str::<serde_json::Value>(&val) {
+                        let data = if let Some(inner) = raw_json.get("data") { inner } else { &raw_json };
+                        if data["status"] == "active" {
+                            if let Ok(session) = serde_json::from_value::<AgentSession>(data.clone()) {
+                                println!("ASM: Restored active session from state: {}", session.session_id);
+                                sessions.insert(session.session_id.clone(), session);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub async fn hydrate_session(&self, session_id: &str) -> anyhow::Result<serde_json::Value> {
@@ -159,20 +184,17 @@ impl AgentSessionManager {
         for (sid, session) in sessions.iter_mut() {
             let diff = Utc::now().signed_duration_since(session.last_heartbeat);
             if diff.num_seconds() > timeout_secs {
-                // Remove entirely if very old
-                if diff.num_seconds() > (timeout_secs * 5) {
+                // Remove entirely if very old (5 minutes inactivity)
+                if diff.num_seconds() > 300 {
                     to_remove.push(sid.clone());
-                } else if session.metadata.get("presence") != Some(&"DARK".to_string()) {
-                    // Just mark as dark
-                    session
-                        .metadata
-                        .insert("presence".to_string(), "DARK".to_string());
+                } else if session.status != "dark" {
+                    // Mark as dark
+                    session.status = "dark".to_string();
                     to_update.push((sid.clone(), session.clone()));
                 }
-            } else if session.metadata.get("presence") != Some(&"WAKE".to_string()) {
-                session
-                    .metadata
-                    .insert("presence".to_string(), "WAKE".to_string());
+            } else if session.status == "dark" {
+                // Reactivate if heartbeat received
+                session.status = "active".to_string();
                 to_update.push((sid.clone(), session.clone()));
             }
         }
@@ -197,7 +219,7 @@ impl AgentSessionManager {
                     Some(session.identity.tier),
                 )
                 .await?;
-            let msg = json!({ "type": "SESSION_UPDATE", "payload": payload });
+            let msg = json!({ "type": "SESSION_UPDATE", "data": payload });
             let _: () = self
                 .storage
                 .redis
@@ -211,6 +233,10 @@ impl AgentSessionManager {
 
     pub async fn start_session_monitor(&self) {
         println!("ASM: Session monitor active. Subscribing to 'koad:sessions'...");
+        
+        // v4.1.1 Lighthouse: Hydrate existing sessions so they aren't lost on restart
+        let _ = self.hydrate_from_db().await;
+
         let mut message_stream = self.storage.redis.subscriber.message_rx();
 
         if let Err(e) = self

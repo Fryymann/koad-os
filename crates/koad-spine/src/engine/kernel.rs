@@ -92,6 +92,26 @@ impl KernelBuilder {
             }
         });
 
+        // 4. Session Reaper (Cleanup Dark Agents)
+        let reaper_asm = engine.asm.clone();
+        let mut rx_reaper = shutdown_rx.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Err(e) = reaper_asm.prune_sessions(30).await {
+                            eprintln!("Kernel Error: Session reaper failed: {}", e);
+                        }
+                    },
+                    _ = rx_reaper.changed() => {
+                        println!("Kernel: Session reaper stopping.");
+                        break;
+                    }
+                }
+            }
+        });
+
         let diagnostics = engine.diagnostics.clone();
         let mut rx_diag = shutdown_rx.clone();
         tokio::spawn(async move {
