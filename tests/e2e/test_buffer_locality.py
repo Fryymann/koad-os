@@ -16,8 +16,8 @@ def test_master_memory_sentinel(koad_env):
     assert db_path.exists()
 
 def test_control_signal_sentinel(spine):
-    """Verify Control Signal (koad.sock) is active when backbone is energized."""
-    sock_path = spine.koad_home / "koad.sock"
+    """Verify Control Signal (koad-redis.sock) is active when backbone is energized."""
+    sock_path = spine.koad_home / "koad-redis.sock"
     assert sock_path.exists()
 
 def test_uplink_logs_sentinel(koad_env):

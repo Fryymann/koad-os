@@ -4,26 +4,27 @@ import sqlite3
 
 def test_koad_boot(koad_env):
     """Verify that koad boot runs and generates a valid context."""
-    result = koad_env.run_koad(["boot", "--agent", "TestAgent"])
+    result = koad_env.run_koad(["boot", "--agent", "TestAgent", "--role", "admin"])
     assert result.returncode == 0
-    assert "Identity: TestKoad (Admin)" in result.stdout
+    assert "Identity: TestAgent (admin)" in result.stdout
+    assert "Bio:      E2E Test Agent" in result.stdout
     assert "Session:" in result.stdout
 
 def test_koad_whoami(koad_env):
     """Verify the whoami command reports the correct identity from koad.json."""
     result = koad_env.run_koad(["whoami"])
     assert result.returncode == 0
+    # In whoami it still reads from koad.json legacy config
     assert "TestKoad" in result.stdout
     assert "Admin" in result.stdout
 
 def test_agent_hydration_on_boot(spine):
-    """Verify that koad boot initializes a session and receives a briefing."""
-    result = spine.run_koad(["boot", "--agent", "TestAgent"])
+    """Verify that koad boot initializes a session and receives context."""
+    result = spine.run_koad(["boot", "--agent", "TestAgent", "--role", "admin"])
     assert result.returncode == 0
-    assert "Identity: TestKoad (Admin)" in result.stdout
-    # Briefing should be present if spine hydrated it
-    assert "MISSION BRIEFING" in result.stdout
-    assert "Welcome, Agent" in result.stdout
+    assert "Identity: TestAgent (admin)" in result.stdout
+    # Context hydration check
+    assert "[CONTEXT:" in result.stdout
 
 def test_koad_remember_and_query(koad_env, db_conn):
     """Verify that koad remember persists to SQLite and query retrieves it."""

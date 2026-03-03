@@ -362,6 +362,7 @@ enum BoardAction {
     Sdr,
     Done { id: i32 },
     Todo { id: i32 },
+    Verify { id: i32 },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -896,10 +897,12 @@ async fn main() -> Result<()> {
         Commands::Board { action } => {
             let token = config.resolve_gh_token()?;
             let client = GitHubClient::new(token, "Fryymann".into(), "koad-os".into())?;
+            let project_num = config.github_project_number as i32;
+
             match action {
                 BoardAction::Status => {
-                    println!(">>> [UPLINK] Accessing Neural Log: Tactical Overlay...");
-                    let items = client.list_project_items(2).await?;
+                    println!(">>> [UPLINK] Accessing Neural Log: Tactical Overlay (Project #{})...", project_num);
+                    let items = client.list_project_items(project_num).await?;
                     println!("\n{:<5} {:<50} {:<15} {:<15}", "NODE", "DATA FRAGMENT", "STATUS", "VERSION");
                     println!("{:-<90}", "");
                     for item in items {
@@ -908,13 +911,25 @@ async fn main() -> Result<()> {
                     }
                 }
                 BoardAction::Sync => {
-                    client.sync_issues(2).await?;
+                    if !is_admin { anyhow::bail!("Admin Auth Required for Board Sync."); }
+                    client.sync_issues(project_num).await?;
                 }
                 BoardAction::Done { id } => {
-                    client.update_item_status(2, id, "Done").await?;
+                    if !is_admin { anyhow::bail!("Admin Auth Required to Close Nodes."); }
+                    client.update_item_status(project_num, id, "Done").await?;
                 }
                 BoardAction::Todo { id } => {
-                    client.update_item_status(2, id, "Todo").await?;
+                    if !is_admin { anyhow::bail!("Admin Auth Required to Reopen Nodes."); }
+                    client.update_item_status(project_num, id, "Todo").await?;
+                }
+                BoardAction::Verify { id } => {
+                    println!(">>> [VERIFY] Cross-referencing Node #{} with Command Deck...", id);
+                    let items = client.list_project_items(project_num).await?;
+                    if let Some(item) = items.iter().find(|i| i.number == Some(id)) {
+                        println!("  [PASS] Node #{} verified. Current Status: {}", id, item.status);
+                    } else {
+                        anyhow::bail!("Node #{} not found on Project Board. Manual sync required.", id);
+                    }
                 }
                 BoardAction::Sdr => { feature_gate("koad board sdr", None); }
             }
