@@ -12,6 +12,7 @@ use chrono::Utc;
 use async_stream::try_stream;
 use koad_core::intent::{Intent, ExecuteIntent};
 use koad_core::identity::Rank;
+use koad_core::storage::StorageBridge;
 use tracing::{info, error};
 
 pub struct KoadSpine {
