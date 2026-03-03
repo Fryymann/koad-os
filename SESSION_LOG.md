@@ -80,3 +80,14 @@
 ## 2026-03-02 - Saveup: Finalized v4.0 architectural stabilization and board synchronization.
 - Scope: Ops/Finalize
 - Facts: Board synced, Foundation clean, All audit tasks Done
+
+## 2026-03-02 - Session Close: v4.0 Configuration & Secrets Unification (Issue #36)
+- **Status**: CONDITION GREEN (Refactor Complete)
+- **Core**: Centralized all environment parsing and GitHub PAT resolution into `koad-core::config`.
+- **Refactor**: Updated Spine, Gateway, and CLI to use unified configuration, ensuring zero-drift between components.
+- **Testing**: Hardened E2E framework with dynamic port assignment; all 37 tests passing.
+- **Issues**: Closed #36.
+
+## 2026-03-02 - Saveup: Unified environment configuration and secrets handling across all crates.
+- Scope: Core/Config
+- Facts: Issue #36 closed, KoadConfig live, E2E dynamic ports active

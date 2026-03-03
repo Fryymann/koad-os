@@ -5,24 +5,23 @@ pub mod rpc;
 use crate::engine::kernel::KernelBuilder;
 use std::path::PathBuf;
 use tokio::signal;
-use tracing::{info, error};
 use koad_core::logging::init_logging;
+use koad_core::config::KoadConfig;
+use tracing::{info, error};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let home_dir = std::env::var("KOAD_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".koad-os"));
+    let config = KoadConfig::load()?;
 
     // Initialize Structured Logging
-    let _guard = init_logging("kspine", Some(home_dir.clone()));
+    let _guard = init_logging("kspine", Some(config.home.clone()));
     
     info!("KoadOS Spine starting up...");
 
     // Initialize and Start the Kernel using the Builder pattern
     let kernel = KernelBuilder::new()
-        .with_home(home_dir.clone())
-        .with_grpc("0.0.0.0:50051", home_dir.join("kspine.sock"))
+        .with_home(config.home.clone())
+        .with_grpc(&config.spine_grpc_addr.replace("http://", ""), config.home.join("kspine.sock"))
         .start()
         .await?;
 

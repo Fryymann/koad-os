@@ -117,19 +117,27 @@ class KoadTestEnvironment:
             raise RuntimeError("Redis failed to start")
 
     def start_spine(self):
+        # Find a free port for gRPC
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('', 0))
+            self.spine_port = s.getsockname()[1]
+
+        self.spine_grpc_addr = f"http://127.0.0.1:{self.spine_port}"
+
         my_env = os.environ.copy()
         my_env["KOAD_HOME"] = str(self.koad_home)
-        
+        my_env["SPINE_GRPC_ADDR"] = self.spine_grpc_addr
+
         log_path = self.koad_home / "kspine.log"
         self.spine_log_handle = open(log_path, "w")
-        
+
         self.spine_proc = subprocess.Popen(
             [str(self.bin_dir / "kspine")],
             stdout=self.spine_log_handle,
             stderr=self.spine_log_handle,
             env=my_env,
             text=True,
-            preexec_fn=os.setsid # Start in new process group
+            preexec_fn=os.setsid
         )
         spine_socket = self.koad_home / "kspine.sock"
         for _ in range(200):
@@ -144,30 +152,37 @@ class KoadTestEnvironment:
     def start_gateway(self):
         my_env = os.environ.copy()
         my_env["KOAD_HOME"] = str(self.koad_home)
+        my_env["SPINE_GRPC_ADDR"] = self.spine_grpc_addr
+
         
         # Disable GitHub sync for tests unless needed
         my_env["GITHUB_ADMIN_PAT"] = "test_token"
         
+        # Find a free port for Gateway
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('', 0))
+            self.gateway_port = s.getsockname()[1]
+
         log_path = self.koad_home / "kgateway.log"
         self.gateway_log_handle = open(log_path, "w")
         
         self.gateway_proc = subprocess.Popen(
-            [str(self.bin_dir / "kgateway"), "--addr", "127.0.0.1:3005"], # Use unique port
+            [str(self.bin_dir / "kgateway"), "--addr", f"127.0.0.1:{self.gateway_port}"],
             stdout=self.gateway_log_handle,
             stderr=self.gateway_log_handle,
             env=my_env,
             text=True,
             preexec_fn=os.setsid
         )
-        # Wait for port 3005
+        # Wait for port
         for _ in range(100):
             try:
-                with socket.create_connection(("127.0.0.1", 3005), timeout=0.1):
+                with socket.create_connection(("127.0.0.1", self.gateway_port), timeout=0.1):
                     break
             except:
                 time.sleep(0.1)
         else:
-            raise RuntimeError(f"kgateway failed to start on port 3005. See {log_path}")
+            raise RuntimeError(f"kgateway failed to start on port {self.gateway_port}. See {log_path}")
 
     def stop(self):
         if hasattr(self, 'gateway_proc') and self.gateway_proc:

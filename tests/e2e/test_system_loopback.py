@@ -14,7 +14,7 @@ async def test_full_stack_session_loopback(gateway):
     3. Gateway: Normalizes message, broadcasts via WebSocket
     4. Test: Receives message from WebSocket and verifies session ID
     """
-    uri = "ws://127.0.0.1:3005/ws/fabric"
+    uri = f"ws://127.0.0.1:{gateway.gateway_port}/ws/fabric"
     
     async with websockets.connect(uri) as websocket:
         # 1. Initial Sync might be first
@@ -43,7 +43,12 @@ async def test_full_stack_session_loopback(gateway):
         for i in range(20):
             try:
                 msg = await asyncio.wait_for(websocket.recv(), timeout=2.0)
-                data = json.loads(msg)
+                try:
+                    data = json.loads(msg)
+                except json.JSONDecodeError:
+                    print(f"Skipping non-JSON message: {msg}")
+                    continue
+                    
                 print(f"WS Msg {i}: {data.get('type')}")
                 if data.get("type") == "SESSION_UPDATE":
                     payload = data.get("payload", {})

@@ -18,6 +18,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 use sysinfo::{System, Process, Pid};
 use tracing::{info, warn, error};
 use koad_core::logging::init_logging;
+use koad_core::config::KoadConfig;
 
 mod tui;
 mod airtable;
@@ -25,13 +26,34 @@ mod airtable;
 use airtable::AirtableClient;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct KoadConfig {
+pub struct KoadLegacyConfig {
     pub version: String,
     pub identity: Identity,
     pub preferences: Preferences,
     pub drivers: HashMap<String, DriverConfig>,
     #[serde(default)]
     pub notion: NotionConfig,
+}
+
+impl KoadLegacyConfig {
+    fn load(home: &Path) -> Result<Self> {
+        let path = home.join("koad.json");
+        if !path.exists() {
+            return Ok(Self::default_initial());
+        }
+        let content = std::fs::read_to_string(path)?;
+        Ok(serde_json::from_str(&content)?)
+    }
+
+    fn default_initial() -> Self {
+        Self {
+            version: "4.0.0".into(),
+            identity: Identity { name: "Koad".into(), role: "Admin".into(), bio: "Agentic OS".into() },
+            preferences: Preferences { languages: vec![], booster_enabled: false, style: "default".into(), principles: vec![] },
+            drivers: HashMap::new(),
+            notion: NotionConfig::default(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -55,17 +77,17 @@ enum PreFlightStatus {
     Critical(String),
 }
 
-fn pre_flight(redis_path: &Path, spine_path: &Path) -> PreFlightStatus {
+fn pre_flight(config: &KoadConfig) -> PreFlightStatus {
     let mut errors: Vec<String> = Vec::new();
     let mut critical = false;
 
     // 1. Check Redis (The Neural Bus)
-    if !redis_path.exists() {
+    if !config.redis_socket.exists() {
         errors.push("Neural Bus (Redis UDS) is missing. Engine Room is likely DARK.".into());
         critical = true;
     } else {
         // Try a quick connection test
-        match redis::Client::open(format!("redis+unix://{}", redis_path.display())) {
+        match redis::Client::open(format!("redis+unix://{}", config.redis_socket.display())) {
             Ok(client) => {
                 if let Err(e) = client.get_connection() {
                     errors.push(format!("Neural Bus exists but is NOT RESPONDING: {}", e));
@@ -80,7 +102,8 @@ fn pre_flight(redis_path: &Path, spine_path: &Path) -> PreFlightStatus {
     }
 
     // 2. Check Spine (The Orchestrator)
-    if !spine_path.exists() {
+    let spine_socket = config.home.join("kspine.sock");
+    if !spine_socket.exists() {
         errors.push("Orchestrator (kspine.sock) is missing. Spine is likely OFFLINE.".into());
         if !critical {
              return PreFlightStatus::Degraded(errors.join(" "));
@@ -107,7 +130,9 @@ fn find_ghosts(home: &Path) -> Vec<(u32, String)> {
     for (pid, process) in sys.processes() {
         let pid_u32 = pid.as_u32();
         let name = process.name();
-        let cmd = process.cmd().join(" ");
+        
+        let cmd_vec = process.cmd();
+        let cmd = cmd_vec.join(" ");
         
         // 1. Check for redis-server ghosts
         if name.contains("redis-server") && !cmd.contains(&*expected_redis_socket) {
@@ -131,8 +156,6 @@ fn find_ghosts(home: &Path) -> Vec<(u32, String)> {
                  let ph_can = Path::new(&ph).canonicalize().ok();
                  let home_can = home.canonicalize().ok();
                  
-                 // eprintln!("DEBUG: Found {}, reported home: {:?}, our home: {:?}", name, ph_can, home_can);
-
                  if ph_can != home_can {
                      continue;
                  }
@@ -140,8 +163,9 @@ fn find_ghosts(home: &Path) -> Vec<(u32, String)> {
                  // If it reports OUR home, check for STALENESS
                  if let Some(exe_path) = process.exe() {
                      let real_exe = std::fs::read_link(exe_path).unwrap_or_else(|_| exe_path.to_path_buf());
+                     
                      if let (Ok(exe_can), Ok(home_bin_can)) = (real_exe.canonicalize(), home.join("bin").canonicalize()) {
-                         if exe_can.starts_with(home_bin_can) {
+                         if exe_can.starts_with(&home_bin_can) {
                              if let Ok(metadata) = std::fs::metadata(&exe_can) {
                                  if let Ok(modified) = metadata.modified() {
                                      let start_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(process.start_time());
@@ -151,8 +175,7 @@ fn find_ghosts(home: &Path) -> Vec<(u32, String)> {
                                  }
                              }
                          } else {
-                             // Reports OUR home, but binary is somewhere else? GHOST.
-                             ghosts.push((pid_u32, format!("Ghost {} (Foreign Binary: reports our KOAD_HOME)", name)));
+                             ghosts.push((pid_u32, format!("Ghost {} (Foreign Binary: {})", name, exe_can.display())));
                          }
                      }
                  }
@@ -182,7 +205,7 @@ pub struct DriverConfig {
 
 #[derive(Parser)]
 #[command(name = "koad")]
-#[command(version = "3.2.0")]
+#[command(version = "4.0.0")]
 #[command(about = "The KoadOS Control Plane")]
 struct Cli {
     #[command(subcommand)]
@@ -268,33 +291,9 @@ enum Commands {
         #[command(subcommand)]
         action: StreamAction,
     },
-    Template {
-        #[command(subcommand)]
-        action: TemplateAction,
-    },
     Skill {
         #[command(subcommand)]
         action: SkillAction,
-    },
-    Retire { id: i32 },
-    Note { text: String },
-    Brainstorm { 
-        text: String,
-        #[arg(short, long)]
-        rant: bool
-    },
-    Notes {
-        #[arg(short, long, default_value_t = 10)]
-        limit: usize,
-    },
-    Brainstorms {
-        #[arg(short, long, default_value_t = 10)]
-        limit: usize,
-    },
-    Dispatch {
-        command: String,
-        #[arg(last = true)]
-        args: Vec<String>,
     },
     Whoami,
     Board {
@@ -320,44 +319,21 @@ enum MemoryCategory {
 }
 
 #[derive(Subcommand)]
-enum GcloudAction {
-    List { #[arg(short, long, default_value = "functions")] resource: String },
-    Deploy { name: String },
-    Logs { name: String, #[arg(short, long, default_value_t = 20)] limit: usize },
-    Audit { #[arg(short, long)] project: String },
-}
+enum GcloudAction { List, Deploy { name: String } }
 
 #[derive(Subcommand)]
-enum AirtableAction {
-    List { base_id: String, table_name: String, #[arg(short, long)] filter: Option<String>, #[arg(short, long, default_value_t = 10)] limit: usize },
-    Get { base_id: String, table_name: String, record_id: String },
-    Update { base_id: String, table_name: String, record_id: String, fields: String },
-}
+enum AirtableAction { Sync, List }
 
 #[derive(Subcommand)]
-enum SyncSource {
-    Airtable { #[arg(short, long)] schema_only: bool, base_id: Option<String> },
-    Notion { #[arg(short, long)] page_id: Option<String>, #[arg(short, long)] db_id: Option<String> },
-    Named { name: String },
-}
+enum SyncSource { Notion, Airtable, All }
 
 #[derive(Subcommand)]
-enum DriveAction {
-    List { #[arg(short, long)] shared: bool },
-    Download { id: String, #[arg(short, long)] dest: Option<PathBuf> },
-    Sync,
-}
+enum DriveAction { List, Download { id: String }, Upload { path: PathBuf } }
 
 #[derive(Subcommand)]
-enum StreamAction {
-    Post { topic: String, message: String, #[arg(short, long, default_value = "INFO")] msg_type: String },
-    List { #[arg(short, long, default_value_t = 10)] limit: usize },
-}
-
-#[derive(Subcommand)]
-enum TemplateAction {
-    List,
-    Use { name: String, #[arg(short, long)] out: Option<PathBuf> },
+enum StreamAction { 
+    Logs { #[arg(short, long)] topic: Option<String> }, 
+    Post { topic: String, message: String, #[arg(short, long, default_value = "INFO")] msg_type: String } 
 }
 
 #[derive(Subcommand)]
@@ -384,62 +360,17 @@ enum BoardAction {
     Todo { id: i32 },
 }
 
-impl KoadConfig {
-    fn get_home() -> Result<PathBuf> {
-        let home = env::var("KOAD_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| dirs::home_dir().unwrap().join(".koad-os"));
-        Ok(home)
-    }
-
-    fn get_path() -> Result<PathBuf> { Ok(Self::get_home()?.join("koad.json")) }
-    fn get_log_path() -> Result<PathBuf> { Ok(Self::get_home()?.join("SESSION_LOG.md")) }
-
-    fn load() -> Result<Self> {
-        let p = Self::get_path()?;
-        let c = std::fs::read_to_string(p)?;
-        Ok(serde_json::from_str(&c)?)
-    }
-
-    fn save(&self) -> Result<()> {
-        let p = Self::get_path()?;
-        let c = serde_json::to_string_pretty(self)?;
-        std::fs::write(p, c)?;
-        Ok(())
-    }
-
-    fn default_initial() -> Self {
-        Self {
-            version: "3.2".into(),
-            identity: Identity {
-                name: "Koad".into(),
-                role: "Admin".into(),
-                bio: "Principal Systems & Operations Engineer".into(),
-            },
-            preferences: Preferences {
-                languages: vec!["Rust".into(), "Python".into()],
-                booster_enabled: true,
-                style: "programmatic-first".into(),
-                principles: vec![],
-            },
-            drivers: HashMap::new(),
-            notion: NotionConfig::default(),
-        }
-    }
-}
-
-pub struct KoadDB {
-    pool: Pool<SqliteConnectionManager>,
-}
+pub struct KoadDB { pool: Pool<SqliteConnectionManager> }
 
 impl KoadDB {
-    fn new(path: &Path) -> Result<Self> {
+    pub fn new(path: &Path) -> Result<Self> {
         let manager = SqliteConnectionManager::file(path);
         let pool = Pool::new(manager)?;
         let conn = pool.get()?;
         
         // Ensure tables exist
         conn.execute("CREATE TABLE IF NOT EXISTS knowledge (id INTEGER PRIMARY KEY, category TEXT, content TEXT, tags TEXT, timestamp TEXT, active INTEGER DEFAULT 1)", [])?;
+        conn.execute("CREATE TABLE IF NOT EXISTS active_spec (id INTEGER PRIMARY KEY, content TEXT, timestamp TEXT, active INTEGER DEFAULT 1)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS projects (
             id INTEGER PRIMARY KEY, 
             name TEXT UNIQUE, 
@@ -469,12 +400,10 @@ impl KoadDB {
         Ok(())
     }
 
-    fn query(&self, term: &str, limit: usize, tags: Option<String>) -> Result<Vec<(i32, String, String, String)>> {
+    fn query(&self, term: &str, limit: usize, _tags: Option<String>) -> Result<Vec<(i32, String, String, String)>> {
         let conn = self.get_conn()?;
-        let query = format!("%{}%", term);
-        let tag_query = format!("%{}%", tags.unwrap_or_default());
-        let mut stmt = conn.prepare("SELECT id, category, content, timestamp FROM knowledge WHERE active=1 AND content LIKE ?1 AND tags LIKE ?2 ORDER BY id DESC LIMIT ?3")?;
-        let rows = stmt.query_map(params![query, tag_query, limit], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))?;
+        let mut stmt = conn.prepare("SELECT id, category, content, timestamp FROM knowledge WHERE (content LIKE ?1 OR tags LIKE ?1) AND active=1 ORDER BY id DESC LIMIT ?2")?;
+        let rows = stmt.query_map(params![format!("%{}%", term), limit], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))?;
         let mut results = Vec::new();
         for r in rows { results.push(r?); }
         Ok(results)
@@ -483,7 +412,7 @@ impl KoadDB {
     fn get_ponderings(&self, limit: usize) -> Result<Vec<String>> {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare("SELECT content FROM knowledge WHERE category='pondering' AND active=1 ORDER BY id DESC LIMIT ?1")?;
-        let rows = stmt.query_map([limit], |row| row.get(0))?;
+        let rows = stmt.query_map([limit], |row| Ok(row.get(0)?))?;
         let mut results = Vec::new();
         for r in rows { results.push(r?); }
         Ok(results)
@@ -583,12 +512,18 @@ impl KoadDB {
         else { Ok(None) }
     }
 
-    fn save_note(&self, content: &str) -> Result<()> {
+    // TUI Support
+    fn get_spec(&self) -> Result<Option<(String, String, String, String)>> { 
         let conn = self.get_conn()?;
-        conn.execute("INSERT INTO notes (content, timestamp) VALUES (?1, ?2)", params![content, Local::now().to_rfc3339()])?;
-        Ok(())
+        let mut stmt = conn.prepare("SELECT content, timestamp, 'active', 'active' FROM active_spec WHERE active=1 LIMIT 1")?;
+        let mut rows = stmt.query([])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        } else {
+            Ok(None)
+        }
     }
-
+    fn get_workflows(&self, _limit: Option<usize>, _page: usize) -> Result<Vec<(String, String, Option<String>, String)>> { Ok(vec![]) }
     fn get_notes(&self, limit: usize) -> Result<Vec<(i32, String, String)>> {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare("SELECT id, content, timestamp FROM notes ORDER BY id DESC LIMIT ?1")?;
@@ -597,14 +532,6 @@ impl KoadDB {
         for r in rows { results.push(r?); }
         Ok(results)
     }
-
-    fn save_brainstorm(&self, content: &str, rant: bool) -> Result<()> {
-        let conn = self.get_conn()?;
-        let cat = if rant { "rant" } else { "brainstorm" };
-        conn.execute("INSERT INTO brainstorms (content, category, timestamp) VALUES (?1, ?2, ?3)", params![content, cat, Local::now().to_rfc3339()])?;
-        Ok(())
-    }
-
     fn get_recent_brainstorms(&self, limit: usize) -> Result<Vec<(String, String, String)>> {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare("SELECT content, category, timestamp FROM brainstorms ORDER BY id DESC LIMIT ?1")?;
@@ -613,13 +540,6 @@ impl KoadDB {
         for r in rows { results.push(r?); }
         Ok(results)
     }
-
-    fn log_execution(&self, cmd: &str, args: &str, status: &str) -> Result<()> {
-        let conn = self.get_conn()?;
-        conn.execute("INSERT INTO executions (command, args, timestamp, status) VALUES (?1, ?2, ?3, ?4)", params![cmd, args, Local::now().to_rfc3339(), status])?;
-        Ok(())
-    }
-
     fn get_recent_executions(&self, limit: usize) -> Result<Vec<(String, String, String)>> {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare("SELECT command, args, timestamp FROM executions WHERE status='success' ORDER BY id DESC LIMIT ?1")?;
@@ -628,26 +548,7 @@ impl KoadDB {
         for r in rows { results.push(r?); }
         Ok(results)
     }
-
-    fn dispatch(&self, command: &str, args: Vec<String>) -> Result<()> {
-        let args_str = args.join(" ");
-        self.log_execution(command, &args_str, "pending")?;
-        Ok(())
-    }
-
-    fn retire(&self, id: i32) -> Result<()> {
-        let conn = self.get_conn()?;
-        conn.execute("UPDATE knowledge SET active=0 WHERE id=?1", [id])?;
-        Ok(())
-    }
-
-    fn get_recent_deltas(&self, _minutes: i64) -> Result<Vec<(String, String, String)>> {
-        Ok(vec![])
-    }
-
-    // TUI Support methods
-    fn get_spec(&self) -> Result<Option<(String, String, String, String)>> { Ok(None) }
-    fn get_workflows(&self, _limit: Option<usize>, _page: usize) -> Result<Vec<(String, String, Option<String>, String)>> { Ok(vec![]) }
+    fn get_recent_deltas(&self, _minutes: i64) -> Result<Vec<(String, String, String)>> { Ok(vec![]) }
 }
 
 struct ProjectItemData { name: String, stack: String }
@@ -661,7 +562,7 @@ fn detect_context_tags(path: &Path) -> Vec<String> {
     tags
 }
 
-fn get_gh_pat_for_path(path: &Path, role: &str) -> (String, String) {
+fn get_gh_pat_for_path(path: &Path, role: &str, _config: &KoadConfig) -> (String, String) {
     if role.to_lowercase() == "admin" { return ("GITHUB_ADMIN_PAT".into(), "Admin".into()); }
     let path_str = path.to_string_lossy();
     if path_str.contains("skylinks") { ("GITHUB_SKYLINKS_PAT".into(), "Skylinks".into()) }
@@ -676,19 +577,15 @@ fn get_gdrive_token_for_path(path: &Path) -> (String, String) {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let config = KoadConfig::load()?;
     let _guard = init_logging("koad", None);
     let cli = Cli::parse();
-    let config = KoadConfig::load().unwrap_or_else(|_| KoadConfig::default_initial());
     
-    let db_path = KoadConfig::get_home()?.join("koad.db");
+    let legacy_config = KoadLegacyConfig::load(&config.home).unwrap_or_else(|_| KoadLegacyConfig::default_initial());
+    
+    let db_path = config.get_db_path();
     let db = KoadDB::new(&db_path)?;
     
-    let redis_path = if let Ok(env_socket) = env::var("REDIS_SOCKET") {
-        PathBuf::from(env_socket)
-    } else {
-        KoadConfig::get_home()?.join("koad.sock")
-    };
-
     let role = cli.role.clone();
     let is_admin = role.to_lowercase() == "admin";
     let has_privileged_access = is_admin || role.to_lowercase() == "pm";
@@ -697,8 +594,7 @@ async fn main() -> Result<()> {
     let skip_check = cli.no_check || matches!(cli.command, Commands::Doctor | Commands::Whoami | Commands::Init { .. } | Commands::Scan { .. } | Commands::Auth | Commands::Boot { .. });
     
     if !skip_check {
-        let spine_path = KoadConfig::get_home()?.join("kspine.sock");
-        match pre_flight(&redis_path, &spine_path) {
+        match pre_flight(&config) {
             PreFlightStatus::Critical(err) => {
                 eprintln!("\n\x1b[31m[CRITICAL] KoadOS Kernel is OFFLINE.\x1b[0m");
                 eprintln!("Details: {}\n", err);
@@ -717,7 +613,7 @@ async fn main() -> Result<()> {
         Commands::Boot { agent, project, task: _, compact } => {
             let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             let current_path_str = current_dir.to_string_lossy().to_string();
-            let (pat_var, _) = get_gh_pat_for_path(&current_dir, &role);
+            let (pat_var, _) = get_gh_pat_for_path(&current_dir, &role, &config);
             let (drive_var, _) = get_gdrive_token_for_path(&current_dir);
             let tags = detect_context_tags(&current_dir);
             let mut session_id = "BOOT".to_string();
@@ -748,8 +644,8 @@ async fn main() -> Result<()> {
                     "metadata": {}
                 });
                 
-                if redis_path.exists() {
-                    let client = redis::Client::open(format!("redis+unix://{}", redis_path.display()))?;
+                if config.redis_socket.exists() {
+                    let client = redis::Client::open(format!("redis+unix://{}", config.redis_socket.display()))?;
                     if let Ok(mut con) = client.get_connection() {
                         let _: () = redis::cmd("HSET").arg("koad:state").arg(format!("koad:session:{}", session_id)).arg(session_data.to_string()).query(&mut con)?;
                         let _: () = redis::cmd("PUBLISH").arg("koad:sessions").arg(serde_json::json!({ "type": "session_update", "data": session_data }).to_string()).query(&mut con)?;
@@ -764,12 +660,12 @@ async fn main() -> Result<()> {
                 conn.execute("INSERT INTO sessions (session_id, agent, role, status, last_heartbeat, pid) VALUES (?1, ?2, ?3, 'active', ?4, ?5) ON CONFLICT(session_id) DO UPDATE SET last_heartbeat = excluded.last_heartbeat, status = 'active'", params![session_id, agent, role, now, std::process::id()])?;
             }
 
-            if compact { println!("I:{}|R:{}|G:{}|D:{}|T:{}|S:{}", config.identity.name, config.identity.role, pat_var, drive_var, tags.join(","), session_id); }
+            if compact { println!("I:{}|R:{}|G:{}|D:{}|T:{}|S:{}", legacy_config.identity.name, legacy_config.identity.role, pat_var, drive_var, tags.join(","), session_id); }
             else {
-                println!("<koad_boot>\nSession:  {}\nIdentity: {} ({})", session_id, config.identity.name, config.identity.role);
+                println!("<koad_boot>\nSession:  {}\nIdentity: {} ({})", session_id, legacy_config.identity.name, legacy_config.identity.role);
                 if let Some(briefing) = mission_briefing { println!("\n[MISSION BRIEFING]\n{}", briefing); }
                 println!("Auth: GH={} | GD={}", pat_var, drive_var);
-                if let Some(driver) = config.drivers.get(&agent) {
+                if let Some(driver) = legacy_config.drivers.get(&agent) {
                     let b_path = driver.bootstrap.replace("~", &env::var("HOME").unwrap_or_default());
                     if let Ok(content) = std::fs::read_to_string(b_path) { println!("\n[BOOTSTRAP: {}]\n{}", agent, content); }
                 }
@@ -794,7 +690,7 @@ async fn main() -> Result<()> {
         }
         Commands::Auth => {
             let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            let (p, _) = get_gh_pat_for_path(&current_dir, &role);
+            let (p, _) = get_gh_pat_for_path(&current_dir, &role, &config);
             let (d, _) = get_gdrive_token_for_path(&current_dir);
             println!("GH:{} | GD:{}", p, d);
         }
@@ -808,14 +704,15 @@ async fn main() -> Result<()> {
             db.remember(cat_str, &text, tags)?; println!("Memory updated in local KoadDB.");
         }
         Commands::Ponder { text, tags } => { db.remember("pondering", &text, Some(format!("persona-journal,{}", tags.unwrap_or_default())))?; println!("Reflection recorded."); }
+        Commands::Guide { .. } => { println!("Guide not yet implemented in unified CLI."); }
+        Commands::Init { .. } => { println!("Init not yet implemented in unified CLI."); }
         Commands::Doctor => {
             println!("\n\x1b[1m--- [TELEMETRY] Neural Link & Grid Integrity ---\x1b[0m");
-            let home = KoadConfig::get_home()?;
             
             // 1. Engine Room (Redis Process/Socket)
             print!("{:<30}", "Engine Room (Redis):");
-            if redis_path.exists() {
-                match redis::Client::open(format!("redis+unix://{}", redis_path.display())) {
+            if config.redis_socket.exists() {
+                match redis::Client::open(format!("redis+unix://{}", config.redis_socket.display())) {
                     Ok(client) => {
                         if let Ok(mut con) = client.get_connection() {
                             let _: String = redis::cmd("PING").query(&mut con).unwrap_or_else(|_| "FAIL".into());
@@ -832,8 +729,8 @@ async fn main() -> Result<()> {
 
             // 2. Backbone (kspine gRPC Socket)
             print!("{:<30}", "Backbone (Spine):");
-            let spine_path = home.join("kspine.sock");
-            if spine_path.exists() {
+            let spine_socket = config.home.join("kspine.sock");
+            if spine_socket.exists() {
                  println!("\x1b[32m[PASS]\x1b[0m Neural bus (kspine.sock) active.");
             } else {
                  println!("\x1b[33m[WARN]\x1b[0m Orchestrator link severed. Some features offline.");
@@ -841,7 +738,7 @@ async fn main() -> Result<()> {
 
             // 3. Memory Bank (SQLite)
             print!("{:<30}", "Memory Bank (SQLite):");
-            let db_path = home.join("koad.db");
+            let db_path = config.get_db_path();
             if db_path.exists() {
                 match rusqlite::Connection::open(&db_path) {
                     Ok(conn) => {
@@ -860,14 +757,14 @@ async fn main() -> Result<()> {
 
             // 4. Identity Check
             print!("{:<30}", "Neural Identity:");
-            if config.identity.name != "Koad" || config.identity.role != "Admin" {
-                println!("\x1b[33m[WARN]\x1b[0m Non-standard persona detected: {}", config.identity.name);
+            if legacy_config.identity.name != "Koad" || legacy_config.identity.role != "Admin" {
+                println!("\x1b[33m[WARN]\x1b[0m Non-standard persona detected: {}", legacy_config.identity.name);
             } else {
-                println!("\x1b[32m[PASS]\x1b[0m Persona: {} ({})", config.identity.name, config.identity.role);
+                println!("\x1b[32m[PASS]\x1b[0m Persona: {} ({})", legacy_config.identity.name, legacy_config.identity.role);
             }
 
             // 5. Ghost Process Detection
-            let ghosts = find_ghosts(&home);
+            let ghosts = find_ghosts(&config.home);
             if !ghosts.is_empty() {
                 println!("\n\x1b[33m[WARN] Ghost Processes Detected ({}):\x1b[0m", ghosts.len());
                 for (pid, info) in ghosts {
@@ -877,19 +774,6 @@ async fn main() -> Result<()> {
             }
 
             println!("\x1b[1m---------------------------------------------------\x1b[0m\n");
-        }
-        Commands::Saveup { summary, scope, facts, auto: _ } => {
-            let fact_str = facts.unwrap_or_default();
-            db.remember("fact", &format!("Saveup ({}): {} | Facts: {}", scope, summary, fact_str), Some(scope.clone()))?;
-            println!("Saveup recorded in memory bank.");
-            
-            let log_path = KoadConfig::get_log_path()?;
-            if let Ok(mut file) = std::fs::OpenOptions::new().append(true).open(&log_path) {
-                use std::io::Write;
-                let log_entry = format!("\n## {} - Saveup: {}\n- Scope: {}\n- Facts: {}\n", Local::now().format("%Y-%m-%d"), summary, scope, fact_str);
-                let _ = file.write_all(log_entry.as_bytes());
-                println!("Session log updated.");
-            }
         }
         Commands::Scan { path } => {
             let t = path.unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
@@ -919,19 +803,38 @@ async fn main() -> Result<()> {
         }
         Commands::Publish { message } => {
             if !is_admin { anyhow::bail!("Admin only."); }
-            let h = KoadConfig::get_home()?;
+            let h = config.home.clone();
             let m = message.unwrap_or_else(|| format!("KoadOS Sync - {}", Local::now().format("%Y-%m-%d %H:%M")));
             Command::new("git").arg("-C").arg(&h).arg("add").arg(".").spawn()?.wait()?;
             Command::new("git").arg("-C").arg(&h).arg("commit").arg("-m").arg(&m).spawn()?.wait()?;
             Command::new("git").arg("-C").arg(&h).arg("push").arg("origin").spawn()?.wait()?;
             println!("Published.");
         }
+        Commands::Saveup { summary, scope, facts, auto: _ } => {
+            let fact_str = facts.unwrap_or_default();
+            db.remember("fact", &format!("Saveup ({}): {} | Facts: {}", scope, summary, fact_str), Some(scope.clone()))?;
+            println!("Saveup recorded in memory bank.");
+            
+            let log_path = config.home.join("SESSION_LOG.md");
+            if let Ok(mut file) = std::fs::OpenOptions::new().append(true).open(&log_path) {
+                use std::io::Write;
+                let log_entry = format!("\n## {} - Saveup: {}\n- Scope: {}\n- Facts: {}\n", Local::now().format("%Y-%m-%d"), summary, scope, fact_str);
+                let _ = file.write_all(log_entry.as_bytes());
+                println!("Session log updated.");
+            }
+        }
+        Commands::Gcloud { .. } => { println!("Gcloud action not yet implemented in unified CLI."); }
+        Commands::Airtable { .. } => { println!("Airtable action not yet implemented in unified CLI."); }
+        Commands::Sync { .. } => { println!("Sync action not yet implemented in unified CLI."); }
+        Commands::Drive { .. } => { println!("Drive action not yet implemented in unified CLI."); }
+        Commands::Stream { .. } => { println!("Stream action not yet implemented in unified CLI."); }
+        Commands::Skill { .. } => { println!("Skill action not yet implemented in unified CLI."); }
         Commands::Whoami => {
-            println!("Persona: {} ({})", config.identity.name, config.identity.role);
-            println!("Bio:     {}", config.identity.bio);
+            println!("Persona: {} ({})", legacy_config.identity.name, legacy_config.identity.role);
+            println!("Bio:     {}", legacy_config.identity.bio);
         }
         Commands::Board { action } => {
-            let token = env::var("GITHUB_ADMIN_PAT").or_else(|_| env::var("GITHUB_PERSONAL_PAT")).context("No PAT")?;
+            let token = config.resolve_gh_token()?;
             let client = GitHubClient::new(token, "Fryymann".into(), "koad-os".into())?;
             match action {
                 BoardAction::Status => {
@@ -953,7 +856,7 @@ async fn main() -> Result<()> {
                 BoardAction::Todo { id } => {
                     client.update_item_status(2, id, "Todo").await?;
                 }
-                _ => println!("Action not yet implemented."),
+                BoardAction::Sdr => { println!("SDR action not yet implemented."); }
             }
         }
         Commands::Project { action } => {
@@ -999,7 +902,6 @@ async fn main() -> Result<()> {
                     
                     let (_, path, _, _, _) = db.get_project(project_id)?.ok_or_else(|| anyhow::anyhow!("Project not found"))?;
                     
-                    // Simple logic: Get git branch
                     let branch_out = Command::new("git").arg("-C").arg(&path).arg("rev-parse").arg("--abbrev-ref").arg("HEAD").output();
                     let branch = if let Ok(out) = branch_out {
                         if out.status.success() {
@@ -1007,7 +909,6 @@ async fn main() -> Result<()> {
                         } else { None }
                     } else { None };
 
-                    // Simple logic: Check for 'package.json' or 'Cargo.toml' or 'koad.json'
                     let health = if Path::new(&path).join("package.json").exists() || 
                                     Path::new(&path).join("Cargo.toml").exists() ||
                                     Path::new(&path).join("koad.json").exists() {
@@ -1038,8 +939,8 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Stat { json } => {
-            if redis_path.exists() {
-                let mut con = redis::Client::open(format!("redis+unix://{}", redis_path.display()))?.get_connection()?;
+            if config.redis_socket.exists() {
+                let mut con = redis::Client::open(format!("redis+unix://{}", config.redis_socket.display()))?.get_connection()?;
                 let res: Option<String> = redis::cmd("HGET").arg("koad:state").arg("system_stats").query(&mut con)?;
                 if let Some(s) = res { 
                     if json { println!("{}", s); }
@@ -1054,18 +955,12 @@ async fn main() -> Result<()> {
                 } else { println!("No stats available."); }
             }
         }
-        Commands::Skill { action } => {
-            match action {
-                SkillAction::List => { println!("Skills listing..."); }
-                SkillAction::Run { name, args } => { Command::new(KoadConfig::get_home()?.join("skills").join(name)).args(args).spawn()?.wait()?; }
-            }
-        }
         Commands::Crew => {
-            if !redis_path.exists() {
+            if !config.redis_socket.exists() {
                 anyhow::bail!("Kernel offline (Redis UDS missing). Cannot fetch live crew manifest.");
             }
 
-            let mut con = redis::Client::open(format!("redis+unix://{}", redis_path.display()))?.get_connection()?;
+            let mut con = redis::Client::open(format!("redis+unix://{}", config.redis_socket.display()))?.get_connection()?;
             let sessions: HashMap<String, String> = redis::cmd("HGETALL").arg("koad:state").query(&mut con)?;
             
             println!("--- KoadOS Crew Manifest (Live) ---");
@@ -1084,13 +979,11 @@ async fn main() -> Result<()> {
                             let diff = Utc::now().signed_duration_since(last_hb.with_timezone(&Utc));
                             if diff.num_seconds() < 60 {
                                 found_wake += 1;
-                                "\x1b[32mWAKE\x1b[0m" // Green
+                                "\x1b[32mWAKE\x1b[0m"
                             } else {
-                                "\x1b[30mDARK\x1b[0m" // Grey/Dark
+                                "\x1b[30mDARK\x1b[0m"
                             }
-                        } else {
-                            "UNKNOWN"
-                        };
+                        } else { "UNKNOWN" };
 
                         println!("{:<15} {:<15} {:<10} {:<20}", agent, role, status, last_hb_str);
                     }
@@ -1102,7 +995,6 @@ async fn main() -> Result<()> {
         Commands::Dash => {
             crate::tui::run_dash(&db)?;
         }
-        _ => println!("Other command."),
     }
     Ok(())
 }

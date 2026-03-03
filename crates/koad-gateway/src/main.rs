@@ -24,46 +24,38 @@ use rusqlite::Connection;
 use crate::deck::DeckManager;
 use tracing::{info, error, warn};
 use koad_core::logging::init_logging;
+use koad_core::config::KoadConfig as CoreConfig;
 
 #[derive(Parser)]
 struct Cli {
-    /// Koad home directory
-    #[arg(long)]
-    home: Option<String>,
-
     /// Listen address
-    #[arg(long, default_value = "0.0.0.0:3000")]
-    addr: String,
+    #[arg(long)]
+    addr: Option<String>,
 }
 
 struct GatewayState {
     pub client: RedisClient,
     pub subscriber: RedisClient,
     pub gh_client: Option<GitHubClient>,
-    pub db_path: PathBuf,
-    pub spine_addr: String,
+    pub config: CoreConfig,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let home_dir = cli.home.clone().unwrap_or_else(|| {
-        std::env::var("KOAD_HOME")
-            .unwrap_or_else(|_| format!("{}/.koad-os", std::env::var("HOME").unwrap_or_default()))
-    });
-
-    let home_path = PathBuf::from(&home_dir);
+    let mut config = CoreConfig::load()?;
+    
+    if let Some(addr) = cli.addr {
+        config.gateway_addr = addr;
+    }
 
     // Initialize Structured Logging
-    let _guard = init_logging("kgateway", Some(home_path.clone()));
+    let _guard = init_logging("kgateway", Some(config.home.clone()));
     
     info!("KoadOS Gateway starting up...");
 
     // Resolve GitHub Token
-    let gh_token = std::env::var("GITHUB_ADMIN_PAT").ok()
-        .or_else(|| std::env::var("GITHUB_PERSONAL_PAT").ok());
-    
-    let gh_client = if let Some(token) = gh_token {
+    let gh_client = if let Ok(token) = config.resolve_gh_token() {
         info!("Gateway: GitHub integration active.");
         GitHubClient::new(token, "Fryymann".to_string(), "koad-os".to_string()).ok()
     } else {
@@ -71,20 +63,19 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    let socket_path = home_path.join("koad.sock");
-    let db_path = home_path.join("koad.db");
+    let socket_path = config.redis_socket.clone();
     
     info!("Gateway: Connecting to Redis via UDS at {}...", socket_path.display());
 
-    let config = RedisConfig {
+    let redis_config = RedisConfig {
         server: ServerConfig::Unix {
             path: socket_path,
         },
         ..Default::default()
     };
 
-    let client = Builder::from_config(config.clone()).build()?;
-    let subscriber = Builder::from_config(config).build()?;
+    let client = Builder::from_config(redis_config.clone()).build()?;
+    let subscriber = Builder::from_config(redis_config).build()?;
 
     client.init().await?;
     subscriber.init().await?;
@@ -93,16 +84,15 @@ async fn main() -> anyhow::Result<()> {
         client,
         subscriber,
         gh_client,
-        db_path,
-        spine_addr: "http://127.0.0.1:50051".to_string(), // Default spine gRPC address
+        config: config.clone(),
     });
 
     // 1. Initialize and Start Deck Manager (Vite Dev Server if needed)
-    let deck_path = format!("{}/web/deck", home_dir);
+    let deck_path = config.home.join("web/deck").to_string_lossy().into_owned();
     let deck_manager = DeckManager::new(&deck_path).start().await?;
 
     // Ensure static dist directory exists for Vite Dashboard
-    let dist_path = format!("{}/web/deck/dist", home_dir);
+    let dist_path = config.home.join("web/deck/dist");
     let _ = std::fs::create_dir_all(&dist_path);
 
     let app = Router::new()
@@ -111,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(CorsLayer::permissive())
         .with_state(state.clone());
 
-    info!("EdgeGateway: Web Deck & WebSocket active on http://{}", cli.addr);
+    info!("EdgeGateway: Web Deck & WebSocket active on http://{}", config.gateway_addr);
     
     // Register Service in Inventory
     let service_entry = json!({
@@ -124,7 +114,7 @@ async fn main() -> anyhow::Result<()> {
     });
     let _: () = state.client.hset::<(), _, _>("koad:services", ("web-deck", service_entry.to_string())).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
-    let listener = tokio::net::TcpListener::bind(&cli.addr).await?;
+    let listener = tokio::net::TcpListener::bind(&config.gateway_addr).await?;
     axum::serve(listener, app).await?;
 
     drop(deck_manager);
@@ -181,7 +171,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
     }
 
     let mut projects = vec![];
-    if let Ok(conn) = Connection::open(&state.db_path) {
+    if let Ok(conn) = Connection::open(state.config.get_db_path()) {
         if let Ok(mut stmt) = conn.prepare("SELECT id, name, path, branch, health FROM projects WHERE active = 1") {
             if let Ok(rows) = stmt.query_map([], |row| {
                 Ok(json!({
@@ -213,7 +203,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
     let _ = sender.send(Message::Text(sync_msg.to_string())).await;
 
     // Relay Task: Spine gRPC (Real-time Events) -> WebSocket
-    let spine_addr = state.spine_addr.clone();
+    let spine_addr = state.config.spine_grpc_addr.clone();
     let relay_handle = tokio::spawn(async move {
         if let Ok(mut client) = SpineServiceClient::connect(spine_addr).await {
             if let Ok(response) = client.stream_system_events(StreamSystemEventsRequest { filter_sources: vec![] }).await {
