@@ -35,6 +35,7 @@ service SpineService {
   
   rpc RegisterComponent(RegisterComponentRequest) returns (RegisterComponentResponse);
   rpc InitializeSession(InitializeSessionRequest) returns (SessionPackage);
+  rpc DrainAll(Empty) returns (Empty);
 }
 
 // --- Common Messages ---

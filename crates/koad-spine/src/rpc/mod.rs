@@ -267,6 +267,7 @@ impl SpineService for KoadSpine {
             name: req.agent_name,
             rank,
             permissions: vec!["all".to_string()],
+            tier: 3, // Default to restricted Guest for remote gRPC initializations
         };
 
         let context = koad_core::session::ProjectContext {
@@ -299,5 +300,11 @@ impl SpineService for KoadSpine {
                 metadata: HashMap::new(),
             }),
         }))
+    }
+
+    async fn drain_all(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
+        info!("Kernel: Triggering full state drain to durable memory...");
+        self.engine.storage.drain_all().await.map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(Empty {}))
     }
 }

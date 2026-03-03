@@ -51,11 +51,23 @@ impl KoadStorageBridge {
     }
 }
 
+const SOVEREIGN_KEYS: &[&str] = &["identities", "identity_roles", "knowledge", "principles", "canon_rules"];
+
 #[async_trait]
 impl StorageBridge for KoadStorageBridge {
-    async fn set_state(&self, key: &str, value: Value) -> anyhow::Result<()> {
+    async fn set_state(&self, key: &str, value: Value, caller_tier: Option<i32>) -> anyhow::Result<()> {
         let val_str = value.to_string();
         let now = Utc::now().timestamp();
+        let tier = caller_tier.unwrap_or(3); // Default to restricted Guest
+
+        // CIP: Cognitive Integrity Protocol Enforcement
+        if tier > 1 {
+            for sovereign in SOVEREIGN_KEYS {
+                if key.starts_with(sovereign) {
+                    anyhow::bail!("Cognitive Protection: Model Tier {} is not authorized to modify sovereign state '{}'.", tier, key);
+                }
+            }
+        }
 
         // 1. Update Redis (Hot Path)
         let _: () = self.redis.client.hset::<(), _, _>("koad:state", (key, val_str.clone())).await?;

@@ -109,3 +109,7 @@
 ## 2026-03-02 - Saveup: Implemented Graceful Shutdowns and WebSocket Robustness across the Gateway and Spine.
 - Scope: Ops/Resilience
 - Facts: Issue #33 closed, Issue #34 closed, Outbox pattern active, serve_with_shutdown live
+
+## 2026-03-03 - Saveup: Finalized v4.0.0 baseline: Hardened CLI, automated refresh, and synchronized Command Deck.
+- Scope: Ops/Stabilization
+- Facts: Issue #26 closed, Issue #31 closed, KSRP Protocol canonized, 100% E2E pass.

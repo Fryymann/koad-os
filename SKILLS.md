@@ -5,6 +5,7 @@ Skills are specialized scripts that extend KoadOS functionality. Each coding age
 ## Directory Structure
 - `~/.koad-os/skills/global/`: Shared skills available to all agents.
 - `~/.koad-os/skills/<agent>/`: Agent-specific skills (e.g., `gemini/`, `claude/`).
+- `~/.koad-os/skills/codex/`: Codex-specific Admin lane. Requires verified Codex boot marker before mutating runs.
 
 ## How to Build a Skill
 1. **Create a Script**: Write a script in your preferred language (Python, Node.js, Rust, Bash).
@@ -26,6 +27,9 @@ Use the koad CLI as a dispatcher:
 
 Example:
 `koad skill run global/cleanup.sh --dry-run`
+
+Codex lane example:
+`koad skill run codex/preflight.sh`
 
 ## Key Skills
 - **gemini/remember.py**: Bi-directional memory bridge (Internal <-> SQLite).

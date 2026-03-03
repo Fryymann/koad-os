@@ -9,6 +9,8 @@ pub struct Identity {
     pub rank: Rank,
     /// A list of explicit permission strings granted to this identity.
     pub permissions: Vec<String>,
+    /// The capability tier of the driving model (1=Admin, 2=Dev, 3=Guest).
+    pub tier: i32,
 }
 
 /// The hierarchical rank structure of KoadOS.

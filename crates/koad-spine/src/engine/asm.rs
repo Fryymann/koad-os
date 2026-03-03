@@ -24,9 +24,10 @@ impl AgentSessionManager {
     pub async fn create_session(&self, session: AgentSession) -> anyhow::Result<()> {
         let mut sessions = self.sessions.lock().await;
         let session_id = session.session_id.clone();
+        let tier = session.identity.tier;
         
         let payload = serde_json::to_value(&session)?;
-        self.storage.set_state(&format!("koad:session:{}", session_id), payload.clone()).await?;
+        self.storage.set_state(&format!("koad:session:{}", session_id), payload.clone(), Some(tier)).await?;
         
         sessions.insert(session_id, session);
 
@@ -43,9 +44,10 @@ impl AgentSessionManager {
         let mut sessions = self.sessions.lock().await;
         if let Some(session) = sessions.get_mut(session_id) {
             session.last_heartbeat = Utc::now();
+            let tier = session.identity.tier;
             
             let payload = serde_json::to_value(&session)?;
-            self.storage.set_state(&format!("koad:session:{}", session_id), payload.clone()).await?;
+            self.storage.set_state(&format!("koad:session:{}", session_id), payload.clone(), Some(tier)).await?;
 
             let msg = json!({
                 "type": "SESSION_UPDATE",
@@ -95,7 +97,7 @@ impl AgentSessionManager {
             obj.insert("recent_events".to_string(), json!(events.into_iter().map(|e| e.1).collect::<Vec<_>>()));
         }
 
-        self.storage.set_state(&format!("koad:session:{}", session_id), package.clone()).await?;
+        self.storage.set_state(&format!("koad:session:{}", session_id), package.clone(), Some(session.identity.tier)).await?;
 
         Ok(package)
     }
@@ -130,7 +132,7 @@ impl AgentSessionManager {
 
         for (sid, session) in to_update {
             let payload = serde_json::to_value(&session)?;
-            self.storage.set_state(&format!("koad:session:{}", sid), payload.clone()).await?;
+            self.storage.set_state(&format!("koad:session:{}", sid), payload.clone(), Some(session.identity.tier)).await?;
             let msg = json!({ "type": "SESSION_UPDATE", "payload": payload });
             let _: () = self.storage.redis.client.publish("koad:sessions", msg.to_string()).await?;
         }

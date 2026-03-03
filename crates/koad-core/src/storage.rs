@@ -8,7 +8,8 @@ use serde_json::Value;
 pub trait StorageBridge: Send + Sync {
     /// Save a state object. This updates Redis immediately and 
     /// marks it for eventual drain to SQLite.
-    async fn set_state(&self, key: &str, value: Value) -> anyhow::Result<()>;
+    /// `caller_tier` is used for Cognitive Protection (CIP).
+    async fn set_state(&self, key: &str, value: Value, caller_tier: Option<i32>) -> anyhow::Result<()>;
 
     /// Retrieve state. This checks Redis first, then falls back to 
     /// SQLite if necessary (Hydration on demand).

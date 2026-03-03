@@ -172,20 +172,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
     if let Ok(all_state) = client.hgetall::<std::collections::HashMap<String, String>, _>("koad:state").await {
         for (key, val) in all_state {
             if key.starts_with("koad:session:") {
-                // Try strict parsing first, then fallback to raw JSON if it has session_id
-                if let Ok(session) = serde_json::from_str::<AgentSession>(&val) {
-                    agents.push(json!(session));
-                } else if let Ok(mut raw_json) = serde_json::from_str::<Value>(&val) {
+                if let Ok(mut raw_json) = serde_json::from_str::<Value>(&val) {
                     // Check if it's wrapped in a 'data' field (from Spine hydration)
-                    if let Some(inner_data) = raw_json.get("data") {
-                        if inner_data["session_id"].is_string() {
-                            agents.push(inner_data.clone());
-                            continue;
-                        }
-                    }
-                    
-                    if raw_json["session_id"].is_string() {
-                        agents.push(raw_json);
+                    let data = if let Some(inner) = raw_json.get("data") {
+                        inner
+                    } else {
+                        &raw_json
+                    };
+
+                    // CRITICAL FILTER: Only push active sessions to the UI
+                    if data["status"] == "active" {
+                        agents.push(data.clone());
                     }
                 }
             }

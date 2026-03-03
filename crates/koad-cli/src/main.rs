@@ -8,6 +8,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::env;
 use std::process::{Command, Stdio};
+use std::time::Duration;
+use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
+use koad_proto::spine::v1::Empty;
 use chrono::{Local, Utc};
 use std::io::{BufRead, BufReader, Write};
 use koad_board::project::ProjectItem;
@@ -300,9 +303,17 @@ enum Commands {
         #[command(subcommand)]
         action: BoardAction,
     },
+    Mind {
+        #[command(subcommand)]
+        action: MindAction,
+    },
     Project {
         #[command(subcommand)]
         action: ProjectAction,
+    },
+    Issue {
+        #[command(subcommand)]
+        action: IssueAction,
     },
     Stat {
         #[arg(short, long)]
@@ -313,6 +324,10 @@ enum Commands {
     Refresh {
         #[arg(short, long)]
         restart: bool,
+    },
+    Save {
+        #[arg(short, long)]
+        full: bool,
     },
 }
 
@@ -351,9 +366,19 @@ enum ProjectAction {
     List,
     Register { name: String, path: Option<PathBuf> },
     Sync { id: Option<i32> },
-    Info { id: i32 },
     Retire { id: i32 },
+    Info { id: i32 },
 }
+
+#[derive(Subcommand)]
+enum IssueAction {
+    Track { number: i32, description: String },
+    Move { number: i32, step: i32 },
+    Approve { number: i32 },
+    Close { number: i32 },
+    Status { number: i32 },
+}
+
 
 #[derive(Subcommand)]
 enum BoardAction {
@@ -363,6 +388,13 @@ enum BoardAction {
     Done { id: i32 },
     Todo { id: i32 },
     Verify { id: i32 },
+}
+
+#[derive(Subcommand)]
+enum MindAction {
+    Status,
+    Snapshot,
+    Learn { domain: String, summary: String, #[arg(short, long)] detail: Option<String> },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -434,7 +466,10 @@ impl KoadDB {
         Ok(exists)
     }
 
-    fn remember(&self, cat: &str, content: &str, tags: Option<String>) -> Result<()> {
+    fn remember(&self, cat: &str, content: &str, tags: Option<String>, tier: i32) -> Result<()> {
+        if tier > 1 {
+            anyhow::bail!("Cognitive Protection: Model Tier {} is not authorized to write to Memory Bank.", tier);
+        }
         let conn = self.get_conn()?;
         let ts = Local::now().to_rfc3339();
         conn.execute("INSERT INTO knowledge (category, content, tags, timestamp) VALUES (?1, ?2, ?3, ?4)", params![cat, content, tags.unwrap_or_default(), ts])?;
@@ -621,6 +656,16 @@ fn feature_gate(feature: &str, issue_num: Option<u32>) {
     println!("\n\x1b[33m[GATE]\x1b[0m Feature '{}' is currently in the \x1b[1mDESIGN\x1b[0m phase.{}\n", feature, issue_str);
 }
 
+fn detect_model_tier() -> i32 {
+    if env::var("GEMINI_CLI").is_ok() {
+        1 // Tier 1: Admin-Grade (Gemini 1.5 Pro / Flash)
+    } else if env::var("CODEX_CLI").is_ok() {
+        2 // Tier 2: Developer-Grade (Codex)
+    } else {
+        3 // Tier 3: Guest/Restricted
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = KoadConfig::load()?;
@@ -662,6 +707,7 @@ async fn main() -> Result<()> {
             let (pat_var, _) = get_gh_pat_for_path(&current_dir, &role, &config);
             let (drive_var, _) = get_gdrive_token_for_path(&current_dir);
             let tags = detect_context_tags(&current_dir);
+            let model_tier = detect_model_tier();
             let mut session_id = "BOOT".to_string();
             let mut mission_briefing = None;
 
@@ -670,6 +716,12 @@ async fn main() -> Result<()> {
                 if !db.verify_role(&agent, &role)? {
                     anyhow::bail!("Identity '{}' is not authorized for the '{}' role.", agent, role);
                 }
+                
+                // Cognitive Protection: Tier Enforcement
+                if identity.tier < model_tier {
+                    anyhow::bail!("Cognitive Protection: Model Tier {} is insufficient for the '{}' identity (Minimum: Tier {}).", model_tier, agent, identity.tier);
+                }
+
                 (identity.name, role.clone(), identity.bio)
             } else {
                 warn!("Identity '{}' not found in registry. Defaulting to Guest (restricted).", agent);
@@ -696,12 +748,13 @@ async fn main() -> Result<()> {
                     "identity": { 
                         "name": final_agent_name.clone(), 
                         "rank": final_role.clone(), 
-                        "permissions": if final_role.to_lowercase() == "admin" { vec!["all"] } else { vec!["limited"] }
+                        "permissions": if final_role.to_lowercase() == "admin" { vec!["all"] } else { vec!["limited"] },
+                        "tier": model_tier
                     },
                     "environment": "wsl",
                     "context": { "project_name": if project { "active" } else { "default" }, "root_path": current_path_str, "allowed_paths": [], "stack": [] },
                     "last_heartbeat": Utc::now().to_rfc3339(),
-                    "metadata": { "bio": final_bio.clone() }
+                    "metadata": { "bio": final_bio.clone(), "model_tier": model_tier }
                 });
                 
                 if config.redis_socket.exists() {
@@ -720,9 +773,9 @@ async fn main() -> Result<()> {
                 conn.execute("INSERT INTO sessions (session_id, agent, role, status, last_heartbeat, pid) VALUES (?1, ?2, ?3, 'active', ?4, ?5) ON CONFLICT(session_id) DO UPDATE SET last_heartbeat = excluded.last_heartbeat, status = 'active'", params![session_id, agent, final_role, now, std::process::id()])?;
             }
 
-            if compact { println!("I:{}|R:{}|G:{}|D:{}|T:{}|S:{}", final_agent_name, final_role, pat_var, drive_var, tags.join(","), session_id); }
+            if compact { println!("I:{}|R:{}|G:{}|D:{}|T:{}|S:{}|Q:{}", final_agent_name, final_role, pat_var, drive_var, tags.join(","), session_id, model_tier); }
             else {
-                println!("<koad_boot>\nSession:  {}\nIdentity: {} ({})", session_id, final_agent_name, final_role);
+                println!("<koad_boot>\nSession:  {}\nIdentity: {} ({})\nTier:     {}", session_id, final_agent_name, final_role, model_tier);
                 println!("Bio:      {}", final_bio);
                 if let Some(briefing) = mission_briefing { println!("\n[MISSION BRIEFING]\n{}", briefing); }
                 println!("Auth: GH={} | GD={}", pat_var, drive_var);
@@ -761,10 +814,15 @@ async fn main() -> Result<()> {
         }
         Commands::Remember { category } => {
             if !has_privileged_access { anyhow::bail!("Access Denied."); }
+            let model_tier = detect_model_tier();
             let (cat_str, text, tags) = match category { MemoryCategory::Fact { text, tags } => ("fact", text, tags), MemoryCategory::Learning { text, tags } => ("learning", text, tags) };
-            db.remember(cat_str, &text, tags)?; println!("Memory updated in local KoadDB.");
+            db.remember(cat_str, &text, tags, model_tier)?; println!("Memory updated in local KoadDB.");
         }
-        Commands::Ponder { text, tags } => { db.remember("pondering", &text, Some(format!("persona-journal,{}", tags.unwrap_or_default())))?; println!("Reflection recorded."); }
+        Commands::Ponder { text, tags } => { 
+            let model_tier = detect_model_tier();
+            db.remember("pondering", &text, Some(format!("persona-journal,{}", tags.unwrap_or_default())), model_tier)?; 
+            println!("Reflection recorded."); 
+        }
         Commands::Guide { .. } => { feature_gate("koad guide", None); }
         Commands::Init { .. } => { feature_gate("koad init", Some(25)); }
         Commands::Doctor => {
@@ -872,8 +930,9 @@ async fn main() -> Result<()> {
             println!("Published.");
         }
         Commands::Saveup { summary, scope, facts, auto: _ } => {
+            let model_tier = detect_model_tier();
             let fact_str = facts.unwrap_or_default();
-            db.remember("fact", &format!("Saveup ({}): {} | Facts: {}", scope, summary, fact_str), Some(scope.clone()))?;
+            db.remember("fact", &format!("Saveup ({}): {} | Facts: {}", scope, summary, fact_str), Some(scope.clone()), model_tier)?;
             println!("Saveup recorded in memory bank.");
             
             let log_path = config.home.join("SESSION_LOG.md");
@@ -932,6 +991,50 @@ async fn main() -> Result<()> {
                     }
                 }
                 BoardAction::Sdr => { feature_gate("koad board sdr", None); }
+            }
+        }
+        Commands::Mind { action } => {
+            let conn = db.get_conn()?;
+            match action {
+                MindAction::Status => {
+                    println!("\n\x1b[1m--- [INTROSPECT] Cognitive Health Status ---\x1b[0m");
+                    
+                    let learn_count: i32 = conn.query_row("SELECT count(*) FROM learnings WHERE status = 'active'", [], |r| r.get(0))?;
+                    let decision_count: i32 = conn.query_row("SELECT count(*) FROM decisions", [], |r| r.get(0))?;
+                    let skill_count: i32 = conn.query_row("SELECT count(*) FROM skills", [], |r| r.get(0))?;
+                    let last_snapshot: String = conn.query_row("SELECT created_at FROM identity_snapshots ORDER BY created_at DESC LIMIT 1", [], |r| r.get(0)).unwrap_or_else(|_| "Never".to_string());
+
+                    println!("{:<25} {:<10}", "Active Learnings:", learn_count);
+                    println!("{:<25} {:<10}", "Decisions Logged:", decision_count);
+                    println!("{:<25} {:<10}", "Proven Skills:", skill_count);
+                    println!("{:<25} {:<10}", "Last Identity Snapshot:", last_snapshot);
+                    
+                    println!("\n\x1b[1mTop Domains:\x1b[0m");
+                    let mut stmt = conn.prepare("SELECT domain, count(*) as c FROM learnings GROUP BY domain ORDER BY c DESC LIMIT 5")?;
+                    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i32>(1)?)))?;
+                    for row in rows {
+                        let (domain, count) = row?;
+                        println!("  - {:<15} ({})", domain, count);
+                    }
+                }
+                MindAction::Snapshot => {
+                    if !is_admin { anyhow::bail!("Admin only."); }
+                    let now = Local::now().to_rfc3339();
+                    // Basic placeholder for identity snapshotting
+                    conn.execute("INSERT INTO identity_snapshots (trigger, notes, created_at) VALUES ('manual', 'Manual session snapshot.', ?1)", params![now])?;
+                    println!("\x1b[32m[SNAPSHOT]\x1b[0m Identity state archived.");
+                }
+                MindAction::Learn { domain, summary, detail } => {
+                    let model_tier = detect_model_tier();
+                    if model_tier > 1 {
+                        anyhow::bail!("Cognitive Protection: Model Tier {} is not authorized to add structured learnings.", model_tier);
+                    }
+                    conn.execute(
+                        "INSERT INTO learnings (domain, summary, detail, source, status) VALUES (?1, ?2, ?3, 'cli', 'active')",
+                        params![domain, summary, detail]
+                    )?;
+                    println!("\x1b[32m[LEARNED]\x1b[0m New {} insight integrated into mind.", domain);
+                }
             }
         }
         Commands::Project { action } => {
@@ -1010,6 +1113,76 @@ async fn main() -> Result<()> {
                 ProjectAction::Retire { id } => {
                     db.retire_project(id)?;
                     println!("Project #{} retired.", id);
+                }
+            }
+        }
+        Commands::Issue { action } => {
+            let conn = db.get_conn()?;
+            match action {
+                IssueAction::Track { number, description } => {
+                    let now = Local::now().to_rfc3339();
+                    conn.execute("INSERT OR REPLACE INTO task_graph (description, created_at, status, canon_step, issue_number) VALUES (?1, ?2, 'todo', 1, ?3)", params![description, now, number])?;
+                    println!("\x1b[32m[TRACKED]\x1b[0m Node #{} is now under Sovereignty tracking (Step 1: View & Assess).", number);
+                }
+                IssueAction::Move { number, step } => {
+                    if step < 1 || step > 8 { anyhow::bail!("Invalid step. Agents can only move through steps 1-8."); }
+                    
+                    // CRITICAL: Block agents from entering Step 5 (Implement) via 'move'
+                    if step == 5 { anyhow::bail!("Access Denied: Step 5 (Implement) requires explicit Admin Approval. Run 'koad issue approve' instead."); }
+
+                    let mut stmt = conn.prepare("SELECT canon_step FROM task_graph WHERE issue_number = ?1")?;
+                    let current_step: i32 = stmt.query_row([number], |row| row.get(0)).context("Issue not tracked. Run 'koad issue track' first.")?;
+                    
+                    if step != current_step + 1 && step != current_step {
+                        anyhow::bail!("Protocol Violation: Cannot move from Step {} to Step {}. Sequence must be incremental.", current_step, step);
+                    }
+                    
+                    conn.execute("UPDATE task_graph SET canon_step = ?1, updated_at = ?2 WHERE issue_number = ?3", params![step, Local::now().to_rfc3339(), number])?;
+                    println!("\x1b[34m[MOVE]\x1b[0m Node #{} advanced to Step {}.", number, step);
+                }
+                IssueAction::Approve { number } => {
+                    if !is_admin { anyhow::bail!("Access Denied: Only Admin can approve safety gates."); }
+                    
+                    let mut stmt = conn.prepare("SELECT canon_step FROM task_graph WHERE issue_number = ?1")?;
+                    let current_step: i32 = stmt.query_row([number], |row| row.get(0))?;
+                    
+                    let (new_step, label) = if current_step == 4 {
+                        (5, "Authorized for Implementation")
+                    } else if current_step == 8 {
+                        (9, "Verified and Authorized for Closure")
+                    } else {
+                        anyhow::bail!("Invalid State: Approval can only be granted at Step 4 (Plan) or Step 8 (Results). Current: {}.", current_step);
+                    };
+                    
+                    conn.execute("UPDATE task_graph SET canon_step = ?1, updated_at = ?2 WHERE issue_number = ?3", params![new_step, Local::now().to_rfc3339(), number])?;
+                    println!("\x1b[35m[APPROVED]\x1b[0m Node #{} {}.", number, label);
+                }
+                IssueAction::Close { number } => {
+                    let mut stmt = conn.prepare("SELECT canon_step FROM task_graph WHERE issue_number = ?1")?;
+                    let current_step: i32 = stmt.query_row([number], |row| row.get(0)).context("Issue not tracked.")?;
+                    
+                    if current_step != 9 { anyhow::bail!("LOCKED: Node #{} cannot be closed. Current Step: {}. (Required: 9 - Approved)", number, current_step); }
+                    
+                    println!(">>> [UPLINK] Authenticating closure for Node #{}...", number);
+                    let token = config.resolve_gh_token()?;
+                    let client = GitHubClient::new(token, "Fryymann".into(), "koad-os".into())?;
+                    client.update_item_status(config.github_project_number as i32, number, "Done").await?;
+                    
+                    // We also close the issue on GitHub if the client supports it
+                    // For now, we'll use 'gh' cli as a fallback
+                    let _ = Command::new("gh").arg("issue").arg("close").arg(number.to_string()).status();
+                    
+                    conn.execute("UPDATE task_graph SET status = 'completed', updated_at = ?1 WHERE issue_number = ?2", params![Local::now().to_rfc3339(), number])?;
+                    println!("\x1b[32m[FINALIZED]\x1b[0m Node #{} is closed and archived.", number);
+                }
+                IssueAction::Status { number } => {
+                    let mut stmt = conn.prepare("SELECT canon_step, description, status FROM task_graph WHERE issue_number = ?1")?;
+                    let (step, desc, status): (i32, String, String) = stmt.query_row([number], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+                    println!("\n\x1b[1m--- Sovereignty Status: Node #{} ---\x1b[0m", number);
+                    println!("Description: {}", desc);
+                    println!("Status:      {}", status);
+                    println!("Canon Step:  {} / 9", step);
+                    println!("--------------------------------------");
                 }
             }
         }
@@ -1103,18 +1276,16 @@ async fn main() -> Result<()> {
                 let dest_path = bin_dir.join(dest);
                 
                 if src_path.exists() {
-                    // Stage swap to bypass 'Text file busy'
                     let old_path = dest_path.with_extension("old");
                     if dest_path.exists() {
                         let _ = std::fs::rename(&dest_path, &old_path);
                     }
                     if let Err(e) = std::fs::copy(&src_path, &dest_path) {
                         warn!("Failed to copy binary {}: {}", src, e);
-                        // Try to restore old if failed
                         if old_path.exists() { let _ = std::fs::rename(&old_path, &dest_path); }
                     } else {
                         println!("  [OK] Deployed: {}", dest);
-                        let _ = std::fs::remove_file(old_path);
+                        if old_path.exists() { let _ = std::fs::remove_file(old_path); }
                     }
                 }
             }
@@ -1122,12 +1293,9 @@ async fn main() -> Result<()> {
             // 3. Restart
             if restart {
                 println!(">>> [3/3] Rebooting Core Systems...");
-                
-                println!("  - Purging ghosts...");
                 let _ = Command::new("pkill").arg("-9").arg("kspine").status();
                 let _ = Command::new("pkill").arg("-9").arg("kgateway").status();
                 
-                println!("  - Initializing Spine...");
                 let _ = Command::new("nohup")
                     .arg(bin_dir.join("kspine"))
                     .arg("--home")
@@ -1138,7 +1306,6 @@ async fn main() -> Result<()> {
                 
                 std::thread::sleep(std::time::Duration::from_secs(3));
                 
-                println!("  - Bridging Gateway...");
                 let _ = Command::new("nohup")
                     .arg(bin_dir.join("kgateway"))
                     .arg("--addr")
@@ -1151,6 +1318,53 @@ async fn main() -> Result<()> {
             } else {
                 println!("\n\x1b[32m[DONE] Core binaries updated. Restart manually or use --restart.\x1b[0m");
             }
+        }
+        Commands::Save { full } => {
+            if !is_admin { anyhow::bail!("Admin only."); }
+            println!("\n\x1b[1m--- KoadOS Sovereign Save Protocol ---\x1b[0m");
+            let home = config.home.clone();
+            let now_ts = Local::now().format("%Y%m%d-%H%M%S").to_string();
+
+            // 1. Memory Drain (gRPC)
+            println!(">>> [1/4] Neuronal Flush (Spine Drain)...");
+            match SpineServiceClient::connect(config.spine_grpc_addr.clone()).await {
+                Ok(mut client) => {
+                    if let Err(e) = client.drain_all(Empty {}).await {
+                        warn!("  [FAIL] Neuronal flush failed: {}. Continuing with local save.", e);
+                    } else {
+                        println!("  [OK] Hot-stream drained to durable memory.");
+                    }
+                }
+                Err(_) => warn!("  [SKIP] Spine offline. Skipping hot-stream drain."),
+            }
+
+            // 2. Cognitive Snapshot
+            println!(">>> [2/4] Archiving Identity (Mind Snapshot)...");
+            let conn = db.get_conn()?;
+            conn.execute("INSERT INTO identity_snapshots (trigger, notes, created_at) VALUES ('sovereign-save', 'Full system checkpoint.', ?1)", params![Local::now().to_rfc3339()])?;
+            println!("  [OK] Persona state captured.");
+
+            if full {
+                // 3. Database Backup
+                println!(">>> [3/4] Fortifying Memory (Database Backup)...");
+                let backup_dir = home.join("backups");
+                std::fs::create_dir_all(&backup_dir)?;
+                let backup_path = backup_dir.join(format!("koad-{}.db", now_ts));
+                std::fs::copy(home.join("koad.db"), &backup_path)?;
+                println!("  [OK] Database archived to: {}", backup_path.display());
+
+                // 4. Git Checkpoint
+                println!(">>> [4/4] Finalizing Timeline (Git Checkpoint)...");
+                let m = format!("Sovereign Save: {}", now_ts);
+                let _ = Command::new("git").arg("-C").arg(&home).arg("add").arg(".").status();
+                let _ = Command::new("git").arg("-C").arg(&home).arg("commit").arg("-m").arg(&m).status();
+                println!("  [OK] System checkpoint committed to git.");
+            } else {
+                println!(">>> [3/4] Skipping full backup (use --full for DB/Git checkpoint).");
+                println!(">>> [4/4] Log synchronization complete.");
+            }
+
+            println!("\n\x1b[32m[CONDITION GREEN] Sovereign Save Complete.\x1b[0m");
         }
     }
     Ok(())

@@ -13,12 +13,17 @@ All tasks must follow this sequence:
 1. **View & Assess**: Evaluate issue and system impact.
 2. **Brainstorm & Research**: Validate technical assumptions.
 3. **Plan**: Create a detailed implementation map.
-4. **Approval Gate (Ian)**: Wait for explicit Ian approval.
-5. **Implement**: Execute surgical code changes.
+4. **Approval Gate (Ian)**: **STRICT HALT.** Agent must wait for explicit approval keywords (`Approved`, `Proceed`, `Go`).
+5. **Implement**: Execute surgical code changes. **LOCKED** until Step 4 is verified.
 6. **Koad Self-Review Protocol (KSRP)**: Execute the iterative review loop (Max 5 iterations).
 7. **Reflection Ritual**: `Reflect -> Ponder -> Learn`.
 8. **Results Report**: Present code and KSRP Report to Ian.
-9. **Final Approval Gate (Ian)**: Await approval to close.
+9. **Final Approval Gate (Ian)**: **STRICT HALT.** Agent must wait for explicit approval to close.
+
+### The Sovereign Rules of Engagement:
+- **Zero-Assumption Rule**: If a response at an Approval Gate (4 or 9) does not contain an explicit approval keyword, the agent **MUST NOT** proceed.
+- **Acknowledge-Only Turn**: Corrections or comments without approval must be acknowledged in a dedicated turn, followed by a re-request for approval.
+- **No Implicit Progress**: Incorporation of feedback is not a green light to advance the phase.
 
 ## III. Koad Self-Review Protocol (KSRP)
 Each iteration executes these 7 passes in order:
