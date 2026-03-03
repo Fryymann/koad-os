@@ -6,6 +6,7 @@ pub mod types;
 pub mod storage;
 pub mod session;
 pub mod intent;
+pub mod logging;
 
 /// The basic trait for any system component that can be started and stopped.
 #[async_trait::async_trait]

@@ -22,6 +22,8 @@ use clap::Parser;
 use std::path::PathBuf;
 use rusqlite::Connection;
 use crate::deck::DeckManager;
+use tracing::{info, error, warn};
+use koad_core::logging::init_logging;
 
 #[derive(Parser)]
 struct Cli {
@@ -50,23 +52,29 @@ async fn main() -> anyhow::Result<()> {
             .unwrap_or_else(|_| format!("{}/.koad-os", std::env::var("HOME").unwrap_or_default()))
     });
 
+    let home_path = PathBuf::from(&home_dir);
+
+    // Initialize Structured Logging
+    let _guard = init_logging("kgateway", Some(home_path.clone()));
+    
+    info!("KoadOS Gateway starting up...");
+
     // Resolve GitHub Token
     let gh_token = std::env::var("GITHUB_ADMIN_PAT").ok()
         .or_else(|| std::env::var("GITHUB_PERSONAL_PAT").ok());
     
     let gh_client = if let Some(token) = gh_token {
-        println!("Gateway: GitHub integration active.");
+        info!("Gateway: GitHub integration active.");
         GitHubClient::new(token, "Fryymann".to_string(), "koad-os".to_string()).ok()
     } else {
-        println!("Gateway: GitHub integration DISABLED (No PAT found).");
+        warn!("Gateway: GitHub integration DISABLED (No PAT found).");
         None
     };
 
-    let home_path = PathBuf::from(&home_dir);
     let socket_path = home_path.join("koad.sock");
     let db_path = home_path.join("koad.db");
     
-    println!("Gateway: Connecting to Redis via UDS at {}...", socket_path.display());
+    info!("Gateway: Connecting to Redis via UDS at {}...", socket_path.display());
 
     let config = RedisConfig {
         server: ServerConfig::Unix {
@@ -103,7 +111,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(CorsLayer::permissive())
         .with_state(state.clone());
 
-    println!("EdgeGateway: Web Deck & WebSocket active on http://{}", cli.addr);
+    info!("EdgeGateway: Web Deck & WebSocket active on http://{}", cli.addr);
     
     // Register Service in Inventory
     let service_entry = json!({
@@ -131,16 +139,16 @@ async fn ws_handler(
 }
 
 async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
-    println!("Gateway: WebSocket client connected.");
+    info!("Gateway: WebSocket client connected.");
     let (mut sender, mut receiver) = socket.split();
     let client = state.client.clone();
-    let subscriber = state.subscriber.clone();
+    let _subscriber = state.subscriber.clone();
     
     // 1. Initial Sync (Agents + Issues + Projects)
     let mut agents = vec![];
-    println!("Gateway: Syncing agents from Redis...");
+    info!("Gateway: Syncing agents from Redis...");
     if let Ok(all_state) = client.hgetall::<std::collections::HashMap<String, String>, _>("koad:state").await {
-        println!("Gateway: Found {} items in koad:state", all_state.len());
+        info!("Gateway: Found {} items in koad:state", all_state.len());
         for (key, val) in all_state {
             if key.starts_with("koad:session:") {
                 // Try strict parsing first, then fallback to raw JSON if it has session_id

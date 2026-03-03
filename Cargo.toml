@@ -43,6 +43,11 @@ clap = { version = "4.4", features = ["derive"] }
 ratatui = "0.26"
 crossterm = "0.27"
 
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json", "time"] }
+tracing-appender = "0.2"
+
 # Utilities
 async-trait = "0.1"
 async-stream = "0.3"

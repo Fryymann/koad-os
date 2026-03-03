@@ -16,6 +16,8 @@ use rusqlite::params;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use sysinfo::{System, Process, Pid};
+use tracing::{info, warn, error};
+use koad_core::logging::init_logging;
 
 mod tui;
 mod airtable;
@@ -674,6 +676,7 @@ fn get_gdrive_token_for_path(path: &Path) -> (String, String) {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let _guard = init_logging("koad", None);
     let cli = Cli::parse();
     let config = KoadConfig::load().unwrap_or_else(|_| KoadConfig::default_initial());
     

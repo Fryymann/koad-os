@@ -18,3 +18,4 @@ clap = { workspace = true, features = ["derive"] }
 koad-board = { path = "../koad-board" }
 koad-proto = { path = "../koad-proto" }
 rusqlite = { workspace = true }
+tracing.workspace = true

@@ -12,6 +12,7 @@ use chrono::Utc;
 use async_stream::try_stream;
 use koad_core::intent::{Intent, ExecuteIntent};
 use koad_core::identity::Rank;
+use tracing::{info, error};
 
 pub struct KoadSpine {
     engine: Arc<Engine>,
@@ -50,7 +51,7 @@ impl SpineService for KoadSpine {
         request: Request<ExecuteRequest>,
     ) -> Result<Response<ExecuteResponse>, Status> {
         let req = request.into_inner();
-        println!("Kernel: Executing command [{}] from {}", req.name, req.identity);
+        info!("Kernel: Executing command [{}] from {}", req.name, req.identity);
 
         // For now, synchronous execution just returns a success message.
         // Real implementation would route through DirectiveRouter or Engine.
@@ -123,7 +124,7 @@ impl SpineService for KoadSpine {
         &self,
         _request: Request<StreamSystemEventsRequest>,
     ) -> Result<Response<Self::StreamSystemEventsStream>, Status> {
-        println!("Kernel: Client connected to unified system event stream.");
+        info!("Kernel: Client connected to unified system event stream.");
         
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let redis = self.engine.redis.clone();
@@ -151,7 +152,7 @@ impl SpineService for KoadSpine {
                 "koad:telemetry:stats", 
                 "koad:sessions"
             ]).await {
-                eprintln!("Spine Event Stream Error: Failed to subscribe to Redis: {}", e);
+                error!("Spine Event Stream Error: Failed to subscribe to Redis: {}", e);
                 return;
             }
 

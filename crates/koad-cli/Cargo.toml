@@ -30,6 +30,7 @@ url = "2.5"
 ctrlc = "3.4"
 sysinfo = "0.30"
 redis = { version = "0.24", features = ["tokio-comp"] }
+tracing.workspace = true
 
 # Internal
 koad-core = { path = "../koad-core" }
