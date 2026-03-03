@@ -105,3 +105,7 @@
 ## 2026-03-02 - Saveup: Implemented graceful shutdowns and WebSocket keep-alive across the gateway and spine.
 - Scope: Core/Resilience
 - Facts: Issue #33, #34 closed, Graceful shutdown live, Heartbeat active
+
+## 2026-03-02 - Saveup: Implemented Graceful Shutdowns and WebSocket Robustness across the Gateway and Spine.
+- Scope: Ops/Resilience
+- Facts: Issue #33 closed, Issue #34 closed, Outbox pattern active, serve_with_shutdown live
