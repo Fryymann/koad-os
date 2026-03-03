@@ -1574,6 +1574,7 @@ dependencies = [
  "futures",
  "koad-board",
  "koad-core",
+ "rusqlite",
  "serde",
  "serde_json",
  "tokio",

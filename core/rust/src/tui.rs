@@ -118,21 +118,21 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
 
             // Data Fetching & Rendering
             
-            // 0. PLAN
-            let mut plan_items: Vec<ListItem> = Vec::new();
-            if let Ok(wfs) = db.get_workflows(None, 20) {
-                app.items_counts[0] = wfs.len();
-                for (_, title, status, project) in wfs {
-                    let style = match status.as_deref() {
-                        Some("Active") => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-                        Some("Pinned") => Style::default().fg(Color::Yellow),
+            // 0. PROJECTS (Master Project Map)
+            let mut project_items: Vec<ListItem> = Vec::new();
+            if let Ok(projects) = db.list_projects() {
+                app.items_counts[0] = projects.len();
+                for (_, name, _, branch, health) in projects {
+                    let style = match health.as_str() {
+                        "green" => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        "yellow" => Style::default().fg(Color::Yellow),
+                        "red" => Style::default().fg(Color::Red),
                         _ => Style::default().fg(Color::White),
                     };
-                    let prefix = if status.as_deref() == Some("Pinned") { "📌 " } else { "   " };
-                    plan_items.push(ListItem::new(format!("{}[{}] {}", prefix, project, title)).style(style));
+                    project_items.push(ListItem::new(format!("[{}] {} ({})", health.to_uppercase(), name, branch)).style(style));
                 }
             }
-            render_stateful_column(f, " [PLAN] Pinned & Pending ", plan_items, body_chunks[0], &mut app.states[0], app.active_column == 0);
+            render_stateful_column(f, " [PROJECTS] Master Map ", project_items, body_chunks[0], &mut app.states[0], app.active_column == 0);
 
             // 1. MIND
             let mut mind_items: Vec<ListItem> = Vec::new();

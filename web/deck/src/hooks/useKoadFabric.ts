@@ -41,11 +41,20 @@ export interface ProjectIssue {
   target_version?: string;
 }
 
+export interface ProjectMapItem {
+  id: number;
+  name: string;
+  path: string;
+  branch: string;
+  health: string;
+}
+
 export function useKoadFabric() {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [logs, setLogs] = useState<TelemetryEvent[]>([]);
   const [agents, setAgents] = useState<AgentSession[]>([]);
   const [issues, setIssues] = useState<ProjectIssue[]>([]);
+  const [projects, setProjects] = useState<ProjectMapItem[]>([]);
   const ws = useRef<WebSocket | null>(null);
 
   const sendCommand = (cmd: string) => {
@@ -71,8 +80,9 @@ export function useKoadFabric() {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'SYSTEM_SYNC') {
-            setAgents(data.payload.agents);
-            setIssues(data.payload.issues);
+            setAgents(data.payload.agents || []);
+            setIssues(data.payload.issues || []);
+            setProjects(data.payload.projects || []);
           } else if (data.type === 'SESSION_UPDATE') {
             const updatedSession = data.payload;
             setAgents(prev => {
@@ -112,5 +122,5 @@ export function useKoadFabric() {
     return () => ws.current?.close();
   }, []);
 
-  return { stats, logs, agents, issues, sendCommand };
+  return { stats, logs, agents, issues, projects, sendCommand };
 }

@@ -276,6 +276,7 @@ enum Commands {
         json: bool,
     },
     Crew,
+    Dash,
 }
 
 #[derive(Subcommand)]
@@ -1062,6 +1063,9 @@ async fn main() -> Result<()> {
             }
             println!("{:-<65}", "");
             println!("Total Wake Personnel: {}", found_wake);
+        }
+        Commands::Dash => {
+            crate::tui::run_dash(&db)?;
         }
         _ => println!("Other command."),
     }

@@ -18,6 +18,7 @@ use koad_core::session::AgentSession;
 use koad_board::GitHubClient;
 use clap::Parser;
 use std::path::PathBuf;
+use rusqlite::Connection;
 use crate::deck::DeckManager;
 
 #[derive(Parser)]
@@ -35,6 +36,7 @@ struct GatewayState {
     pub client: RedisClient,
     pub subscriber: RedisClient,
     pub gh_client: Option<GitHubClient>,
+    pub db_path: PathBuf,
 }
 
 #[tokio::main]
@@ -57,7 +59,10 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    let socket_path = PathBuf::from(&home_dir).join("koad.sock");
+    let home_path = PathBuf::from(&home_dir);
+    let socket_path = home_path.join("koad.sock");
+    let db_path = home_path.join("koad.db");
+    
     println!("Gateway: Connecting to Redis via UDS at {}...", socket_path.display());
 
     let config = RedisConfig {
@@ -77,6 +82,7 @@ async fn main() -> anyhow::Result<()> {
         client,
         subscriber,
         gh_client,
+        db_path,
     });
 
     // 1. Initialize and Start Deck Manager (Vite Dev Server if needed)
@@ -144,11 +150,33 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
         }
     }
 
+    let mut projects = vec![];
+    if let Ok(conn) = Connection::open(&state.db_path) {
+        if let Ok(mut stmt) = conn.prepare("SELECT id, name, path, branch, health FROM projects WHERE active = 1") {
+            if let Ok(rows) = stmt.query_map([], |row| {
+                Ok(json!({
+                    "id": row.get::<_, i32>(0)?,
+                    "name": row.get::<_, String>(1)?,
+                    "path": row.get::<_, String>(2)?,
+                    "branch": row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "unknown".into()),
+                    "health": row.get::<_, Option<String>>(4)?.unwrap_or_else(|| "unknown".into()),
+                }))
+            }) {
+                for r in rows {
+                    if let Ok(p) = r {
+                        projects.push(p);
+                    }
+                }
+            }
+        }
+    }
+
     let sync_msg = json!({
         "type": "SYSTEM_SYNC",
         "payload": {
             "agents": agents,
-            "issues": issues
+            "issues": issues,
+            "projects": projects
         }
     });
 

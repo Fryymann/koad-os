@@ -13,6 +13,7 @@
 - **Project Deck**: Issue #29 and #30 closed.
 
 ## 2. Completed Mission Objectives
+- **Issue #28**: Unified Monitoring & Data Visualization.
 - **Issue #29**: Kernel Outage Awareness & Pre-Flight Checks.
 - **Issue #30**: Process Hygiene & E2E Ghosting Prevention.
 - **Issue #16**: Unified Governance & Intent Routing Framework.

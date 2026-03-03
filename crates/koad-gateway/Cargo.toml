@@ -16,3 +16,4 @@ futures.workspace = true
 chrono.workspace = true
 clap = { workspace = true, features = ["derive"] }
 koad-board = { path = "../koad-board" }
+rusqlite = { workspace = true }

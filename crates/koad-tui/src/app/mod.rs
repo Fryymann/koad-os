@@ -29,31 +29,42 @@ pub struct SystemStats {
     pub timestamp: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectMapItem {
+    pub id: i32,
+    pub name: String,
+    pub path: String,
+    pub branch: String,
+    pub health: String,
+}
+
 pub struct KoadApp {
-    states: [ListState; 4],
+    states: [ListState; 5],
     active_column: usize,
-    items_counts: [usize; 4],
+    items_counts: [usize; 5],
     pub terminal_logs: Vec<String>,
     pub stats: Option<SystemStats>,
+    pub projects: Vec<ProjectMapItem>,
 }
 
 impl KoadApp {
     pub fn new() -> Self {
         Self {
-            states: [ListState::default(), ListState::default(), ListState::default(), ListState::default()],
+            states: [ListState::default(), ListState::default(), ListState::default(), ListState::default(), ListState::default()],
             active_column: 0,
-            items_counts: [0; 4],
+            items_counts: [0; 5],
             terminal_logs: Vec::new(),
             stats: None,
+            projects: Vec::new(),
         }
     }
 
     pub fn next_col(&mut self) {
-        self.active_column = (self.active_column + 1) % 4;
+        self.active_column = (self.active_column + 1) % 5;
     }
 
     pub fn prev_col(&mut self) {
-        if self.active_column == 0 { self.active_column = 3; }
+        if self.active_column == 0 { self.active_column = 4; }
         else { self.active_column -= 1; }
     }
 
