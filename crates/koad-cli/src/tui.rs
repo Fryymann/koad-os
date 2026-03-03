@@ -1,5 +1,12 @@
 #![allow(dead_code, unused_imports, clippy::type_complexity)]
 
+use crate::KoadDB;
+use anyhow::Result;
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -7,15 +14,8 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Terminal,
 };
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
 use std::io;
 use std::time::{Duration, Instant};
-use anyhow::Result;
-use crate::KoadDB;
 
 struct KoadApp {
     states: [ListState; 4],
@@ -26,7 +26,12 @@ struct KoadApp {
 impl KoadApp {
     fn new() -> Self {
         Self {
-            states: [ListState::default(), ListState::default(), ListState::default(), ListState::default()],
+            states: [
+                ListState::default(),
+                ListState::default(),
+                ListState::default(),
+                ListState::default(),
+            ],
             active_column: 0,
             items_counts: [0; 4],
         }
@@ -37,15 +42,21 @@ impl KoadApp {
     }
 
     fn prev_col(&mut self) {
-        if self.active_column == 0 { self.active_column = 3; }
-        else { self.active_column -= 1; }
+        if self.active_column == 0 {
+            self.active_column = 3;
+        } else {
+            self.active_column -= 1;
+        }
     }
 
     fn scroll_down(&mut self) {
         let i = match self.states[self.active_column].selected() {
             Some(i) => {
-                if i >= self.items_counts[self.active_column].saturating_sub(1) { 0 }
-                else { i + 1 }
+                if i >= self.items_counts[self.active_column].saturating_sub(1) {
+                    0
+                } else {
+                    i + 1
+                }
             }
             None => 0,
         };
@@ -55,8 +66,11 @@ impl KoadApp {
     fn scroll_up(&mut self) {
         let i = match self.states[self.active_column].selected() {
             Some(i) => {
-                if i == 0 { self.items_counts[self.active_column].saturating_sub(1) }
-                else { i - 1 }
+                if i == 0 {
+                    self.items_counts[self.active_column].saturating_sub(1)
+                } else {
+                    i - 1
+                }
             }
             None => 0,
         };
@@ -81,16 +95,20 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(3),  // Header
-                    Constraint::Length(3),  // Active Spec Banner
-                    Constraint::Min(10),    // Main Content
-                    Constraint::Length(3),  // Footer
+                    Constraint::Length(3), // Header
+                    Constraint::Length(3), // Active Spec Banner
+                    Constraint::Min(10),   // Main Content
+                    Constraint::Length(3), // Footer
                 ])
                 .split(area);
 
             // 1. Header
             let header = Paragraph::new(" KoadOS Command Center - [v0.2 Stateful] ")
-                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                .style(
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )
                 .block(Block::default().borders(Borders::ALL));
             f.render_widget(header, chunks[0]);
 
@@ -101,8 +119,17 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
                 " NO ACTIVE SPEC - Use 'koad spec set' to begin ".to_string()
             };
             let spec_banner = Paragraph::new(spec_text)
-                .style(Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD))
-                .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Green)));
+                .style(
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Green)),
+                );
             f.render_widget(spec_banner, chunks[1]);
 
             // 3. Main Body: 4 Columns
@@ -117,22 +144,34 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
                 .split(chunks[2]);
 
             // Data Fetching & Rendering
-            
+
             // 0. PROJECTS (Master Project Map)
             let mut project_items: Vec<ListItem> = Vec::new();
             if let Ok(projects) = db.list_projects() {
                 app.items_counts[0] = projects.len();
                 for (_, name, _, branch, health) in projects {
                     let style = match health.as_str() {
-                        "green" => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        "green" => Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
                         "yellow" => Style::default().fg(Color::Yellow),
                         "red" => Style::default().fg(Color::Red),
                         _ => Style::default().fg(Color::White),
                     };
-                    project_items.push(ListItem::new(format!("[{}] {} ({})", health.to_uppercase(), name, branch)).style(style));
+                    project_items.push(
+                        ListItem::new(format!("[{}] {} ({})", health.to_uppercase(), name, branch))
+                            .style(style),
+                    );
                 }
             }
-            render_stateful_column(f, " [PROJECTS] Master Map ", project_items, body_chunks[0], &mut app.states[0], app.active_column == 0);
+            render_stateful_column(
+                f,
+                " [PROJECTS] Master Map ",
+                project_items,
+                body_chunks[0],
+                &mut app.states[0],
+                app.active_column == 0,
+            );
 
             // 1. MIND
             let mut mind_items: Vec<ListItem> = Vec::new();
@@ -143,50 +182,99 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
                         "learning" => Style::default().fg(Color::Green),
                         _ => Style::default().fg(Color::White),
                     };
-                    mind_items.push(ListItem::new(format!("[{}] {}", cat.to_uppercase(), content)).style(style));
+                    mind_items.push(
+                        ListItem::new(format!("[{}] {}", cat.to_uppercase(), content)).style(style),
+                    );
                 }
             }
             if let Ok(ponders) = db.get_ponderings(10) {
-                for p in ponders { mind_items.push(ListItem::new(format!("> {}", p)).style(Style::default().fg(Color::Magenta))); }
+                for p in ponders {
+                    mind_items.push(
+                        ListItem::new(format!("> {}", p))
+                            .style(Style::default().fg(Color::Magenta)),
+                    );
+                }
             }
             app.items_counts[1] = mind_items.len();
-            render_stateful_column(f, " [MIND] Knowledge ", mind_items, body_chunks[1], &mut app.states[1], app.active_column == 1);
+            render_stateful_column(
+                f,
+                " [MIND] Knowledge ",
+                mind_items,
+                body_chunks[1],
+                &mut app.states[1],
+                app.active_column == 1,
+            );
 
             // 2. VOICE
             let mut voice_items: Vec<ListItem> = Vec::new();
             if let Ok(notes) = db.get_notes(10) {
-                for (_, content, _) in notes { voice_items.push(ListItem::new(format!("(Note) {}", content))); }
+                for (_, content, _) in notes {
+                    voice_items.push(ListItem::new(format!("(Note) {}", content)));
+                }
             }
             if let Ok(brainstorms) = db.get_recent_brainstorms(10) {
                 for (content, cat, _) in brainstorms {
-                    let style = if cat == "rant" { Style::default().fg(Color::Red) } else { Style::default().fg(Color::Yellow) };
-                    voice_items.push(ListItem::new(format!("[{}] {}", cat.to_uppercase(), content)).style(style));
+                    let style = if cat == "rant" {
+                        Style::default().fg(Color::Red)
+                    } else {
+                        Style::default().fg(Color::Yellow)
+                    };
+                    voice_items.push(
+                        ListItem::new(format!("[{}] {}", cat.to_uppercase(), content)).style(style),
+                    );
                 }
             }
             app.items_counts[2] = voice_items.len();
-            render_stateful_column(f, " [VOICE] Notes & Ideas ", voice_items, body_chunks[2], &mut app.states[2], app.active_column == 2);
+            render_stateful_column(
+                f,
+                " [VOICE] Notes & Ideas ",
+                voice_items,
+                body_chunks[2],
+                &mut app.states[2],
+                app.active_column == 2,
+            );
 
             // 3. ACTIVITY
             let mut activity_items: Vec<ListItem> = Vec::new();
             if let Ok(execs) = db.get_recent_executions(12) {
                 for (cmd, args, status) in execs {
-                    let style = if status == "success" { Style::default().fg(Color::Green) } else { Style::default().fg(Color::Red) };
-                    activity_items.push(ListItem::new(format!("[CLI] {} {}", cmd, args)).style(style));
+                    let style = if status == "success" {
+                        Style::default().fg(Color::Green)
+                    } else {
+                        Style::default().fg(Color::Red)
+                    };
+                    activity_items
+                        .push(ListItem::new(format!("[CLI] {} {}", cmd, args)).style(style));
                 }
             }
             if let Ok(deltas) = db.get_recent_deltas(30) {
                 for (path, event, _) in deltas {
-                    let name = std::path::Path::new(&path).file_name().unwrap_or_default().to_string_lossy();
-                    activity_items.push(ListItem::new(format!("[BOOST] {}: {}", event, name)).style(Style::default().fg(Color::Blue)));
+                    let name = std::path::Path::new(&path)
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy();
+                    activity_items.push(
+                        ListItem::new(format!("[BOOST] {}: {}", event, name))
+                            .style(Style::default().fg(Color::Blue)),
+                    );
                 }
             }
             app.items_counts[3] = activity_items.len();
-            render_stateful_column(f, " [ACTIVITY] Pulse ", activity_items, body_chunks[3], &mut app.states[3], app.active_column == 3);
+            render_stateful_column(
+                f,
+                " [ACTIVITY] Pulse ",
+                activity_items,
+                body_chunks[3],
+                &mut app.states[3],
+                app.active_column == 3,
+            );
 
             // 4. Footer
-            let footer = Paragraph::new(" [q] Exit | [TAB/h/l] Switch Col | [j/k] Scroll | [Auto-refresh: 250ms] ")
-                .style(Style::default().fg(Color::DarkGray))
-                .block(Block::default().borders(Borders::ALL));
+            let footer = Paragraph::new(
+                " [q] Exit | [TAB/h/l] Switch Col | [j/k] Scroll | [Auto-refresh: 250ms] ",
+            )
+            .style(Style::default().fg(Color::DarkGray))
+            .block(Block::default().borders(Borders::ALL));
             f.render_widget(footer, chunks[3]);
         })?;
 
@@ -213,7 +301,11 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
     }
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
     Ok(())
 }
@@ -227,14 +319,25 @@ fn render_stateful_column(
     is_active: bool,
 ) {
     let border_style = if is_active {
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(title).border_style(border_style))
-        .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .border_style(border_style),
+        )
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
         .highlight_symbol(">> ");
 
     f.render_stateful_widget(list, area, state);

@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
 use crate::identity::Identity;
 use crate::types::EnvironmentType;
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Represents an active agent session within the KoadOS ecosystem.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,7 +25,12 @@ pub struct ProjectContext {
 }
 
 impl AgentSession {
-    pub fn new(session_id: String, identity: Identity, environment: EnvironmentType, context: ProjectContext) -> Self {
+    pub fn new(
+        session_id: String,
+        identity: Identity,
+        environment: EnvironmentType,
+        context: ProjectContext,
+    ) -> Self {
         Self {
             session_id,
             identity,

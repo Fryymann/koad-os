@@ -1,31 +1,31 @@
 pub mod deck;
+use crate::deck::DeckManager;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     response::IntoResponse,
     routing::get,
     Router,
 };
-use std::sync::Arc;
-use tower_http::services::ServeDir;
-use tower_http::cors::CorsLayer;
-use fred::interfaces::{PubsubInterface, HashesInterface};
-use fred::prelude::*;
-use serde_json::{json, Value};
-use futures::{StreamExt, SinkExt};
 use chrono::Utc;
-use koad_core::intent::{Intent, ExecuteIntent};
-use koad_core::session::AgentSession;
+use clap::Parser;
+use fred::interfaces::{HashesInterface, PubsubInterface};
+use fred::prelude::*;
+use futures::{SinkExt, StreamExt};
 use koad_board::GitHubClient;
+use koad_core::config::KoadConfig as CoreConfig;
+use koad_core::intent::{ExecuteIntent, Intent};
+use koad_core::logging::init_logging;
+use koad_core::session::AgentSession;
 use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
 use koad_proto::spine::v1::*;
-use clap::Parser;
-use std::path::PathBuf;
 use rusqlite::Connection;
-use crate::deck::DeckManager;
-use tracing::{info, error, warn};
-use koad_core::logging::init_logging;
-use koad_core::config::KoadConfig as CoreConfig;
+use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
+use tracing::{error, info, warn};
 
 #[derive(Parser)]
 struct Cli {
@@ -45,14 +45,14 @@ struct GatewayState {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let mut config = CoreConfig::load()?;
-    
+
     if let Some(addr) = cli.addr {
         config.gateway_addr = addr;
     }
 
     // Initialize Structured Logging
     let _guard = init_logging("kgateway", Some(config.home.clone()));
-    
+
     info!("KoadOS Gateway starting up...");
 
     // Resolve GitHub Token
@@ -65,13 +65,14 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let socket_path = config.redis_socket.clone();
-    
-    info!("Gateway: Connecting to Redis via UDS at {}...", socket_path.display());
+
+    info!(
+        "Gateway: Connecting to Redis via UDS at {}...",
+        socket_path.display()
+    );
 
     let redis_config = RedisConfig {
-        server: ServerConfig::Unix {
-            path: socket_path,
-        },
+        server: ServerConfig::Unix { path: socket_path },
         ..Default::default()
     };
 
@@ -102,8 +103,11 @@ async fn main() -> anyhow::Result<()> {
         .layer(CorsLayer::permissive())
         .with_state(state.clone());
 
-    info!("EdgeGateway: Web Deck & WebSocket active on http://{}", config.gateway_addr);
-    
+    info!(
+        "EdgeGateway: Web Deck & WebSocket active on http://{}",
+        config.gateway_addr
+    );
+
     // Register Service in Inventory
     let service_entry = json!({
         "name": "web-deck",
@@ -113,7 +117,11 @@ async fn main() -> anyhow::Result<()> {
         "status": "UP",
         "last_seen": Utc::now().timestamp()
     });
-    let _: () = state.client.hset::<(), _, _>("koad:services", ("web-deck", service_entry.to_string())).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let _: () = state
+        .client
+        .hset::<(), _, _>("koad:services", ("web-deck", service_entry.to_string()))
+        .await
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
     let listener = tokio::net::TcpListener::bind(&config.gateway_addr).await?;
     axum::serve(listener, app)
@@ -162,14 +170,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
     info!("Gateway: WebSocket client connected.");
     let (mut sender, mut receiver) = socket.split();
     let client = state.client.clone();
-    
+
     // Outbox channel: All tasks send messages here, one task sends to WebSocket
     let (outbox_tx, mut outbox_rx) = tokio::sync::mpsc::channel::<Message>(64);
 
     // 1. Initial Sync (Agents + Issues + Projects)
     let mut agents = vec![];
     info!("Gateway: Syncing agents from Redis...");
-    if let Ok(all_state) = client.hgetall::<std::collections::HashMap<String, String>, _>("koad:state").await {
+    if let Ok(all_state) = client
+        .hgetall::<std::collections::HashMap<String, String>, _>("koad:state")
+        .await
+    {
         for (key, val) in all_state {
             if key.starts_with("koad:session:") {
                 if let Ok(mut raw_json) = serde_json::from_str::<Value>(&val) {
@@ -198,7 +209,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
 
     let mut projects = vec![];
     if let Ok(conn) = Connection::open(state.config.get_db_path()) {
-        if let Ok(mut stmt) = conn.prepare("SELECT id, name, path, branch, health FROM projects WHERE active = 1") {
+        if let Ok(mut stmt) =
+            conn.prepare("SELECT id, name, path, branch, health FROM projects WHERE active = 1")
+        {
             if let Ok(rows) = stmt.query_map([], |row| {
                 Ok(json!({
                     "id": row.get::<_, i32>(0)?,
@@ -233,11 +246,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
     let tx_relay = outbox_tx.clone();
     let relay_handle = tokio::spawn(async move {
         if let Ok(mut client) = SpineServiceClient::connect(spine_addr).await {
-            if let Ok(response) = client.stream_system_events(StreamSystemEventsRequest { filter_sources: vec![] }).await {
+            if let Ok(response) = client
+                .stream_system_events(StreamSystemEventsRequest {
+                    filter_sources: vec![],
+                })
+                .await
+            {
                 let mut stream = response.into_inner();
                 while let Ok(Some(event)) = stream.message().await {
                     let payload_str = event.message;
-                    
+
                     // Normalize messages for the Frontend
                     if let Ok(mut json) = serde_json::from_str::<Value>(&payload_str) {
                         let msg_type = json["type"].as_str().unwrap_or_default().to_lowercase();
@@ -246,7 +264,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
                                 "type": "SESSION_UPDATE",
                                 "payload": json["data"].take()
                             });
-                            if tx_relay.send(Message::Text(normalized.to_string())).await.is_err() {
+                            if tx_relay
+                                .send(Message::Text(normalized.to_string()))
+                                .await
+                                .is_err()
+                            {
                                 break;
                             }
                             continue;
@@ -297,7 +319,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
                                 env_vars: std::collections::HashMap::new(),
                             });
                             if let Ok(intent_str) = serde_json::to_string(&intent) {
-                                let _: Result<(), _> = client.publish("koad:commands", intent_str).await;
+                                let _: Result<(), _> =
+                                    client.publish("koad:commands", intent_str).await;
                             }
                         }
                     }

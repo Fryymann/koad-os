@@ -1,13 +1,13 @@
-pub mod engine;
 pub mod discovery;
+pub mod engine;
 pub mod rpc;
 
 use crate::engine::kernel::KernelBuilder;
+use koad_core::config::KoadConfig;
+use koad_core::logging::init_logging;
 use std::path::PathBuf;
 use tokio::signal;
-use koad_core::logging::init_logging;
-use koad_core::config::KoadConfig;
-use tracing::{info, error};
+use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -15,13 +15,16 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize Structured Logging
     let _guard = init_logging("kspine", Some(config.home.clone()));
-    
+
     info!("KoadOS Spine starting up...");
 
     // Initialize and Start the Kernel using the Builder pattern
     let kernel = KernelBuilder::new()
         .with_home(config.home.clone())
-        .with_grpc(&config.spine_grpc_addr.replace("http://", ""), config.spine_socket.clone())
+        .with_grpc(
+            &config.spine_grpc_addr.replace("http://", ""),
+            config.spine_socket.clone(),
+        )
         .start()
         .await?;
 
@@ -42,6 +45,6 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Koad-Spine: Server stopping. Cleaning up...");
     kernel.shutdown().await;
-    
+
     Ok(())
 }

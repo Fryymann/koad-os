@@ -1,6 +1,6 @@
-use std::process::{Child, Command, Stdio};
-use std::path::Path;
 use std::env;
+use std::path::Path;
+use std::process::{Child, Command, Stdio};
 
 pub struct DeckManager {
     path: String,
@@ -18,12 +18,15 @@ impl DeckManager {
     pub async fn start(mut self) -> anyhow::Result<Self> {
         let deck_path = Path::new(&self.path);
         if !deck_path.exists() {
-            return Err(anyhow::anyhow!("Vite Deck directory not found at {}", self.path));
+            return Err(anyhow::anyhow!(
+                "Vite Deck directory not found at {}",
+                self.path
+            ));
         }
 
         if env::var("KOAD_DEV_MODE").unwrap_or_default() == "1" {
             println!("DeckManager: Launching Vite Dashboard (DEV MODE) in background...");
-            
+
             // Start npm run dev in the deck directory
             let child = Command::new("npm")
                 .arg("run")
@@ -33,12 +36,14 @@ impl DeckManager {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()?;
-            
+
             self._process = Some(child);
         } else {
-            println!("DeckManager: Running in Production mode. Serving static assets via WebGateway.");
+            println!(
+                "DeckManager: Running in Production mode. Serving static assets via WebGateway."
+            );
         }
-        
+
         Ok(self)
     }
 }

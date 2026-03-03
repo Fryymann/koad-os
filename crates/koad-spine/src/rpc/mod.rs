@@ -1,19 +1,19 @@
-use tonic::{Request, Response, Status};
-use tokio_stream::Stream;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::collections::HashMap;
 use crate::engine::Engine;
+use async_stream::try_stream;
+use chrono::Utc;
+use fred::interfaces::{EventInterface, HashesInterface, PubsubInterface};
+use koad_core::identity::Rank;
+use koad_core::intent::{ExecuteIntent, Intent};
+use koad_core::storage::StorageBridge;
 use koad_proto::spine::v1::spine_service_server::SpineService;
 use koad_proto::spine::v1::*;
-use fred::interfaces::{PubsubInterface, HashesInterface, EventInterface};
 use serde_json::json;
-use chrono::Utc;
-use async_stream::try_stream;
-use koad_core::intent::{Intent, ExecuteIntent};
-use koad_core::identity::Rank;
-use koad_core::storage::StorageBridge;
-use tracing::{info, error};
+use std::collections::HashMap;
+use std::pin::Pin;
+use std::sync::Arc;
+use tokio_stream::Stream;
+use tonic::{Request, Response, Status};
+use tracing::{error, info};
 
 pub struct KoadSpine {
     engine: Arc<Engine>,
@@ -34,7 +34,12 @@ impl KoadSpine {
             "last_seen": Utc::now().timestamp()
         });
 
-        let _: () = self.engine.redis.client.hset("koad:services", ("grpc", service_entry.to_string())).await?;
+        let _: () = self
+            .engine
+            .redis
+            .client
+            .hset("koad:services", ("grpc", service_entry.to_string()))
+            .await?;
         Ok(())
     }
 
@@ -52,14 +57,20 @@ impl SpineService for KoadSpine {
         request: Request<ExecuteRequest>,
     ) -> Result<Response<ExecuteResponse>, Status> {
         let req = request.into_inner();
-        info!("Kernel: Executing command [{}] from {}", req.name, req.identity);
+        info!(
+            "Kernel: Executing command [{}] from {}",
+            req.name, req.identity
+        );
 
         // For now, synchronous execution just returns a success message.
         // Real implementation would route through DirectiveRouter or Engine.
         Ok(Response::new(ExecuteResponse {
             command_id: req.command_id,
             success: true,
-            output: format!("Command '{}' executed successfully by unified v4 Spine.", req.name),
+            output: format!(
+                "Command '{}' executed successfully by unified v4 Spine.",
+                req.name
+            ),
             error: "".to_string(),
         }))
     }
@@ -76,18 +87,33 @@ impl SpineService for KoadSpine {
     ) -> Result<Response<DispatchTaskResponse>, Status> {
         let req = request.into_inner();
         let cmd_str = req.command;
-        let identity = if req.identity.is_empty() { "admin" } else { &req.identity };
+        let identity = if req.identity.is_empty() {
+            "admin"
+        } else {
+            &req.identity
+        };
 
         let intent = Intent::Execute(ExecuteIntent {
             identity: identity.to_string(),
             command: cmd_str,
             args: req.args,
-            working_dir: if req.working_dir.is_empty() { None } else { Some(req.working_dir) },
+            working_dir: if req.working_dir.is_empty() {
+                None
+            } else {
+                Some(req.working_dir)
+            },
             env_vars: req.env_vars,
         });
 
-        let intent_str = serde_json::to_string(&intent).map_err(|e| Status::internal(e.to_string()))?;
-        if let Err(e) = self.engine.redis.client.publish::<(), _, _>("koad:commands", intent_str).await {
+        let intent_str =
+            serde_json::to_string(&intent).map_err(|e| Status::internal(e.to_string()))?;
+        if let Err(e) = self
+            .engine
+            .redis
+            .client
+            .publish::<(), _, _>("koad:commands", intent_str)
+            .await
+        {
             return Err(Status::internal(format!("Failed to dispatch task: {}", e)));
         }
 
@@ -97,7 +123,8 @@ impl SpineService for KoadSpine {
         }))
     }
 
-    type StreamTaskStatusStream = Pin<Box<dyn Stream<Item = Result<TaskStatusUpdate, Status>> + Send>>;
+    type StreamTaskStatusStream =
+        Pin<Box<dyn Stream<Item = Result<TaskStatusUpdate, Status>> + Send>>;
 
     async fn stream_task_status(
         &self,
@@ -114,7 +141,9 @@ impl SpineService for KoadSpine {
             };
         };
 
-        Ok(Response::new(Box::pin(output) as Self::StreamTaskStatusStream))
+        Ok(Response::new(
+            Box::pin(output) as Self::StreamTaskStatusStream
+        ))
     }
 
     // --- System Telemetry & Monitoring ---
@@ -126,7 +155,7 @@ impl SpineService for KoadSpine {
         _request: Request<StreamSystemEventsRequest>,
     ) -> Result<Response<Self::StreamSystemEventsStream>, Status> {
         info!("Kernel: Client connected to unified system event stream.");
-        
+
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let redis = self.engine.redis.clone();
 
@@ -146,14 +175,21 @@ impl SpineService for KoadSpine {
 
         tokio::spawn(async move {
             let mut message_stream = redis.subscriber.message_rx();
-            
+
             // Subscribe to all telemetry and session channels
-            if let Err(e) = redis.subscriber.subscribe(vec![
-                "koad:telemetry", 
-                "koad:telemetry:stats", 
-                "koad:sessions"
-            ]).await {
-                error!("Spine Event Stream Error: Failed to subscribe to Redis: {}", e);
+            if let Err(e) = redis
+                .subscriber
+                .subscribe(vec![
+                    "koad:telemetry",
+                    "koad:telemetry:stats",
+                    "koad:sessions",
+                ])
+                .await
+            {
+                error!(
+                    "Spine Event Stream Error: Failed to subscribe to Redis: {}",
+                    e
+                );
                 return;
             }
 
@@ -178,7 +214,9 @@ impl SpineService for KoadSpine {
         });
 
         let output_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-        Ok(Response::new(Box::pin(output_stream) as Self::StreamSystemEventsStream))
+        Ok(Response::new(
+            Box::pin(output_stream) as Self::StreamSystemEventsStream
+        ))
     }
 
     async fn get_system_state(
@@ -199,8 +237,14 @@ impl SpineService for KoadSpine {
         request: Request<GetServiceRequest>,
     ) -> Result<Response<GetServiceResponse>, Status> {
         let name = request.into_inner().name;
-        let res: Option<String> = self.engine.redis.client.hget("koad:services", &name).await.map_err(|e| Status::internal(e.to_string()))?;
-        
+        let res: Option<String> = self
+            .engine
+            .redis
+            .client
+            .hget("koad:services", &name)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
         if let Some(json_str) = res {
             if let Ok(entry) = serde_json::from_str::<serde_json::Value>(&json_str) {
                 return Ok(Response::new(GetServiceResponse {
@@ -211,11 +255,11 @@ impl SpineService for KoadSpine {
                         protocol: entry["protocol"].as_str().unwrap_or_default().to_string(),
                         environment: EnvironmentType::Wsl as i32,
                         status: entry["status"].as_str().unwrap_or_default().to_string(),
-                    })
+                    }),
                 }));
             }
         }
-        
+
         Err(Status::not_found("Service not found"))
     }
 
@@ -223,7 +267,10 @@ impl SpineService for KoadSpine {
         &self,
         request: Request<RegisterServiceRequest>,
     ) -> Result<Response<RegisterServiceResponse>, Status> {
-        let entry = request.into_inner().service.ok_or_else(|| Status::invalid_argument("Missing service entry"))?;
+        let entry = request
+            .into_inner()
+            .service
+            .ok_or_else(|| Status::invalid_argument("Missing service entry"))?;
         let payload = json!({
             "name": entry.name,
             "host": entry.host,
@@ -233,8 +280,14 @@ impl SpineService for KoadSpine {
             "last_seen": Utc::now().timestamp()
         });
 
-        let _: () = self.engine.redis.client.hset("koad:services", (entry.name, payload.to_string())).await.map_err(|e| Status::internal(e.to_string()))?;
-        
+        let _: () = self
+            .engine
+            .redis
+            .client
+            .hset("koad:services", (entry.name, payload.to_string()))
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
         Ok(Response::new(RegisterServiceResponse { success: true }))
     }
 
@@ -287,15 +340,27 @@ impl SpineService for KoadSpine {
             context.clone(),
         );
 
-        self.engine.asm.create_session(session).await.map_err(|e| Status::internal(e.to_string()))?;
-        let hydration = self.engine.asm.hydrate_session(&session_id).await.map_err(|e| Status::internal(e.to_string()))?;
+        self.engine
+            .asm
+            .create_session(session)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        let hydration = self
+            .engine
+            .asm
+            .hydrate_session(&session_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(SessionPackage {
             session_id: session_id.clone(),
             identity_json: serde_json::to_string(&identity).unwrap(),
             project_context_json: serde_json::to_string(&context).unwrap(),
             intelligence: Some(IntelligencePackage {
-                mission_briefing: hydration["mission_briefing"].as_str().unwrap_or_default().to_string(),
+                mission_briefing: hydration["mission_briefing"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
                 active_tasks: vec![],
                 recent_events: vec![],
                 metadata: HashMap::new(),
@@ -305,7 +370,11 @@ impl SpineService for KoadSpine {
 
     async fn drain_all(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
         info!("Kernel: Triggering full state drain to durable memory...");
-        self.engine.storage.drain_all().await.map_err(|e| Status::internal(e.to_string()))?;
+        self.engine
+            .storage
+            .drain_all()
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(Empty {}))
     }
 }

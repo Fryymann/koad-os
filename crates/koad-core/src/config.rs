@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use std::env;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct KoadConfig {
@@ -29,11 +29,10 @@ impl KoadConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|_| home.join("kspine.sock"));
 
-        let spine_grpc_addr = env::var("SPINE_GRPC_ADDR")
-            .unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+        let spine_grpc_addr =
+            env::var("SPINE_GRPC_ADDR").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
 
-        let gateway_addr = env::var("GATEWAY_ADDR")
-            .unwrap_or_else(|_| "0.0.0.0:3000".to_string());
+        let gateway_addr = env::var("GATEWAY_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
 
         let github_project_number = env::var("GITHUB_PROJECT_NUMBER")
             .ok()
@@ -53,7 +52,9 @@ impl KoadConfig {
     pub fn resolve_gh_token(&self) -> Result<String> {
         env::var("GITHUB_ADMIN_PAT")
             .or_else(|_| env::var("GITHUB_PERSONAL_PAT"))
-            .context("No GitHub PAT found in environment (tried GITHUB_ADMIN_PAT, GITHUB_PERSONAL_PAT)")
+            .context(
+                "No GitHub PAT found in environment (tried GITHUB_ADMIN_PAT, GITHUB_PERSONAL_PAT)",
+            )
     }
 
     pub fn get_db_path(&self) -> PathBuf {

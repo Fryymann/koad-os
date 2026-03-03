@@ -1,19 +1,16 @@
-use tracing_subscriber::{fmt, EnvFilter, prelude::*};
-use tracing_appender::non_blocking::WorkerGuard;
 use std::path::PathBuf;
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 pub fn init_logging(service_name: &str, log_dir: Option<PathBuf>) -> Option<WorkerGuard> {
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
-    let stdout_layer = fmt::layer()
-        .with_target(false)
-        .with_thread_ids(true);
+    let stdout_layer = fmt::layer().with_target(false).with_thread_ids(true);
 
     if let Some(path) = log_dir {
         let file_appender = tracing_appender::rolling::daily(path, format!("{}.log", service_name));
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-        
+
         let file_layer = fmt::layer()
             .with_ansi(false)
             .with_target(true)
@@ -25,7 +22,7 @@ pub fn init_logging(service_name: &str, log_dir: Option<PathBuf>) -> Option<Work
             .with(stdout_layer)
             .with(file_layer)
             .init();
-            
+
         Some(guard)
     } else {
         tracing_subscriber::registry()

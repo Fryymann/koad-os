@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// Represents a unit of work within the KoadOS ecosystem.
 /// Every Ticket MUST have a corresponding GitHub Issue for external tracking.

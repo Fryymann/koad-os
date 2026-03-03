@@ -1,13 +1,13 @@
-use async_trait::async_trait;
 use crate::engine::redis::RedisClient;
+use async_trait::async_trait;
+use chrono::Utc;
+use fred::interfaces::HashesInterface;
 use koad_core::storage::StorageBridge;
 use rusqlite::{params, Connection};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use fred::interfaces::HashesInterface;
-use chrono::Utc;
 use std::time::Duration;
+use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 pub struct KoadStorageBridge {
@@ -21,7 +21,7 @@ impl KoadStorageBridge {
         let conn = Connection::open(sqlite_path)?;
         // Enable WAL mode
         let _: String = conn.query_row("PRAGMA journal_mode=WAL;", [], |row| row.get(0))?;
-        
+
         // Ensure state table exists for arbitrary key-value storage
         conn.execute(
             "CREATE TABLE IF NOT EXISTS state_ledger (
@@ -41,21 +41,38 @@ impl KoadStorageBridge {
 
     /// Starts the background task that "drains" volatile metrics into the database.
     pub async fn start_drain_loop(&self) {
-        println!("StorageBridge: Drain loop active (Interval: {:?}).", self.drain_interval);
+        println!(
+            "StorageBridge: Drain loop active (Interval: {:?}).",
+            self.drain_interval
+        );
         loop {
             sleep(self.drain_interval).await;
             if let Err(e) = self.drain_all().await {
-                eprintln!("StorageBridge Error: Failed to drain state to SQLite: {}", e);
+                eprintln!(
+                    "StorageBridge Error: Failed to drain state to SQLite: {}",
+                    e
+                );
             }
         }
     }
 }
 
-const SOVEREIGN_KEYS: &[&str] = &["identities", "identity_roles", "knowledge", "principles", "canon_rules"];
+const SOVEREIGN_KEYS: &[&str] = &[
+    "identities",
+    "identity_roles",
+    "knowledge",
+    "principles",
+    "canon_rules",
+];
 
 #[async_trait]
 impl StorageBridge for KoadStorageBridge {
-    async fn set_state(&self, key: &str, value: Value, caller_tier: Option<i32>) -> anyhow::Result<()> {
+    async fn set_state(
+        &self,
+        key: &str,
+        value: Value,
+        caller_tier: Option<i32>,
+    ) -> anyhow::Result<()> {
         let val_str = value.to_string();
         let now = Utc::now().timestamp();
         let tier = caller_tier.unwrap_or(3); // Default to restricted Guest
@@ -70,7 +87,11 @@ impl StorageBridge for KoadStorageBridge {
         }
 
         // 1. Update Redis (Hot Path)
-        let _: () = self.redis.client.hset::<(), _, _>("koad:state", (key, val_str.clone())).await?;
+        let _: () = self
+            .redis
+            .client
+            .hset::<(), _, _>("koad:state", (key, val_str.clone()))
+            .await?;
 
         // 2. Immediate persistent update for critical state (can be moved to drain later)
         let sqlite = self.sqlite.clone();
@@ -83,7 +104,8 @@ impl StorageBridge for KoadStorageBridge {
                  ON CONFLICT(key) DO UPDATE SET value=?2, updated_at=?3",
                 params![key_clone, val_str, now],
             )
-        }).await??;
+        })
+        .await??;
 
         Ok(())
     }
@@ -107,12 +129,17 @@ impl StorageBridge for KoadStorageBridge {
             } else {
                 Ok::<Option<String>, anyhow::Error>(None)
             }
-        }).await??;
+        })
+        .await??;
 
         if let Some(s) = res {
             let val: Value = serde_json::from_str(&s)?;
             // Hydrate back to Redis
-            let _: () = self.redis.client.hset::<(), _, _>("koad:state", (key, s)).await?;
+            let _: () = self
+                .redis
+                .client
+                .hset::<(), _, _>("koad:state", (key, s))
+                .await?;
             return Ok(Some(val));
         }
 
@@ -124,7 +151,8 @@ impl StorageBridge for KoadStorageBridge {
         let redis = self.redis.clone();
         let sqlite = self.sqlite.clone();
 
-        let state: std::collections::HashMap<String, String> = redis.client.hgetall("koad:state").await?;
+        let state: std::collections::HashMap<String, String> =
+            redis.client.hgetall("koad:state").await?;
         let now = Utc::now().timestamp();
 
         if !state.is_empty() {
@@ -135,7 +163,7 @@ impl StorageBridge for KoadStorageBridge {
                     let mut stmt = tx.prepare(
                         "INSERT INTO state_ledger (key, value, updated_at) 
                          VALUES (?1, ?2, ?3) 
-                         ON CONFLICT(key) DO UPDATE SET value=?2, updated_at=?3"
+                         ON CONFLICT(key) DO UPDATE SET value=?2, updated_at=?3",
                     )?;
                     for (k, v) in state {
                         stmt.execute(params![k, v, now])?;
@@ -143,7 +171,8 @@ impl StorageBridge for KoadStorageBridge {
                 }
                 tx.commit()?;
                 Ok::<(), anyhow::Error>(())
-            }).await??;
+            })
+            .await??;
         }
 
         Ok(())
@@ -163,7 +192,8 @@ impl StorageBridge for KoadStorageBridge {
                 results.push(row?);
             }
             Ok::<Vec<(String, String)>, anyhow::Error>(results)
-        }).await??;
+        })
+        .await??;
 
         for (k, v) in entries {
             let _: () = redis.client.hset::<(), _, _>("koad:state", (k, v)).await?;

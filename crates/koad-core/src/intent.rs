@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// A high-level directive within the KoadOS ecosystem.
-/// Intents represent the "What" and "Who" of a system action, 
+/// Intents represent the "What" and "Who" of a system action,
 /// abstracting away the underlying IPC transport (Redis, gRPC, etc.).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
@@ -119,7 +119,7 @@ mod tests {
             working_dir: Some("/home/ideans".to_string()),
             env_vars: HashMap::new(),
         });
-        
+
         let serialized = serde_json::to_string(&intent).unwrap();
         let deserialized: Intent = serde_json::from_str(&serialized).unwrap();
         assert_eq!(intent, deserialized);

@@ -37,7 +37,13 @@ impl GitHubClient {
             .ok_or_else(|| anyhow::anyhow!("Project not found"))
     }
 
-    pub async fn update_item_field(&self, project_id: &str, item_id: &str, field_id: &str, value: serde_json::Value) -> Result<()> {
+    pub async fn update_item_field(
+        &self,
+        project_id: &str,
+        item_id: &str,
+        field_id: &str,
+        value: serde_json::Value,
+    ) -> Result<()> {
         let query = r#"
             mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
               updateProjectV2ItemFieldValue(input: {
@@ -91,18 +97,27 @@ impl GitHubClient {
         });
 
         let data: serde_json::Value = self.graphql(query, variables).await?;
-        let fields = data["node"]["fields"]["nodes"].as_array().ok_or_else(|| anyhow::anyhow!("No fields found"))?;
-        
+        let fields = data["node"]["fields"]["nodes"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("No fields found"))?;
+
         for field in fields {
             if field["name"].as_str() == Some("Status") {
-                return field["id"].as_str().map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("Field ID missing"));
+                return field["id"]
+                    .as_str()
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| anyhow::anyhow!("Field ID missing"));
             }
         }
-        
+
         anyhow::bail!("Status field not found in project")
     }
 
-    pub async fn get_status_option_id(&self, project_id: &str, option_name: &str) -> Result<String> {
+    pub async fn get_status_option_id(
+        &self,
+        project_id: &str,
+        option_name: &str,
+    ) -> Result<String> {
         let query = r#"
             query($projectId: ID!) {
               node(id: $projectId) {
@@ -128,19 +143,26 @@ impl GitHubClient {
         });
 
         let data: serde_json::Value = self.graphql(query, variables).await?;
-        let fields = data["node"]["fields"]["nodes"].as_array().ok_or_else(|| anyhow::anyhow!("No fields found"))?;
-        
+        let fields = data["node"]["fields"]["nodes"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("No fields found"))?;
+
         for field in fields {
             if field["name"].as_str() == Some("Status") {
-                let options = field["options"].as_array().ok_or_else(|| anyhow::anyhow!("No options found for Status field"))?;
+                let options = field["options"]
+                    .as_array()
+                    .ok_or_else(|| anyhow::anyhow!("No options found for Status field"))?;
                 for option in options {
                     if option["name"].as_str() == Some(option_name) {
-                        return option["id"].as_str().map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("Option ID missing"));
+                        return option["id"]
+                            .as_str()
+                            .map(|s| s.to_string())
+                            .ok_or_else(|| anyhow::anyhow!("Option ID missing"));
                     }
                 }
             }
         }
-        
+
         anyhow::bail!("Status option '{}' not found in project", option_name)
     }
 
@@ -202,13 +224,16 @@ impl GitHubClient {
 
             let data: serde_json::Value = self.graphql(query, variables).await?;
             let items_data = &data["user"]["projectV2"]["items"];
-            
+
             if let Some(nodes) = items_data["nodes"].as_array() {
                 for node in nodes {
                     let id = node["id"].as_str().unwrap_or_default().to_string();
-                    let title = node["content"]["title"].as_str().unwrap_or_default().to_string();
+                    let title = node["content"]["title"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string();
                     let number = node["content"]["number"].as_i64().map(|n| n as i32);
-                    
+
                     let mut status = "Unknown".to_string();
                     let mut start_date = None;
                     let mut target_date = None;
@@ -247,11 +272,18 @@ impl GitHubClient {
                 }
             }
 
-            has_next_page = items_data["pageInfo"]["hasNextPage"].as_bool().unwrap_or(false);
-            cursor = items_data["pageInfo"]["endCursor"].as_str().map(|s| s.to_string());
+            has_next_page = items_data["pageInfo"]["hasNextPage"]
+                .as_bool()
+                .unwrap_or(false);
+            cursor = items_data["pageInfo"]["endCursor"]
+                .as_str()
+                .map(|s| s.to_string());
         }
 
-        println!("Debug: Found {} total items in project board.", all_items.len());
+        println!(
+            "Debug: Found {} total items in project board.",
+            all_items.len()
+        );
         Ok(all_items)
     }
 
@@ -323,9 +355,13 @@ impl GitHubClient {
         });
 
         let data: serde_json::Value = self.graphql(query, variables).await?;
-        
+
         let mut issues = Vec::new();
-        if let Some(nodes) = data.get("repository").and_then(|r| r.get("issues")).and_then(|i| i.get("nodes")) {
+        if let Some(nodes) = data
+            .get("repository")
+            .and_then(|r| r.get("issues"))
+            .and_then(|i| i.get("nodes"))
+        {
             for node in nodes.as_array().unwrap_or(&vec![]) {
                 let id = node["id"].as_str().unwrap_or_default().to_string();
                 let number = node["number"].as_i64().unwrap_or_default() as i32;

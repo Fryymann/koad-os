@@ -1,12 +1,12 @@
-use std::sync::Arc;
-use std::path::PathBuf;
-use crate::engine::Engine;
 use crate::discovery::SkillRegistry;
+use crate::engine::Engine;
 use crate::rpc::KoadSpine;
 use koad_proto::spine::v1::spine_service_server::SpineServiceServer;
-use tonic::transport::Server;
+use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
+use tonic::transport::Server;
 
 use tokio::sync::watch;
 
@@ -57,15 +57,21 @@ impl KernelBuilder {
 
     /// Asynchronously starts all kernel systems.
     pub async fn start(self) -> anyhow::Result<Kernel> {
-        let home_dir = self.home_dir.ok_or_else(|| anyhow::anyhow!("Home directory not specified"))?;
+        let home_dir = self
+            .home_dir
+            .ok_or_else(|| anyhow::anyhow!("Home directory not specified"))?;
         let db_path = home_dir.join("koad.db");
 
-        println!("Kernel: Initializing Engine Room at {}...", home_dir.display());
+        println!(
+            "Kernel: Initializing Engine Room at {}...",
+            home_dir.display()
+        );
 
         let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
 
         // 1. Engine & State Initialization (Handles Skill Discovery internally now)
-        let engine = Arc::new(Engine::new(&home_dir.to_string_lossy(), &db_path.to_string_lossy()).await?);
+        let engine =
+            Arc::new(Engine::new(&home_dir.to_string_lossy(), &db_path.to_string_lossy()).await?);
 
         // 3. Launch Core Background Loops
         let storage_drain = engine.storage.clone();
@@ -117,7 +123,9 @@ impl KernelBuilder {
             let spine_service_arc = Arc::new(spine_service);
 
             // Register gRPC service in Redis inventory
-            spine_service_arc.register_in_inventory("0.0.0.0", 50051).await?;
+            spine_service_arc
+                .register_in_inventory("0.0.0.0", 50051)
+                .await?;
 
             // TCP Server
             let tcp_spine = spine_service_arc.clone();
@@ -126,7 +134,9 @@ impl KernelBuilder {
                 println!("Kernel: Launching Bridge gRPC (TCP) on {}...", tcp_addr);
                 let _ = Server::builder()
                     .add_service(SpineServiceServer::from_arc(tcp_spine))
-                    .serve_with_shutdown(tcp_addr, async move { let _ = rx_tcp.changed().await; })
+                    .serve_with_shutdown(tcp_addr, async move {
+                        let _ = rx_tcp.changed().await;
+                    })
                     .await;
             });
 
@@ -136,10 +146,15 @@ impl KernelBuilder {
             let uds_listener = UnixListener::bind(&uds_path).expect("Failed to bind UDS");
             let uds_stream = UnixListenerStream::new(uds_listener);
             tokio::spawn(async move {
-                println!("Kernel: Launching Bridge gRPC (UDS) on {}...", uds_path.display());
+                println!(
+                    "Kernel: Launching Bridge gRPC (UDS) on {}...",
+                    uds_path.display()
+                );
                 let _ = Server::builder()
                     .add_service(SpineServiceServer::from_arc(uds_spine))
-                    .serve_with_incoming_shutdown(uds_stream, async move { let _ = rx_uds.changed().await; })
+                    .serve_with_incoming_shutdown(uds_stream, async move {
+                        let _ = rx_uds.changed().await;
+                    })
                     .await;
             });
         }
@@ -151,7 +166,6 @@ impl KernelBuilder {
             engine,
             shutdown_tx,
         })
-
     }
 }
 

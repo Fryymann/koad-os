@@ -1,12 +1,14 @@
+use crate::engine::storage_bridge::KoadStorageBridge;
+use chrono::Utc;
+use fred::interfaces::{
+    EventInterface, HashesInterface, PubsubInterface, SetsInterface, StreamsInterface,
+};
+use koad_core::session::AgentSession;
+use koad_core::storage::StorageBridge;
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use koad_core::session::AgentSession;
-use crate::engine::storage_bridge::KoadStorageBridge;
-use koad_core::storage::StorageBridge;
-use chrono::Utc;
-use serde_json::json;
-use fred::interfaces::{PubsubInterface, HashesInterface, StreamsInterface, SetsInterface, EventInterface};
 
 pub struct AgentSessionManager {
     storage: Arc<KoadStorageBridge>,
@@ -25,18 +27,29 @@ impl AgentSessionManager {
         let mut sessions = self.sessions.lock().await;
         let session_id = session.session_id.clone();
         let tier = session.identity.tier;
-        
+
         let payload = serde_json::to_value(&session)?;
-        self.storage.set_state(&format!("koad:session:{}", session_id), payload.clone(), Some(tier)).await?;
-        
+        self.storage
+            .set_state(
+                &format!("koad:session:{}", session_id),
+                payload.clone(),
+                Some(tier),
+            )
+            .await?;
+
         sessions.insert(session_id, session);
 
         let msg = json!({
             "type": "SESSION_UPDATE",
             "payload": payload
         });
-        let _: () = self.storage.redis.client.publish("koad:sessions", msg.to_string()).await?;
-        
+        let _: () = self
+            .storage
+            .redis
+            .client
+            .publish("koad:sessions", msg.to_string())
+            .await?;
+
         Ok(())
     }
 
@@ -45,15 +58,26 @@ impl AgentSessionManager {
         if let Some(session) = sessions.get_mut(session_id) {
             session.last_heartbeat = Utc::now();
             let tier = session.identity.tier;
-            
+
             let payload = serde_json::to_value(&session)?;
-            self.storage.set_state(&format!("koad:session:{}", session_id), payload.clone(), Some(tier)).await?;
+            self.storage
+                .set_state(
+                    &format!("koad:session:{}", session_id),
+                    payload.clone(),
+                    Some(tier),
+                )
+                .await?;
 
             let msg = json!({
                 "type": "SESSION_UPDATE",
                 "payload": payload
             });
-            let _: () = self.storage.redis.client.publish("koad:sessions", msg.to_string()).await?;
+            let _: () = self
+                .storage
+                .redis
+                .client
+                .publish("koad:sessions", msg.to_string())
+                .await?;
 
             Ok(())
         } else {
@@ -68,19 +92,35 @@ impl AgentSessionManager {
 
     pub async fn hydrate_session(&self, session_id: &str) -> anyhow::Result<serde_json::Value> {
         let sessions = self.sessions.lock().await;
-        let session = sessions.get(session_id).ok_or_else(|| anyhow::anyhow!("Session not found"))?;
+        let session = sessions
+            .get(session_id)
+            .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
 
-        let active_task_ids: Vec<String> = self.storage.redis.client.smembers("koad:active_tasks").await?;
+        let active_task_ids: Vec<String> = self
+            .storage
+            .redis
+            .client
+            .smembers("koad:active_tasks")
+            .await?;
         let mut active_tasks = Vec::new();
         for id in active_task_ids {
-            if let Some(state_str) = self.storage.redis.client.hget::<Option<String>, _, _>(format!("koad:task:{}", id), "state").await? {
+            if let Some(state_str) = self
+                .storage
+                .redis
+                .client
+                .hget::<Option<String>, _, _>(format!("koad:task:{}", id), "state")
+                .await?
+            {
                 active_tasks.push(serde_json::from_str::<serde_json::Value>(&state_str)?);
             }
         }
 
-        let events: Vec<(String, HashMap<String, String>)> = self.storage.redis.client.xrevrange(
-            "koad:events:stream", "+", "-", Some(10)
-        ).await?;
+        let events: Vec<(String, HashMap<String, String>)> = self
+            .storage
+            .redis
+            .client
+            .xrevrange("koad:events:stream", "+", "-", Some(10))
+            .await?;
 
         let briefing = format!(
             "Welcome, Agent {}. Role: {:?}. Current Project: {}. System Status: CONDITION GREEN. You have {} active tasks.",
@@ -94,10 +134,19 @@ impl AgentSessionManager {
         if let Some(obj) = package.as_object_mut() {
             obj.insert("mission_briefing".to_string(), json!(briefing));
             obj.insert("active_tasks".to_string(), json!(active_tasks));
-            obj.insert("recent_events".to_string(), json!(events.into_iter().map(|e| e.1).collect::<Vec<_>>()));
+            obj.insert(
+                "recent_events".to_string(),
+                json!(events.into_iter().map(|e| e.1).collect::<Vec<_>>()),
+            );
         }
 
-        self.storage.set_state(&format!("koad:session:{}", session_id), package.clone(), Some(session.identity.tier)).await?;
+        self.storage
+            .set_state(
+                &format!("koad:session:{}", session_id),
+                package.clone(),
+                Some(session.identity.tier),
+            )
+            .await?;
 
         Ok(package)
     }
@@ -115,11 +164,15 @@ impl AgentSessionManager {
                     to_remove.push(sid.clone());
                 } else if session.metadata.get("presence") != Some(&"DARK".to_string()) {
                     // Just mark as dark
-                    session.metadata.insert("presence".to_string(), "DARK".to_string());
+                    session
+                        .metadata
+                        .insert("presence".to_string(), "DARK".to_string());
                     to_update.push((sid.clone(), session.clone()));
                 }
             } else if session.metadata.get("presence") != Some(&"WAKE".to_string()) {
-                session.metadata.insert("presence".to_string(), "WAKE".to_string());
+                session
+                    .metadata
+                    .insert("presence".to_string(), "WAKE".to_string());
                 to_update.push((sid.clone(), session.clone()));
             }
         }
@@ -127,24 +180,46 @@ impl AgentSessionManager {
         for sid in to_remove {
             println!("ASM: Pruning abandoned session: {}", sid);
             sessions.remove(&sid);
-            let _: () = self.storage.redis.client.hdel("koad:state", format!("koad:session:{}", sid)).await?;
+            let _: () = self
+                .storage
+                .redis
+                .client
+                .hdel("koad:state", format!("koad:session:{}", sid))
+                .await?;
         }
 
         for (sid, session) in to_update {
             let payload = serde_json::to_value(&session)?;
-            self.storage.set_state(&format!("koad:session:{}", sid), payload.clone(), Some(session.identity.tier)).await?;
+            self.storage
+                .set_state(
+                    &format!("koad:session:{}", sid),
+                    payload.clone(),
+                    Some(session.identity.tier),
+                )
+                .await?;
             let msg = json!({ "type": "SESSION_UPDATE", "payload": payload });
-            let _: () = self.storage.redis.client.publish("koad:sessions", msg.to_string()).await?;
+            let _: () = self
+                .storage
+                .redis
+                .client
+                .publish("koad:sessions", msg.to_string())
+                .await?;
         }
-        
+
         Ok(())
     }
 
     pub async fn start_session_monitor(&self) {
         println!("ASM: Session monitor active. Subscribing to 'koad:sessions'...");
         let mut message_stream = self.storage.redis.subscriber.message_rx();
-        
-        if let Err(e) = self.storage.redis.subscriber.subscribe("koad:sessions").await {
+
+        if let Err(e) = self
+            .storage
+            .redis
+            .subscriber
+            .subscribe("koad:sessions")
+            .await
+        {
             eprintln!("ASM Error: Failed to subscribe to koad:sessions: {}", e);
             return;
         }
@@ -154,18 +229,25 @@ impl AgentSessionManager {
             let payload_str = message.value.as_string().unwrap_or_default();
             if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&payload_str) {
                 if msg["type"] == "session_update" || msg["type"] == "SESSION_UPDATE" {
-                    println!("ASM: Processing session update for {}", msg["data"]["session_id"]);
-                    if let Ok(session) = serde_json::from_value::<AgentSession>(msg["data"].clone()) {
+                    println!(
+                        "ASM: Processing session update for {}",
+                        msg["data"]["session_id"]
+                    );
+                    if let Ok(session) = serde_json::from_value::<AgentSession>(msg["data"].clone())
+                    {
                         let sid = session.session_id.clone();
                         let mut sessions = self.sessions.lock().await;
-                        
+
                         println!("ASM: Registered/Updated session: {}", sid);
                         sessions.insert(sid.clone(), session);
-                        
+
                         drop(sessions);
                         let _ = self.hydrate_session(&sid).await;
                     } else {
-                        eprintln!("ASM: Failed to parse AgentSession from data: {:?}", msg["data"]);
+                        eprintln!(
+                            "ASM: Failed to parse AgentSession from data: {:?}",
+                            msg["data"]
+                        );
                     }
                 }
             }

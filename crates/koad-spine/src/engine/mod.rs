@@ -1,22 +1,22 @@
-pub mod redis;
+pub mod asm;
 pub mod diagnostics;
+pub mod kcm;
+pub mod kernel;
+pub mod redis;
 pub mod router;
 pub mod sandbox;
 pub mod storage_bridge;
-pub mod asm;
-pub mod kcm;
-pub mod kernel;
 #[cfg(test)]
 mod tests;
 
-use std::sync::Arc;
-use crate::engine::redis::RedisClient;
-use crate::engine::diagnostics::ShipDiagnostics;
-use crate::engine::storage_bridge::KoadStorageBridge;
-use crate::engine::asm::AgentSessionManager;
-use crate::engine::kcm::KoadComplianceManager;
 use crate::discovery::SkillRegistry;
+use crate::engine::asm::AgentSessionManager;
+use crate::engine::diagnostics::ShipDiagnostics;
+use crate::engine::kcm::KoadComplianceManager;
+use crate::engine::redis::RedisClient;
+use crate::engine::storage_bridge::KoadStorageBridge;
 use koad_core::storage::StorageBridge;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub struct Engine {
@@ -35,7 +35,7 @@ impl Engine {
         let asm = Arc::new(AgentSessionManager::new(storage.clone()));
         let kcm = Arc::new(KoadComplianceManager::new(storage.clone()));
         let skill_registry = Arc::new(Mutex::new(SkillRegistry::new()));
-        
+
         // Initial scan for skills
         {
             let mut registry = skill_registry.lock().await;
@@ -44,7 +44,7 @@ impl Engine {
         }
 
         let diagnostics = Arc::new(ShipDiagnostics::new(redis.clone(), skill_registry.clone()));
-        
+
         // Hydrate state from disk on boot
         storage.hydrate_all().await?;
 

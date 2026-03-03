@@ -1,11 +1,13 @@
-use std::sync::Arc;
 use crate::engine::redis::RedisClient;
-use std::time::Duration;
-use tokio::time::sleep;
 use chrono::Utc;
+use fred::interfaces::{
+    HashesInterface, ListInterface, PubsubInterface, SetsInterface, StreamsInterface,
+};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use std::time::Duration;
 use sysinfo::System;
-use serde::{Serialize, Deserialize};
-use fred::interfaces::{PubsubInterface, HashesInterface, StreamsInterface, SetsInterface, ListInterface};
+use tokio::time::sleep;
 
 use crate::discovery::SkillRegistry;
 use tokio::sync::Mutex;
@@ -40,7 +42,7 @@ impl ShipDiagnostics {
     pub fn new(redis: Arc<RedisClient>, skill_registry: Arc<Mutex<SkillRegistry>>) -> Self {
         let mut sys = System::new_all();
         sys.refresh_all();
-        Self { 
+        Self {
             redis,
             sys: Arc::new(Mutex::new(sys)),
             skill_registry,
@@ -52,7 +54,7 @@ impl ShipDiagnostics {
         loop {
             // Heartbeat every 5 seconds
             sleep(Duration::from_secs(5)).await;
-            
+
             // 1. Refresh System Stats
             if let Err(e) = self.run_integrity_scan().await {
                 eprintln!("SHIP ALERT: Integrity Scan Failed: {}", e);
@@ -76,7 +78,12 @@ impl ShipDiagnostics {
         };
 
         // Get active tasks from Redis set
-        let active_tasks: usize = self.redis.client.scard("koad:active_tasks").await.unwrap_or(0);
+        let active_tasks: usize = self
+            .redis
+            .client
+            .scard("koad:active_tasks")
+            .await
+            .unwrap_or(0);
 
         let stats = SystemStats {
             cpu_usage: sys.global_cpu_info().cpu_usage(),
@@ -88,29 +95,41 @@ impl ShipDiagnostics {
         };
 
         let payload = serde_json::to_string(&stats)?;
-        
+
         // Publish to Hot Path (PubSub)
-        let _: () = self.redis.client.publish("koad:telemetry:stats", payload.clone()).await?;
+        let _: () = self
+            .redis
+            .client
+            .publish("koad:telemetry:stats", payload.clone())
+            .await?;
 
         // 1.2 Push to History List (Sparklines)
-        let _: () = self.redis.client.lpush("koad:stats:history", payload.clone()).await?;
+        let _: () = self
+            .redis
+            .client
+            .lpush("koad:stats:history", payload.clone())
+            .await?;
         let _: () = self.redis.client.ltrim("koad:stats:history", 0, 99).await?;
 
         // Add to Event Stream (Persistence)
-        let _: () = self.redis.client.xadd(
-            "koad:events:stream", 
-            false, 
-            None, 
-            "*", 
-            vec![
-                ("source", "engine:diagnostics"),
-                ("severity", "INFO"),
-                ("message", "SYSTEM_HEARTBEAT"),
-                ("metadata", &payload),
-                ("timestamp", &stats.timestamp.to_string())
-            ]
-        ).await?;
-        
+        let _: () = self
+            .redis
+            .client
+            .xadd(
+                "koad:events:stream",
+                false,
+                None,
+                "*",
+                vec![
+                    ("source", "engine:diagnostics"),
+                    ("severity", "INFO"),
+                    ("message", "SYSTEM_HEARTBEAT"),
+                    ("metadata", &payload),
+                    ("timestamp", &stats.timestamp.to_string()),
+                ],
+            )
+            .await?;
+
         Ok(())
     }
 
@@ -125,8 +144,12 @@ impl ShipDiagnostics {
         };
 
         let payload = serde_json::to_string(&web_deck)?;
-        let _: () = self.redis.client.hset("koad:services", ("web-deck", payload)).await?;
-        
+        let _: () = self
+            .redis
+            .client
+            .hset("koad:services", ("web-deck", payload))
+            .await?;
+
         Ok(())
     }
 

@@ -1,11 +1,11 @@
-use std::sync::Arc;
 use crate::engine::storage_bridge::KoadStorageBridge;
+use chrono::Utc;
+use fred::interfaces::StreamsInterface;
 use koad_core::intent::{GovernanceAction, GovernanceIntent};
 use koad_core::storage::StorageBridge;
-use tokio::process::Command;
-use chrono::Utc;
 use serde_json::json;
-use fred::interfaces::StreamsInterface;
+use std::sync::Arc;
+use tokio::process::Command;
 
 pub struct KoadComplianceManager {
     storage: Arc<KoadStorageBridge>,
@@ -21,15 +21,9 @@ impl KoadComplianceManager {
         println!("KCM: Handling Governance Action: {:?}", intent.action);
 
         let result = match intent.action {
-            GovernanceAction::Clean => {
-                self.run_repo_clean().await
-            }
-            GovernanceAction::Audit => {
-                self.run_audit().await
-            }
-            GovernanceAction::Sync => {
-                self.sync_board().await
-            }
+            GovernanceAction::Clean => self.run_repo_clean().await,
+            GovernanceAction::Audit => self.run_audit().await,
+            GovernanceAction::Sync => self.sync_board().await,
         };
 
         let status = if result.is_ok() { "SUCCESS" } else { "FAILED" };
@@ -43,25 +37,34 @@ impl KoadComplianceManager {
             "error": error_msg,
             "timestamp": timestamp
         });
-        
-        let _: () = self.storage.redis.client.xadd(
-            "koad:events:stream", false, None, "*", 
-            vec![
-                ("source", "engine:kcm"),
-                ("severity", if result.is_ok() { "INFO" } else { "ERROR" }),
-                ("message", "GOVERNANCE_EXECUTION"),
-                ("metadata", &event.to_string()),
-                ("timestamp", &timestamp.to_string())
-            ]
-        ).await?;
+
+        let _: () = self
+            .storage
+            .redis
+            .client
+            .xadd(
+                "koad:events:stream",
+                false,
+                None,
+                "*",
+                vec![
+                    ("source", "engine:kcm"),
+                    ("severity", if result.is_ok() { "INFO" } else { "ERROR" }),
+                    ("message", "GOVERNANCE_EXECUTION"),
+                    ("metadata", &event.to_string()),
+                    ("timestamp", &timestamp.to_string()),
+                ],
+            )
+            .await?;
 
         result
     }
 
     async fn run_repo_clean(&self) -> anyhow::Result<()> {
-        let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+        let koad_home =
+            std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
         let script_path = format!("{}/doodskills/repo-clean.py", koad_home);
-        
+
         // Try to find python in venv first
         let venv_python = format!("{}/venv/bin/python3", koad_home);
         let python_exe = if std::path::Path::new(&venv_python).exists() {
@@ -70,12 +73,12 @@ impl KoadComplianceManager {
             "python3".to_string()
         };
 
-        println!("KCM: Running Repository Cleanup at {} using {}...", script_path, python_exe);
-        let output = Command::new(python_exe)
-            .arg(&script_path)
-            .output()
-            .await?;
-        
+        println!(
+            "KCM: Running Repository Cleanup at {} using {}...",
+            script_path, python_exe
+        );
+        let output = Command::new(python_exe).arg(&script_path).output().await?;
+
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             eprintln!("KCM: Repo Clean Failed: {}", stderr);
@@ -85,7 +88,8 @@ impl KoadComplianceManager {
     }
 
     async fn run_audit(&self) -> anyhow::Result<()> {
-        let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+        let koad_home =
+            std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
         let koad_bin = format!("{}/bin/koad", koad_home);
 
         println!("KCM: Running System Audit via {}...", koad_bin);
@@ -94,7 +98,7 @@ impl KoadComplianceManager {
             .env("KOAD_HOME", &koad_home)
             .output()
             .await?;
-        
+
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             eprintln!("KCM: Audit Failed: {}", stderr);
@@ -104,7 +108,8 @@ impl KoadComplianceManager {
     }
 
     async fn sync_board(&self) -> anyhow::Result<()> {
-        let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+        let koad_home =
+            std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
         let koad_bin = format!("{}/bin/koad", koad_home);
 
         println!("KCM: Synchronizing Project Board via {}...", koad_bin);
@@ -114,7 +119,7 @@ impl KoadComplianceManager {
             .env("KOAD_HOME", &koad_home)
             .output()
             .await?;
-        
+
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             eprintln!("KCM: Board Sync Failed: {}", stderr);

@@ -10,7 +10,7 @@ impl Sandbox {
     /// Evaluates a command against the policies associated with the given identity (role).
     pub fn evaluate(identity: &str, command: &str) -> PolicyResult {
         let role = identity.to_lowercase();
-        
+
         // Admin has root access, bypasses all checks.
         if role == "admin" || role == "admiral" || role == "dood" {
             return PolicyResult::Allowed;
@@ -34,20 +34,22 @@ impl Sandbox {
         let cmd_lower = command.to_lowercase();
         // Allowed tools for compliance
         let allowed_tools = [
-            "koad board", 
-            "koad doctor", 
+            "koad board",
+            "koad doctor",
             "python3 /home/ideans/.koad-os/doodskills/repo-clean.py",
             "git status",
-            "ls "
+            "ls ",
         ];
-        
+
         for tool in allowed_tools.iter() {
             if cmd_lower.contains(tool) {
                 return PolicyResult::Allowed;
             }
         }
-        
-        PolicyResult::Denied("Compliance role is restricted to governance and inspection tools.".to_string())
+
+        PolicyResult::Denied(
+            "Compliance role is restricted to governance and inspection tools.".to_string(),
+        )
     }
 
     fn evaluate_agent_policy(command: &str) -> PolicyResult {
@@ -57,19 +59,33 @@ impl Sandbox {
         let blacklisted_commands = ["sudo ", "su ", "rm -rf /", "koad boot"];
         for blacklisted in blacklisted_commands.iter() {
             if cmd_lower.contains(blacklisted) {
-                return PolicyResult::Denied(format!("Command contains blacklisted phrase: '{}'", blacklisted));
+                return PolicyResult::Denied(format!(
+                    "Command contains blacklisted phrase: '{}'",
+                    blacklisted
+                ));
             }
         }
 
         // 2. Sanctuary Check (Paths)
         // Agents must not modify the KoadOS kernel or system roots.
         let protected_paths = [".koad-os", "/etc", "/var", "/root"];
-        
+
         // Basic heuristic: if it looks like they are trying to touch a protected path
         // (This is a rudimentary check for MVP, a real parser would break down args)
         for path in protected_paths.iter() {
-            if command.contains(path) && (command.contains("rm ") || command.contains("mv ") || command.contains("cp ") || command.contains("echo ") || command.contains(">") || command.contains("nano ") || command.contains("vim ")) {
-                 return PolicyResult::Denied(format!("Attempt to modify protected path: '{}'", path));
+            if command.contains(path)
+                && (command.contains("rm ")
+                    || command.contains("mv ")
+                    || command.contains("cp ")
+                    || command.contains("echo ")
+                    || command.contains(">")
+                    || command.contains("nano ")
+                    || command.contains("vim "))
+            {
+                return PolicyResult::Denied(format!(
+                    "Attempt to modify protected path: '{}'",
+                    path
+                ));
             }
         }
 
@@ -83,30 +99,57 @@ mod tests {
 
     #[test]
     fn test_admin_bypass() {
-        assert!(matches!(Sandbox::evaluate("admin", "sudo rm -rf /"), PolicyResult::Allowed));
+        assert!(matches!(
+            Sandbox::evaluate("admin", "sudo rm -rf /"),
+            PolicyResult::Allowed
+        ));
     }
 
     #[test]
     fn test_developer_blacklist() {
-        assert!(matches!(Sandbox::evaluate("developer", "sudo apt update"), PolicyResult::Denied(_)));
-        assert!(matches!(Sandbox::evaluate("pm", "rm -rf /home"), PolicyResult::Denied(_)));
+        assert!(matches!(
+            Sandbox::evaluate("developer", "sudo apt update"),
+            PolicyResult::Denied(_)
+        ));
+        assert!(matches!(
+            Sandbox::evaluate("pm", "rm -rf /home"),
+            PolicyResult::Denied(_)
+        ));
     }
 
     #[test]
     fn test_developer_sanctuary() {
-        assert!(matches!(Sandbox::evaluate("developer", "rm -rf .koad-os/koad.db"), PolicyResult::Denied(_)));
-        assert!(matches!(Sandbox::evaluate("developer", "ls .koad-os"), PolicyResult::Allowed)); // Read is okay
+        assert!(matches!(
+            Sandbox::evaluate("developer", "rm -rf .koad-os/koad.db"),
+            PolicyResult::Denied(_)
+        ));
+        assert!(matches!(
+            Sandbox::evaluate("developer", "ls .koad-os"),
+            PolicyResult::Allowed
+        )); // Read is okay
     }
-    
+
     #[test]
     fn test_developer_allowed() {
-         assert!(matches!(Sandbox::evaluate("developer", "cargo build"), PolicyResult::Allowed));
+        assert!(matches!(
+            Sandbox::evaluate("developer", "cargo build"),
+            PolicyResult::Allowed
+        ));
     }
 
     #[test]
     fn test_compliance_policy() {
-        assert!(matches!(Sandbox::evaluate("compliance", "koad board status"), PolicyResult::Allowed));
-        assert!(matches!(Sandbox::evaluate("overseer", "git status"), PolicyResult::Allowed));
-        assert!(matches!(Sandbox::evaluate("compliance", "rm -rf /"), PolicyResult::Denied(_)));
+        assert!(matches!(
+            Sandbox::evaluate("compliance", "koad board status"),
+            PolicyResult::Allowed
+        ));
+        assert!(matches!(
+            Sandbox::evaluate("overseer", "git status"),
+            PolicyResult::Allowed
+        ));
+        assert!(matches!(
+            Sandbox::evaluate("compliance", "rm -rf /"),
+            PolicyResult::Denied(_)
+        ));
     }
 }

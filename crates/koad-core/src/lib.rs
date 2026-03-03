@@ -1,13 +1,13 @@
 //! Koad-Core: The Hull of the Spaceship
 //! Shared traits, types, and constants for the KoadOS workspace.
 
+pub mod config;
 pub mod identity;
-pub mod types;
-pub mod storage;
-pub mod session;
 pub mod intent;
 pub mod logging;
-pub mod config;
+pub mod session;
+pub mod storage;
+pub mod types;
 
 /// The basic trait for any system component that can be started and stopped.
 #[async_trait::async_trait]
