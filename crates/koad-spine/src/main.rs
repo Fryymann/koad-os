@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
     // Initialize and Start the Kernel using the Builder pattern
     let kernel = KernelBuilder::new()
         .with_home(config.home.clone())
-        .with_grpc(&config.spine_grpc_addr.replace("http://", ""), config.home.join("kspine.sock"))
+        .with_grpc(&config.spine_grpc_addr.replace("http://", ""), config.spine_socket.clone())
         .start()
         .await?;
 

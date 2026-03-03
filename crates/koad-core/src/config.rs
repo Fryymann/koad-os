@@ -6,8 +6,10 @@ use std::env;
 pub struct KoadConfig {
     pub home: PathBuf,
     pub redis_socket: PathBuf,
+    pub spine_socket: PathBuf,
     pub spine_grpc_addr: String,
     pub gateway_addr: String,
+    pub github_project_number: u32,
 }
 
 impl KoadConfig {
@@ -21,7 +23,11 @@ impl KoadConfig {
 
         let redis_socket = env::var("REDIS_SOCKET")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| home.join("koad.sock"));
+            .unwrap_or_else(|_| home.join("koad-redis.sock"));
+
+        let spine_socket = env::var("SPINE_SOCKET")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| home.join("kspine.sock"));
 
         let spine_grpc_addr = env::var("SPINE_GRPC_ADDR")
             .unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
@@ -29,11 +35,18 @@ impl KoadConfig {
         let gateway_addr = env::var("GATEWAY_ADDR")
             .unwrap_or_else(|_| "0.0.0.0:3000".to_string());
 
+        let github_project_number = env::var("GITHUB_PROJECT_NUMBER")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2);
+
         Ok(Self {
             home,
             redis_socket,
+            spine_socket,
             spine_grpc_addr,
             gateway_addr,
+            github_project_number,
         })
     }
 

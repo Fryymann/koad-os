@@ -310,6 +310,10 @@ enum Commands {
     },
     Crew,
     Dash,
+    Refresh {
+        #[arg(short, long)]
+        restart: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -360,6 +364,20 @@ enum BoardAction {
     Todo { id: i32 },
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IdentityData {
+    pub id: String,
+    pub name: String,
+    pub bio: String,
+    pub tier: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IdentityRole {
+    pub identity_id: String,
+    pub role: String,
+}
+
 pub struct KoadDB { pool: Pool<SqliteConnectionManager> }
 
 impl KoadDB {
@@ -388,10 +406,32 @@ impl KoadDB {
         conn.execute("CREATE TABLE IF NOT EXISTS brainstorms (id INTEGER PRIMARY KEY, content TEXT, category TEXT, timestamp TEXT)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS executions (id INTEGER PRIMARY KEY, command TEXT, args TEXT, timestamp TEXT, status TEXT)", [])?;
         
+        // v4.1 Identity Tables
+        conn.execute("CREATE TABLE IF NOT EXISTS identities (id TEXT PRIMARY KEY, name TEXT NOT NULL, bio TEXT, tier INTEGER DEFAULT 3, created_at TEXT NOT NULL)", [])?;
+        conn.execute("CREATE TABLE IF NOT EXISTS identity_roles (identity_id TEXT NOT NULL, role TEXT NOT NULL, PRIMARY KEY(identity_id, role), FOREIGN KEY(identity_id) REFERENCES identities(id))", [])?;
+
         Ok(Self { pool })
     }
 
     fn get_conn(&self) -> Result<r2d2::PooledConnection<SqliteConnectionManager>> { Ok(self.pool.get()?) }
+
+    fn get_identity(&self, id: &str) -> Result<Option<IdentityData>> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT id, name, bio, tier FROM identities WHERE id = ?1")?;
+        let mut rows = stmt.query(params![id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(IdentityData { id: row.get(0)?, name: row.get(1)?, bio: row.get(2)?, tier: row.get(3)? }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn verify_role(&self, identity_id: &str, role: &str) -> Result<bool> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT 1 FROM identity_roles WHERE identity_id = ?1 AND role = ?2")?;
+        let exists = stmt.query(params![identity_id, role.to_lowercase()])?.next()?.is_some();
+        Ok(exists)
+    }
 
     fn remember(&self, cat: &str, content: &str, tags: Option<String>) -> Result<()> {
         let conn = self.get_conn()?;
@@ -575,6 +615,11 @@ fn get_gdrive_token_for_path(path: &Path) -> (String, String) {
     else { ("GDRIVE_PERSONAL_TOKEN".into(), "Personal".into()) }
 }
 
+fn feature_gate(feature: &str, issue_num: Option<u32>) {
+    let issue_str = issue_num.map(|n| format!(" (See Issue #{})", n)).unwrap_or_default();
+    println!("\n\x1b[33m[GATE]\x1b[0m Feature '{}' is currently in the \x1b[1mDESIGN\x1b[0m phase.{}\n", feature, issue_str);
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = KoadConfig::load()?;
@@ -619,11 +664,24 @@ async fn main() -> Result<()> {
             let mut session_id = "BOOT".to_string();
             let mut mission_briefing = None;
 
+            // v4.1 Identity Resolution
+            let (final_agent_name, final_role, final_bio) = if let Some(identity) = db.get_identity(&agent)? {
+                if !db.verify_role(&agent, &role)? {
+                    anyhow::bail!("Identity '{}' is not authorized for the '{}' role.", agent, role);
+                }
+                (identity.name, role.clone(), identity.bio)
+            } else {
+                warn!("Identity '{}' not found in registry. Defaulting to Guest (restricted).", agent);
+                (agent.clone(), "guest".to_string(), "Unverified Agent".to_string())
+            };
+
             if !compact {
                 let conn = db.get_conn()?;
                 let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
                 session_id = uuid::Uuid::new_v4().to_string();
-                if role.to_lowercase() == "admin" {
+                
+                // Admin Multi-Session Protection
+                if final_role.to_lowercase() == "admin" {
                     let cutoff = (Local::now() - chrono::Duration::minutes(2)).format("%Y-%m-%d %H:%M:%S").to_string();
                     let mut stmt = conn.prepare("SELECT session_id, agent FROM sessions WHERE role = 'admin' AND last_heartbeat > ?1 AND status = 'active'")?;
                     if let Ok((old_sid, old_agent)) = stmt.query_row([cutoff], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))) {
@@ -631,17 +689,18 @@ async fn main() -> Result<()> {
                         else { anyhow::bail!("Admin role is currently occupied by {} (Session: {}). Only one Admin allowed.", old_agent, old_sid); }
                     }
                 }
+
                 let session_data = serde_json::json!({
                     "session_id": session_id,
                     "identity": { 
-                        "name": agent.clone(), 
-                        "rank": "captain", 
-                        "permissions": ["all"] 
+                        "name": final_agent_name.clone(), 
+                        "rank": final_role.clone(), 
+                        "permissions": if final_role.to_lowercase() == "admin" { vec!["all"] } else { vec!["limited"] }
                     },
                     "environment": "wsl",
                     "context": { "project_name": if project { "active" } else { "default" }, "root_path": current_path_str, "allowed_paths": [], "stack": [] },
                     "last_heartbeat": Utc::now().to_rfc3339(),
-                    "metadata": {}
+                    "metadata": { "bio": final_bio.clone() }
                 });
                 
                 if config.redis_socket.exists() {
@@ -657,12 +716,13 @@ async fn main() -> Result<()> {
                         }
                     }
                 }
-                conn.execute("INSERT INTO sessions (session_id, agent, role, status, last_heartbeat, pid) VALUES (?1, ?2, ?3, 'active', ?4, ?5) ON CONFLICT(session_id) DO UPDATE SET last_heartbeat = excluded.last_heartbeat, status = 'active'", params![session_id, agent, role, now, std::process::id()])?;
+                conn.execute("INSERT INTO sessions (session_id, agent, role, status, last_heartbeat, pid) VALUES (?1, ?2, ?3, 'active', ?4, ?5) ON CONFLICT(session_id) DO UPDATE SET last_heartbeat = excluded.last_heartbeat, status = 'active'", params![session_id, agent, final_role, now, std::process::id()])?;
             }
 
-            if compact { println!("I:{}|R:{}|G:{}|D:{}|T:{}|S:{}", legacy_config.identity.name, legacy_config.identity.role, pat_var, drive_var, tags.join(","), session_id); }
+            if compact { println!("I:{}|R:{}|G:{}|D:{}|T:{}|S:{}", final_agent_name, final_role, pat_var, drive_var, tags.join(","), session_id); }
             else {
-                println!("<koad_boot>\nSession:  {}\nIdentity: {} ({})", session_id, legacy_config.identity.name, legacy_config.identity.role);
+                println!("<koad_boot>\nSession:  {}\nIdentity: {} ({})", session_id, final_agent_name, final_role);
+                println!("Bio:      {}", final_bio);
                 if let Some(briefing) = mission_briefing { println!("\n[MISSION BRIEFING]\n{}", briefing); }
                 println!("Auth: GH={} | GD={}", pat_var, drive_var);
                 if let Some(driver) = legacy_config.drivers.get(&agent) {
@@ -704,8 +764,8 @@ async fn main() -> Result<()> {
             db.remember(cat_str, &text, tags)?; println!("Memory updated in local KoadDB.");
         }
         Commands::Ponder { text, tags } => { db.remember("pondering", &text, Some(format!("persona-journal,{}", tags.unwrap_or_default())))?; println!("Reflection recorded."); }
-        Commands::Guide { .. } => { println!("Guide not yet implemented in unified CLI."); }
-        Commands::Init { .. } => { println!("Init not yet implemented in unified CLI."); }
+        Commands::Guide { .. } => { feature_gate("koad guide", None); }
+        Commands::Init { .. } => { feature_gate("koad init", Some(25)); }
         Commands::Doctor => {
             println!("\n\x1b[1m--- [TELEMETRY] Neural Link & Grid Integrity ---\x1b[0m");
             
@@ -823,12 +883,12 @@ async fn main() -> Result<()> {
                 println!("Session log updated.");
             }
         }
-        Commands::Gcloud { .. } => { println!("Gcloud action not yet implemented in unified CLI."); }
-        Commands::Airtable { .. } => { println!("Airtable action not yet implemented in unified CLI."); }
-        Commands::Sync { .. } => { println!("Sync action not yet implemented in unified CLI."); }
-        Commands::Drive { .. } => { println!("Drive action not yet implemented in unified CLI."); }
-        Commands::Stream { .. } => { println!("Stream action not yet implemented in unified CLI."); }
-        Commands::Skill { .. } => { println!("Skill action not yet implemented in unified CLI."); }
+        Commands::Gcloud { .. } => { feature_gate("koad gcloud", None); }
+        Commands::Airtable { .. } => { feature_gate("koad airtable", None); }
+        Commands::Sync { .. } => { feature_gate("koad sync", None); }
+        Commands::Drive { .. } => { feature_gate("koad drive", None); }
+        Commands::Stream { .. } => { feature_gate("koad stream", None); }
+        Commands::Skill { .. } => { feature_gate("koad skill", None); }
         Commands::Whoami => {
             println!("Persona: {} ({})", legacy_config.identity.name, legacy_config.identity.role);
             println!("Bio:     {}", legacy_config.identity.bio);
@@ -856,7 +916,7 @@ async fn main() -> Result<()> {
                 BoardAction::Todo { id } => {
                     client.update_item_status(2, id, "Todo").await?;
                 }
-                BoardAction::Sdr => { println!("SDR action not yet implemented."); }
+                BoardAction::Sdr => { feature_gate("koad board sdr", None); }
             }
         }
         Commands::Project { action } => {
@@ -994,6 +1054,88 @@ async fn main() -> Result<()> {
         }
         Commands::Dash => {
             crate::tui::run_dash(&db)?;
+        }
+        Commands::Refresh { restart } => {
+            if !is_admin { anyhow::bail!("Admin only."); }
+            println!("\n\x1b[1m--- KoadOS Core Refresh (Hard Reset) ---\x1b[0m");
+            let home = config.home.clone();
+            
+            // 1. Rebuild
+            println!(">>> [1/3] Energizing Forge (cargo build --release)...");
+            let build_status = Command::new("cargo")
+                .arg("build")
+                .arg("--release")
+                .current_dir(&home)
+                .status()?;
+            
+            if !build_status.success() {
+                anyhow::bail!("Forge failure: Build failed with exit code {}", build_status.code().unwrap_or(-1));
+            }
+
+            // 2. Deploy
+            println!(">>> [2/3] Recalibrating Matrix (Redeploying binaries)...");
+            let bin_dir = home.join("bin");
+            let target_dir = home.join("target/release");
+            let bins = vec![
+                ("koad", "koad"),
+                ("koad-spine", "kspine"),
+                ("koad-gateway", "kgateway"),
+                ("koad-tui", "kdash"),
+            ];
+
+            for (src, dest) in bins {
+                let src_path = target_dir.join(src);
+                let dest_path = bin_dir.join(dest);
+                
+                if src_path.exists() {
+                    // Stage swap to bypass 'Text file busy'
+                    let old_path = dest_path.with_extension("old");
+                    if dest_path.exists() {
+                        let _ = std::fs::rename(&dest_path, &old_path);
+                    }
+                    if let Err(e) = std::fs::copy(&src_path, &dest_path) {
+                        warn!("Failed to copy binary {}: {}", src, e);
+                        // Try to restore old if failed
+                        if old_path.exists() { let _ = std::fs::rename(&old_path, &dest_path); }
+                    } else {
+                        println!("  [OK] Deployed: {}", dest);
+                        let _ = std::fs::remove_file(old_path);
+                    }
+                }
+            }
+
+            // 3. Restart
+            if restart {
+                println!(">>> [3/3] Rebooting Core Systems...");
+                
+                println!("  - Purging ghosts...");
+                let _ = Command::new("pkill").arg("-9").arg("kspine").status();
+                let _ = Command::new("pkill").arg("-9").arg("kgateway").status();
+                
+                println!("  - Initializing Spine...");
+                let _ = Command::new("nohup")
+                    .arg(bin_dir.join("kspine"))
+                    .arg("--home")
+                    .arg(&home)
+                    .stdout(Stdio::from(std::fs::File::create(home.join("spine.log"))?))
+                    .stderr(Stdio::from(std::fs::File::create(home.join("spine.log"))?))
+                    .spawn()?;
+                
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                
+                println!("  - Bridging Gateway...");
+                let _ = Command::new("nohup")
+                    .arg(bin_dir.join("kgateway"))
+                    .arg("--addr")
+                    .arg("0.0.0.0:3000")
+                    .stdout(Stdio::from(std::fs::File::create(home.join("gateway.log"))?))
+                    .stderr(Stdio::from(std::fs::File::create(home.join("gateway.log"))?))
+                    .spawn()?;
+                
+                println!("\n\x1b[32m[CONDITION GREEN] KoadOS has been refreshed and rebooted.\x1b[0m");
+            } else {
+                println!("\n\x1b[32m[DONE] Core binaries updated. Restart manually or use --restart.\x1b[0m");
+            }
         }
     }
     Ok(())
