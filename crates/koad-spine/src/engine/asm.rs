@@ -9,6 +9,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::info;
 
 pub struct AgentSessionManager {
     storage: Arc<KoadStorageBridge>,
@@ -26,8 +27,24 @@ impl AgentSessionManager {
     pub async fn create_session(&self, session: AgentSession) -> anyhow::Result<()> {
         let mut sessions = self.sessions.lock().await;
         let session_id = session.session_id.clone();
+        let agent_name = session.identity.name.clone();
         let tier = session.identity.tier;
 
+        // 1. Enforce KAI Uniqueness: Prune existing sessions for this identity
+        let mut to_remove = Vec::new();
+        for (old_sid, old_sess) in sessions.iter() {
+            if old_sess.identity.name == agent_name {
+                to_remove.push(old_sid.clone());
+            }
+        }
+
+        for old_sid in to_remove {
+            info!("ASM: Pruning duplicate session for KAI '{}': {}", agent_name, old_sid);
+            sessions.remove(&old_sid);
+            let _: () = self.storage.redis.client.hdel("koad:state", format!("koad:session:{}", old_sid)).await?;
+        }
+
+        // 2. Register New Session
         let payload = serde_json::to_value(&session)?;
         self.storage
             .set_state(

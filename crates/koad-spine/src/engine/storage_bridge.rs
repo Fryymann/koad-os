@@ -12,7 +12,7 @@ use tokio::time::sleep;
 
 pub struct KoadStorageBridge {
     pub redis: Arc<RedisClient>,
-    sqlite: Arc<Mutex<Connection>>,
+    pub sqlite: Arc<Mutex<Connection>>,
     drain_interval: Duration,
 }
 

@@ -12,6 +12,8 @@ use tracing::{error, info};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = KoadConfig::load()?;
+    let koad_home = config.home.to_string_lossy().to_string();
+    std::env::set_var("KOAD_HOME", &koad_home);
 
     // Initialize Structured Logging
     let _guard = init_logging("kspine", Some(config.home.clone()));

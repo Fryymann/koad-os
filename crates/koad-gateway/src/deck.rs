@@ -27,12 +27,15 @@ impl DeckManager {
         if env::var("KOAD_DEV_MODE").unwrap_or_default() == "1" {
             println!("DeckManager: Launching Vite Dashboard (DEV MODE) in background...");
 
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/home/ideans".to_string());
+            let path_env = format!("/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:{}/.cargo/bin:{}/.nvm/versions/node/v22.21.1/bin", home, home);
+
             // Start npm run dev in the deck directory
             let child = Command::new("npm")
                 .arg("run")
                 .arg("dev")
                 .current_dir(deck_path)
-                .env("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ideans/.cargo/bin:/home/ideans/.nvm/versions/node/v22.21.1/bin")
+                .env("PATH", path_env)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()?;

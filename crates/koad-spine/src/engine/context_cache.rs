@@ -1,5 +1,5 @@
 use crate::engine::redis::RedisClient;
-use fred::interfaces::HashesInterface;
+use fred::interfaces::{HashesInterface, KeysInterface};
 use std::sync::Arc;
 use std::path::PathBuf;
 use tracing::{info, warn};

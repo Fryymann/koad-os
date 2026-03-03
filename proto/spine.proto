@@ -84,8 +84,9 @@ message InitializeSessionRequest {
   string agent_role = 2;      // The requested role (admin, pm)
   string project_name = 3;
   EnvironmentType environment = 4;
-  string driver_id = 5;       // The cognitive driver (Gemini, Codex)
+  string driver_id = 5;       // The cognitive driver (Gemini, Codex, Micro)
   int32 model_tier = 6;       // The tier of the driver model (1=Admin, 2=Dev, 3=Guest)
+  string model_name = 7;      // Specific model name (e.g., 'phi3', 'gpt-4o')
 }
 
 message SessionPackage {

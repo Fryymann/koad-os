@@ -44,10 +44,12 @@ impl Engine {
         let kcm = Arc::new(KoadComplianceManager::new(storage.clone()));
         let skill_registry = Arc::new(Mutex::new(SkillRegistry::new()));
 
+        let diagnostics = Arc::new(ShipDiagnostics::new(redis.clone(), storage.clone(), identity.clone(), skill_registry.clone()));
+
         Ok(Self {
             redis: redis.clone(),
             storage,
-            diagnostics: Arc::new(ShipDiagnostics::new(redis.clone(), skill_registry.clone())),
+            diagnostics,
             asm,
             context_cache,
             identity,

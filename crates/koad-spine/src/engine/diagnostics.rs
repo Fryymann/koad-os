@@ -1,13 +1,19 @@
 use crate::engine::redis::RedisClient;
+use crate::engine::storage_bridge::KoadStorageBridge;
+use koad_core::storage::StorageBridge;
 use chrono::Utc;
 use fred::interfaces::{
     ClientLike, HashesInterface, ListInterface, PubsubInterface, SetsInterface, StreamsInterface,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
+use std::path::PathBuf;
+use std::collections::HashMap;
 use sysinfo::System;
 use tokio::time::sleep;
+use tracing::info;
 
 use crate::discovery::SkillRegistry;
 use tokio::sync::Mutex;
@@ -34,16 +40,25 @@ pub struct ServiceEntry {
 
 pub struct ShipDiagnostics {
     redis: Arc<RedisClient>,
+    storage: Arc<KoadStorageBridge>,
+    identity: Arc<crate::engine::identity::KAILeaseManager>,
     sys: Arc<Mutex<System>>,
     skill_registry: Arc<Mutex<SkillRegistry>>,
 }
 
 impl ShipDiagnostics {
-    pub fn new(redis: Arc<RedisClient>, skill_registry: Arc<Mutex<SkillRegistry>>) -> Self {
+    pub fn new(
+        redis: Arc<RedisClient>,
+        storage: Arc<KoadStorageBridge>,
+        identity: Arc<crate::engine::identity::KAILeaseManager>,
+        skill_registry: Arc<Mutex<SkillRegistry>>,
+    ) -> Self {
         let mut sys = System::new_all();
         sys.refresh_all();
         Self {
             redis,
+            storage,
+            identity,
             sys: Arc::new(Mutex::new(sys)),
             skill_registry,
         }
@@ -96,7 +111,7 @@ impl ShipDiagnostics {
     }
 
     async fn report_incident(&self, source: &str, severity: &str, message: &str, recovered: bool) -> anyhow::Result<()> {
-        let incident = serde_json::json!({
+        let incident = json!({
             "incident_id": uuid::Uuid::new_v4().to_string(),
             "source": source,
             "severity": severity,
@@ -105,7 +120,6 @@ impl ShipDiagnostics {
             "status": if recovered { "RECOVERED" } else { "FAILED" }
         });
 
-        // Try to log to event stream
         let _: Result<String, _> = self.redis.client.xadd(
             "koad:events:stream",
             false,
@@ -146,9 +160,7 @@ impl ShipDiagnostics {
 
         let payload = serde_json::to_string(&stats)?;
         let _: () = self.redis.client.publish("koad:telemetry:stats", payload.clone()).await?;
-        let _: () = self.redis.client.lpush("koad:stats:history", payload.clone()).await?;
-        let _: () = self.redis.client.ltrim("koad:stats:history", 0, 99).await?;
-
+        
         let _: Result<String, _> = self.redis.client.xadd(
             "koad:events:stream",
             false,
@@ -167,17 +179,115 @@ impl ShipDiagnostics {
     }
 
     async fn check_services(&self) -> anyhow::Result<()> {
+        let port = 3000;
+        let addr = format!("127.0.0.1:{}", port);
+        
+        let status = match tokio::time::timeout(
+            Duration::from_millis(500),
+            tokio::net::TcpStream::connect(&addr)
+        ).await {
+            Ok(Ok(_)) => "UP".to_string(),
+            _ => {
+                let msg = format!("Web Deck (kgateway) unresponsive on port {}. Initiating recovery...", port);
+                let _ = self.report_incident("Sentinel:Gateway", "WARN", &msg, false).await;
+                let _ = self.restart_gateway().await;
+                "RECOVERING".to_string()
+            }
+        };
+
         let web_deck = ServiceEntry {
             name: "web-deck".to_string(),
             host: "0.0.0.0".to_string(),
-            port: 3000,
+            port,
             protocol: "http".to_string(),
-            status: "UP".to_string(),
+            status,
             last_seen: Utc::now().timestamp(),
         };
 
         let payload = serde_json::to_string(&web_deck)?;
         let _: () = self.redis.client.hset("koad:services", ("web-deck", payload)).await?;
+        
+        // Update Identity-First Manifest
+        let _ = self.update_crew_manifest().await;
+        
+        Ok(())
+    }
+
+    async fn update_crew_manifest(&self) -> anyhow::Result<()> {
+        // 1. Get all registered identities from DB
+        let sqlite = self.storage.sqlite.clone();
+        let identities: Vec<String> = tokio::task::spawn_blocking(move || {
+            let conn = sqlite.blocking_lock();
+            let mut stmt = conn.prepare("SELECT name FROM identities")?;
+            let rows = stmt.query_map([], |row: &rusqlite::Row| row.get::<_, String>(0))?;
+            let mut names = Vec::new();
+            for r in rows { names.push(r?); }
+            Ok::<Vec<String>, anyhow::Error>(names)
+        }).await??;
+
+        // 2. Check leases and build manifest
+        let mut wake_count = 0;
+        let mut manifest = HashMap::new();
+
+        for name in identities {
+            let key = format!("koad:kai:{}:lease", name);
+            let lease_data: Option<String> = self.redis.client.hget("koad:state", &key).await?;
+            
+            if let Some(data) = lease_data {
+                if let Ok(lease) = serde_json::from_str::<crate::engine::identity::KAILease>(&data) {
+                    if lease.expires_at > Utc::now() {
+                        manifest.insert(name, json!({
+                            "status": "WAKE",
+                            "session_id": lease.session_id,
+                            "driver": lease.driver_id,
+                            "last_seen": lease.expires_at.to_rfc3339()
+                        }));
+                        wake_count += 1;
+                        continue;
+                    }
+                }
+            }
+            manifest.insert(name, json!({ "status": "DARK" }));
+        }
+
+        // 3. Publish Manifest to Redis for UI consumption
+        let _: () = self.redis.client.hset("koad:state", ("crew_manifest", json!(manifest).to_string())).await?;
+        let _: () = self.redis.client.hset("koad:state", ("wake_personnel", wake_count.to_string())).await?;
+
+        // 4. ACTIVE PRUNING: Remove any koad:session:* keys that don't match an active lease
+        let all_state: HashMap<String, String> = self.redis.client.hgetall("koad:state").await?;
+        let active_session_ids: Vec<String> = manifest.values()
+            .filter_map(|v| v["session_id"].as_str().map(|s| s.to_string()))
+            .collect();
+
+        for (key, _) in all_state {
+            if key.starts_with("koad:session:") {
+                let sid = key.replace("koad:session:", "");
+                if !active_session_ids.contains(&sid) {
+                    info!("Autonomic Sentinel: Pruning orphaned session key: {}", key);
+                    let _: () = self.redis.client.hdel("koad:state", &key).await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn restart_gateway(&self) -> anyhow::Result<()> {
+        println!("Autonomic Sentinel: Restarting kgateway...");
+        let home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+        let bin_path = PathBuf::from(&home).join("bin/kgateway");
+        let log_path = PathBuf::from(&home).join("gateway.log");
+
+        let _ = std::process::Command::new("nohup")
+            .arg(bin_path)
+            .arg("--addr")
+            .arg("0.0.0.0:3000")
+            .stdout(std::process::Stdio::from(std::fs::File::create(&log_path)?))
+            .stderr(std::process::Stdio::from(std::fs::File::create(&log_path)?))
+            .spawn()?;
+
+        let _ = self.report_incident("Sentinel:Gateway", "INFO", "Autonomic recovery initiated: kgateway process spawned.", true).await;
         Ok(())
     }
 

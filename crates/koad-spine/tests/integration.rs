@@ -5,7 +5,8 @@ use tempfile;
 
 #[test]
 fn test_cli_kernel_handshake() {
-    let manifest_path = "/home/ideans/.koad-os/Cargo.toml";
+    let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+    let manifest_path = format!("{}/Cargo.toml", koad_home);
     let temp_dir = tempfile::tempdir().unwrap();
     let koad_home = temp_dir.path().to_str().unwrap();
 

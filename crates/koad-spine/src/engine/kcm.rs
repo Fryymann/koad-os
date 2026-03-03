@@ -62,7 +62,7 @@ impl KoadComplianceManager {
 
     async fn run_repo_clean(&self) -> anyhow::Result<()> {
         let koad_home =
-            std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+            std::env::var("KOAD_HOME").expect("KOAD_HOME not set");
         let script_path = format!("{}/doodskills/repo-clean.py", koad_home);
 
         // Try to find python in venv first
@@ -89,7 +89,7 @@ impl KoadComplianceManager {
 
     async fn run_audit(&self) -> anyhow::Result<()> {
         let koad_home =
-            std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+            std::env::var("KOAD_HOME").expect("KOAD_HOME not set");
         let koad_bin = format!("{}/bin/koad", koad_home);
 
         println!("KCM: Running System Audit via {}...", koad_bin);
@@ -109,7 +109,7 @@ impl KoadComplianceManager {
 
     async fn sync_board(&self) -> anyhow::Result<()> {
         let koad_home =
-            std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+            std::env::var("KOAD_HOME").expect("KOAD_HOME not set");
         let koad_bin = format!("{}/bin/koad", koad_home);
 
         println!("KCM: Synchronizing Project Board via {}...", koad_bin);

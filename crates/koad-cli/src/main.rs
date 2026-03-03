@@ -385,7 +385,8 @@ async fn main() -> Result<()> {
                 environment: EnvironmentType::Wsl as i32,
                 driver_id: if env::var("GEMINI_CLI").is_ok() { "gemini".to_string() } else if env::var("CODEX_CLI").is_ok() { "codex".to_string() } else { "cli".to_string() },
                 model_tier,
-                }).await.map_err(|e| anyhow::anyhow!("Denied: {}", e.message()))?;
+                model_name: env::var("GEMINI_MODEL").or_else(|_| env::var("CODEX_MODEL")).unwrap_or_else(|_| "unknown".to_string()),
+                }).await.map_err(|e| anyhow::anyhow!("Lease Denied: {}", e.message()))?;
             
             let package = resp.into_inner();
             let session_id = package.session_id;
@@ -694,6 +695,17 @@ async fn main() -> Result<()> {
                 println!("\x1b[32m[PASS]\x1b[0m Neural bus (kspine.sock) active.");
             } else {
                 println!("\x1b[33m[WARN]\x1b[0m Orchestrator link severed. Some features offline.");
+            }
+
+            // 2.1 Web Deck (kgateway Process Check)
+            print!("{:<30}", "Web Deck (Gateway):");
+            let mut sys = System::new_all();
+            sys.refresh_all();
+            let is_gateway_running = sys.processes().values().any(|p| p.name().contains("kgateway"));
+            if is_gateway_running {
+                println!("\x1b[32m[PASS]\x1b[0m Gateway pulse detected.");
+            } else {
+                println!("\x1b[31m[FAIL]\x1b[0m Web Deck is DARK. The Spine is attempting autonomic recovery.");
             }
 
             // 3. Memory Bank (SQLite)

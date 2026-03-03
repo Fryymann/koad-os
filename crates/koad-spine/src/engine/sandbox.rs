@@ -34,9 +34,9 @@ impl Sandbox {
         let cmd_lower = command.to_lowercase();
         // Allowed tools for compliance
         let allowed_tools = [
-            "koad board",
-            "koad doctor",
-            "python3 /home/ideans/.koad-os/doodskills/repo-clean.py",
+            "koad fleet board",
+            "koad status",
+            "doodskills/repo-clean.py",
             "git status",
             "ls ",
         ];

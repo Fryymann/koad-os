@@ -114,7 +114,8 @@ pub async fn run_tui() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // 1. Connect to Kernel
-    let socket_path = "/home/ideans/.koad-os/kspine.sock";
+    let socket_path = std::env::var("SPINE_SOCKET")
+        .unwrap_or_else(|_| format!("{}/kspine.sock", std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string())));
     let channel = Endpoint::try_from("http://[::]:50051")?
         .connect_with_connector(service_fn(move |_: Uri| {
             let path = socket_path.to_string();

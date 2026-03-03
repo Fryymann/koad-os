@@ -116,7 +116,7 @@ mod tests {
             identity: "admin".to_string(),
             command: "ls".to_string(),
             args: vec!["-la".to_string()],
-            working_dir: Some("/home/ideans".to_string()),
+            working_dir: Some(std::env::var("HOME").unwrap_or_else(|_| "/home/ideans".to_string())),
             env_vars: HashMap::new(),
         });
 

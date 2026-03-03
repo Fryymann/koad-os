@@ -357,6 +357,7 @@ impl SpineService for KoadSpine {
         if let Ok(Some(bio)) = self.engine.storage.get_identity_bio(&req.agent_name).await {
             session.metadata.insert("bio".to_string(), bio);
         }
+        session.metadata.insert("model_name".to_string(), req.model_name.clone());
 
         self.engine
             .asm
