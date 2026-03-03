@@ -62,10 +62,12 @@ message ExecuteResponse {
 // --- Agent Hydration Messages ---
 
 message InitializeSessionRequest {
-  string agent_name = 1;
-  string agent_role = 2;
+  string agent_name = 1;      // The KAI (e.g., Koad, Vigil)
+  string agent_role = 2;      // The requested role (admin, pm)
   string project_name = 3;
   EnvironmentType environment = 4;
+  string driver_id = 5;       // The cognitive driver (Gemini, Codex)
+  int32 model_tier = 6;       // The tier of the driver model (1=Admin, 2=Dev, 3=Guest)
 }
 
 message SessionPackage {
@@ -73,6 +75,13 @@ message SessionPackage {
   string identity_json = 2; 
   string project_context_json = 3;
   IntelligencePackage intelligence = 4;
+  LeaseInfo lease = 5;        // Formal Identity Lock
+}
+
+message LeaseInfo {
+  string lock_id = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  bool is_sovereign = 3;
 }
 
 message IntelligencePackage {

@@ -75,7 +75,12 @@ impl SpineService for KoadSpine {
         }))
     }
 
-    async fn heartbeat(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
+    async fn heartbeat(&self, request: Request<Empty>) -> Result<Response<Empty>, Status> {
+        // Extract session_id from metadata
+        if let Some(session_id) = request.metadata().get("x-session-id").and_then(|v| v.to_str().ok()) {
+            let _ = self.engine.identity.heartbeat(session_id).await;
+            let _ = self.engine.asm.heartbeat(session_id).await;
+        }
         Ok(Response::new(Empty {}))
     }
 
@@ -310,6 +315,14 @@ impl SpineService for KoadSpine {
         let req = request.into_inner();
         let session_id = uuid::Uuid::new_v4().to_string();
 
+        // 1. Acquire KAI Lease
+        let lease = self.engine.identity.acquire_lease(
+            &req.agent_name,
+            &session_id,
+            &req.driver_id,
+            req.model_tier
+        ).await.map_err(|e| Status::permission_denied(e.to_string()))?;
+
         let rank = match req.agent_role.to_lowercase().as_str() {
             "admiral" | "admin" => Rank::Admiral,
             "captain" => Rank::Captain,
@@ -318,10 +331,10 @@ impl SpineService for KoadSpine {
         };
 
         let identity = koad_core::identity::Identity {
-            name: req.agent_name,
+            name: req.agent_name.clone(),
             rank,
             permissions: vec!["all".to_string()],
-            tier: 3, // Default to restricted Guest for remote gRPC initializations
+            tier: req.model_tier,
         };
 
         let context = koad_core::session::ProjectContext {
@@ -333,12 +346,17 @@ impl SpineService for KoadSpine {
 
         let environment = koad_core::types::EnvironmentType::Wsl;
 
-        let session = koad_core::session::AgentSession::new(
+        let mut session = koad_core::session::AgentSession::new(
             session_id.clone(),
             identity.clone(),
             environment,
             context.clone(),
         );
+
+        // 2. Persona Hydration: Fetch Bio from Registry
+        if let Ok(Some(bio)) = self.engine.storage.get_identity_bio(&req.agent_name).await {
+            session.metadata.insert("bio".to_string(), bio);
+        }
 
         self.engine
             .asm
@@ -365,6 +383,7 @@ impl SpineService for KoadSpine {
                 recent_events: vec![],
                 metadata: HashMap::new(),
             }),
+            lease: Some(lease),
         }))
     }
 

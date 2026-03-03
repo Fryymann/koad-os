@@ -23,7 +23,7 @@ impl KoadConfig {
 
         let redis_socket = env::var("REDIS_SOCKET")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| home.join("koad-redis.sock"));
+            .unwrap_or_else(|_| home.join("koad.sock"));
 
         let spine_socket = env::var("SPINE_SOCKET")
             .map(PathBuf::from)

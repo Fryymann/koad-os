@@ -55,6 +55,22 @@ impl KoadStorageBridge {
             }
         }
     }
+
+    pub async fn get_identity_bio(&self, name: &str) -> anyhow::Result<Option<String>> {
+        let sqlite = self.sqlite.clone();
+        let name_str = name.to_string();
+        tokio::task::spawn_blocking(move || {
+            let conn = sqlite.blocking_lock();
+            let mut stmt = conn.prepare("SELECT bio FROM identities WHERE id = ?1 OR name = ?1")?;
+            let mut rows = stmt.query(params![name_str])?;
+            if let Some(row) = rows.next()? {
+                Ok::<Option<String>, anyhow::Error>(Some(row.get(0)?))
+            } else {
+                Ok::<Option<String>, anyhow::Error>(None)
+            }
+        })
+        .await?
+    }
 }
 
 const SOVEREIGN_KEYS: &[&str] = &[

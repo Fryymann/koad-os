@@ -1,5 +1,6 @@
 pub mod asm;
 pub mod diagnostics;
+pub mod identity;
 pub mod kcm;
 pub mod kernel;
 pub mod redis;
@@ -12,6 +13,7 @@ mod tests;
 use crate::discovery::SkillRegistry;
 use crate::engine::asm::AgentSessionManager;
 use crate::engine::diagnostics::ShipDiagnostics;
+use crate::engine::identity::KAILeaseManager;
 use crate::engine::kcm::KoadComplianceManager;
 use crate::engine::redis::RedisClient;
 use crate::engine::storage_bridge::KoadStorageBridge;
@@ -24,6 +26,7 @@ pub struct Engine {
     pub storage: Arc<KoadStorageBridge>,
     pub diagnostics: Arc<ShipDiagnostics>,
     pub asm: Arc<AgentSessionManager>,
+    pub identity: Arc<KAILeaseManager>,
     pub kcm: Arc<KoadComplianceManager>,
     pub skill_registry: Arc<Mutex<SkillRegistry>>,
 }
@@ -33,6 +36,7 @@ impl Engine {
         let redis = Arc::new(RedisClient::new(koad_home).await?);
         let storage = Arc::new(KoadStorageBridge::new(redis.clone(), sqlite_path)?);
         let asm = Arc::new(AgentSessionManager::new(storage.clone()));
+        let identity = Arc::new(KAILeaseManager::new(storage.clone()));
         let kcm = Arc::new(KoadComplianceManager::new(storage.clone()));
         let skill_registry = Arc::new(Mutex::new(SkillRegistry::new()));
 
@@ -53,6 +57,7 @@ impl Engine {
             storage,
             diagnostics,
             asm,
+            identity,
             kcm,
             skill_registry,
         })

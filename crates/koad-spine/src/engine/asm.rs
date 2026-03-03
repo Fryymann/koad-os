@@ -147,9 +147,16 @@ impl AgentSessionManager {
             .xrevrange("koad:events:stream", "+", "-", Some(10))
             .await?;
 
+        let bio = session
+            .metadata
+            .get("bio")
+            .cloned()
+            .unwrap_or_else(|| "General Purpose Agent".to_string());
+
         let briefing = format!(
-            "Welcome, Agent {}. Role: {:?}. Current Project: {}. System Status: CONDITION GREEN. You have {} active tasks.",
+            "Welcome, Agent {}. Persona: {}. Role: {:?}. Current Project: {}. System Status: CONDITION GREEN. You have {} active tasks.",
             session.identity.name,
+            bio,
             session.identity.rank,
             session.context.project_name,
             active_tasks.len()

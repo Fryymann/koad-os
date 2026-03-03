@@ -15,6 +15,7 @@ uuid.workspace = true
 rusqlite.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
+tonic.workspace = true
 
 # Crate Specific
 dirs = "5.0"
@@ -31,6 +32,7 @@ ctrlc = "3.4"
 sysinfo = "0.30"
 redis = { version = "0.24", features = ["tokio-comp"] }
 tracing.workspace = true
+regex = "1.10"
 
 # Internal
 koad-core = { path = "../koad-core" }

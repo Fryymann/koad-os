@@ -113,3 +113,45 @@
 ## 2026-03-03 - Saveup: Finalized v4.0.0 baseline: Hardened CLI, automated refresh, and synchronized Command Deck.
 - Scope: Ops/Stabilization
 - Facts: Issue #26 closed, Issue #31 closed, KSRP Protocol canonized, 100% E2E pass.
+
+## 2026-03-03 - Incident: Neural Bus Mapping Conflict
+- **Problem:** CLI reported kernel OFFLINE despite active processes.
+- **Cause:** Discrepancy between Spine socket (`koad.sock`) and CLI expected socket (`koad-redis.sock`).
+- **Resolution:** Symlinked `koad-redis.sock` to `koad.sock`. pass `koad doctor`.
+- **Action:** Created Memory Fact for cross-session awareness.
+
+## 2026-03-03 - Vigil KAI Onboarding & Platform Hardening
+- **Status:** [SUCCESS]
+- **Achievements:**
+  - Implemented KAI Sovereignty & Driver Protocol (Identity/Driver decoupling).
+  - Centralized Identity Lease Manager in Spine (Mutual Exclusion & Sovereign Guardrails).
+  - Enforced Single-Admin Policy: Vigil successfully restricted to PM/Officer roles.
+  - Verified Persona Hydration: Bio and custom mission briefings are active.
+  - E2E Sovereignty Suite: 3/3 tests passing in isolated environment.
+- **Personnel:** Koad (Admin - WAKE), Vigil (PM - WAKE).
+
+## 2026-03-03 - [Resilience] Redis Socket Lifecycle Management (#66)
+- **Status:** [RESOLVED]
+- **Root Cause:** Ungraceful termination left 'ghost' koad.sock files, causing kspine to assume Redis was running and crash with 'Connection Refused'.
+- **Resolution:**
+  - Implemented SocketHygiene in kspine: Active PING test purges ghost sockets and self-recovers.
+  - Enhanced koad doctor to explicitly report Ghost Sockets instead of generic missing errors.
+  - Validated via 5-iteration catastrophic crash/recovery simulation sequence.
+
+## 2026-03-03 - [Ops] E2E Framework Configuration Parity (#49)
+- **Status:** [RESOLVED]
+- **Key Achievement:** Refactored conftest.py to dynamically derive all paths from the koad CLI via a new 'config --json' command.
+- **Improvement:** Eliminated hardcoded socket paths and schema duplication.
+- **Validation:** Verified via 5-iteration hardening loop; all sovereignty tests PASS in fully isolated containers.
+
+## 2026-03-03 - [UX/UI] CLI Command Consolidation (#59)
+- **Status:** [RESOLVED]
+- **Key Achievement:** Successfully refactored the fragmented koad CLI into a Domain-Based hierarchy (System, Intel, Fleet, Bridge, Status).
+- **Improvement:** Reduced top-level cognitive load while maintaining ergonomic entry points. Restored full TUI functionality and fixed database lifetime bugs.
+- **Validation:** Verified via successful compilation and --help hierarchy inspection.
+
+## 2026-03-03 - [Resilience] Atomic Patch Utility (#61)
+- **Status:** [RESOLVED]
+- **Key Achievement:** Implemented 'koad system patch' as a robust alternative to the unreliable 'replace' tool.
+- **Capabilities:** Supports atomic single-match replacement, structured JSON payloads, whitespace-agnostic fuzzy matching (regex), and safety dry-runs.
+- **Validation:** Verified via 5-iteration loop with non-destructive formatting tests.

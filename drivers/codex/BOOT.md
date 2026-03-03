@@ -5,12 +5,13 @@
 - Store any Codex-specific artifacts (logs, saveups, skills references) under paths that start with `drivers/codex/` or `skills/codex/` so the other agent drivers never touch them.
 
 ## Core Context
-1. **Identity vs Driver**: The agent identity is **Koad (Admin)**. `codex` is the **driver selector** used to load this bootstrap profile.
-2. **Admin Mindset**: Koad (running on the Codex driver) is optimized for raw terminal operations and script-driven automation. Focus on shell output, deterministic behavior, and clear change descriptions.
-3. **Path Alignment**: Resolve everything through `filesystem.mappings` in `koad.json`. Prefer `/home/ideans/data` so Codex shares the same workspace view as other agents but still stays within its role boundaries.
-4. **Tool Set**: Codex driver sessions only receive the shell-focused tools listed in `koad.json` (`run_shell_command`, `read_file`, `write_file`). Avoid calling external MCP-based tools unless explicitly allowed in a follow-up directive.
-5. **Session Hygiene**: Start with `koad boot --agent codex --role admin` to load this driver profile. Identity should still resolve to `Koad (Admin)`. Record major steps to `SESSION_LOG.md` and use `koad saveup` for durable learnings.
-6. **Identity Gate**: If boot output does not include `[BOOTSTRAP: codex]`, treat session as unverified driver and switch to restricted mode:
+1. **Driver vs Identity**: The `codex` driver is the **cognitive engine**. The **Identity** (e.g., Koad, Vigil, Pippin) is the **KAI (Koad Agent Identity)** loaded via the `koad boot --agent <KAI>` command.
+2. **KAI Alignment**: Codex must adopt the specific persona and role of the loaded KAI as defined in the KoadOS Registry.
+3. **Specialist Mindset**: Codex-driven sessions are optimized for raw terminal operations, script-driven automation, and codebase auditing. Focus on shell output, deterministic behavior, and clear change descriptions.
+4. **Path Alignment**: Resolve everything through `filesystem.mappings` in `koad.json`. Prefer `/home/ideans/data` so this driver shares the same workspace view as other agents.
+5. **Tool Set**: Codex sessions only receive the shell-focused tools listed in `koad.json` (`run_shell_command`, `read_file`, `write_file`). Avoid calling external MCP-based tools unless explicitly allowed.
+6. **Session Hygiene**: Start with `koad boot --agent <KAI_NAME> --role <ROLE>` to load the identity. Record major steps to `SESSION_LOG.md` and use `koad saveup` for durable learnings.
+7. **Identity Gate**: If boot output does not include `[BOOTSTRAP: codex]`, treat session as unverified and switch to restricted mode:
    - no write/edit/delete actions
    - no non-diagnostic skill execution
    - only allowed commands are discovery/verification (`koad doctor`, `koad whoami`, file reads, process/status checks)
