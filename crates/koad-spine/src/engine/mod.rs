@@ -1,4 +1,5 @@
 pub mod asm;
+pub mod context_cache;
 pub mod diagnostics;
 pub mod identity;
 pub mod kcm;
@@ -12,6 +13,7 @@ mod tests;
 
 use crate::discovery::SkillRegistry;
 use crate::engine::asm::AgentSessionManager;
+use crate::engine::context_cache::KoadContextCache;
 use crate::engine::diagnostics::ShipDiagnostics;
 use crate::engine::identity::KAILeaseManager;
 use crate::engine::kcm::KoadComplianceManager;
@@ -26,6 +28,7 @@ pub struct Engine {
     pub storage: Arc<KoadStorageBridge>,
     pub diagnostics: Arc<ShipDiagnostics>,
     pub asm: Arc<AgentSessionManager>,
+    pub context_cache: Arc<KoadContextCache>,
     pub identity: Arc<KAILeaseManager>,
     pub kcm: Arc<KoadComplianceManager>,
     pub skill_registry: Arc<Mutex<SkillRegistry>>,
@@ -36,27 +39,17 @@ impl Engine {
         let redis = Arc::new(RedisClient::new(koad_home).await?);
         let storage = Arc::new(KoadStorageBridge::new(redis.clone(), sqlite_path)?);
         let asm = Arc::new(AgentSessionManager::new(storage.clone()));
+        let context_cache = Arc::new(KoadContextCache::new(redis.clone()));
         let identity = Arc::new(KAILeaseManager::new(storage.clone()));
         let kcm = Arc::new(KoadComplianceManager::new(storage.clone()));
         let skill_registry = Arc::new(Mutex::new(SkillRegistry::new()));
 
-        // Initial scan for skills
-        {
-            let mut registry = skill_registry.lock().await;
-            let _ = registry.scan_directory(&format!("{}/skills", koad_home));
-            let _ = registry.scan_directory(&format!("{}/doodskills", koad_home));
-        }
-
-        let diagnostics = Arc::new(ShipDiagnostics::new(redis.clone(), skill_registry.clone()));
-
-        // Hydrate state from disk on boot
-        storage.hydrate_all().await?;
-
         Ok(Self {
-            redis,
+            redis: redis.clone(),
             storage,
-            diagnostics,
+            diagnostics: Arc::new(ShipDiagnostics::new(redis.clone(), skill_registry.clone())),
             asm,
+            context_cache,
             identity,
             kcm,
             skill_registry,

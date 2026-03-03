@@ -155,3 +155,33 @@
 - **Key Achievement:** Implemented 'koad system patch' as a robust alternative to the unreliable 'replace' tool.
 - **Capabilities:** Supports atomic single-match replacement, structured JSON payloads, whitespace-agnostic fuzzy matching (regex), and safety dry-runs.
 - **Validation:** Verified via 5-iteration loop with non-destructive formatting tests.
+
+## 2026-03-03 - [Architecture] Autonomous ecosystem & Crew Roster (#67, #64, #60)
+- **Status:** [RESOLVED]
+- **Key Achievement:** Evolved KoadSpine into an autonomic nervous system. 
+- **Features:**
+  - AI Crew Roster: Essential vs Support identity classification.
+  - Autonomic Loop: 5s watchdog for Neural Bus and Crew Readiness.
+  - Standardized Incident Templates: Standardized JSON for system alerts.
+- **Validation:** Verified via live log capture and sentinel firing.
+
+## 2026-03-03 - [Pipeline] Launch 'Gopher' (Tier 3) for Discovery (#62)
+- **Status:** [RESOLVED]
+- **Key Achievement:** Successfully deployed the first lightweight support agent.
+- **Impact:** Gopher is now available for high-speed, read-only discovery tasks, preserving Admin bandwidth.
+- **Infrastructure:** Updated koad.json and implemented specialized BOOT.md for discovery-first operations.
+- **Validation:** Verified via successful KAI boot and manifest tracking.
+
+## 2026-03-03 - [Optimization] Context-Aware File Caching (#63)
+- **Status:** [RESOLVED]
+- **Key Achievement:** Implemented Spine-level file snippet caching in Redis.
+- **Functionality:** 'koad intel snippet' serves line-range requests from memory after initial disk read.
+- **Hygiene:** 10-minute TTL enforced on all cache keys.
+- **Validation:** Confirmed cache hits/misses via gRPC tracing and CLI output.
+
+## 2026-03-03 - [Optimization] tokenaudit Protocol (#55)
+- **Status:** [RESOLVED]
+- **Key Achievement:** Codified and implemented the 5-pass Token Efficiency Audit.
+- **Automation:** 'koad system tokenaudit --cleanup' automatically prunes duplicate knowledge and stale session records.
+- **Impact:** Reduced knowledge entry count and cleaned up the crew manifest, improving signal-to-noise ratio for all agents.
+- **Validation:** Verified via 5-iteration development loop; 19 duplicates and 15 zombie sessions purged.

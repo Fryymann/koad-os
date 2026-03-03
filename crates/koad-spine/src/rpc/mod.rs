@@ -396,4 +396,28 @@ impl SpineService for KoadSpine {
             .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(Empty {}))
     }
+
+    async fn get_file_snippet(
+        &self,
+        request: Request<GetFileSnippetRequest>,
+    ) -> Result<Response<SnippetResponse>, Status> {
+        let req = request.into_inner();
+        let (content, total, source) = self
+            .engine
+            .context_cache
+            .get_snippet(
+                &req.path,
+                req.start_line as usize,
+                req.end_line as usize,
+                req.bypass_cache,
+            )
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(SnippetResponse {
+            content,
+            total_lines: total as i32,
+            source,
+        }))
+    }
 }
