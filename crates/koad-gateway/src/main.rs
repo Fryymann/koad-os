@@ -16,6 +16,8 @@ use chrono::Utc;
 use koad_core::intent::{Intent, ExecuteIntent};
 use koad_core::session::AgentSession;
 use koad_board::GitHubClient;
+use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
+use koad_proto::spine::v1::*;
 use clap::Parser;
 use std::path::PathBuf;
 use rusqlite::Connection;
@@ -37,6 +39,7 @@ struct GatewayState {
     pub subscriber: RedisClient,
     pub gh_client: Option<GitHubClient>,
     pub db_path: PathBuf,
+    pub spine_addr: String,
 }
 
 #[tokio::main]
@@ -83,6 +86,7 @@ async fn main() -> anyhow::Result<()> {
         subscriber,
         gh_client,
         db_path,
+        spine_addr: "http://127.0.0.1:50051".to_string(), // Default spine gRPC address
     });
 
     // 1. Initialize and Start Deck Manager (Vite Dev Server if needed)
@@ -200,31 +204,34 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
 
     let _ = sender.send(Message::Text(sync_msg.to_string())).await;
 
-    // Relay Task: Redis PubSub (Real-time Stats) -> WebSocket
-    let mut message_stream = subscriber.message_rx();
-    let _ = subscriber.subscribe(vec!["koad:telemetry", "koad:telemetry:stats", "koad:sessions"]).await;
-
+    // Relay Task: Spine gRPC (Real-time Events) -> WebSocket
+    let spine_addr = state.spine_addr.clone();
     let relay_handle = tokio::spawn(async move {
-        while let Ok(message) = message_stream.recv().await {
-            let payload_str = message.value.as_string().unwrap_or_default();
-            
-            // Normalize messages for the Frontend
-            if let Ok(mut json) = serde_json::from_str::<Value>(&payload_str) {
-                let msg_type = json["type"].as_str().unwrap_or_default().to_lowercase();
-                if msg_type == "session_update" {
-                    let mut normalized = json!({
-                        "type": "SESSION_UPDATE",
-                        "payload": json["data"].take()
-                    });
-                    if sender.send(Message::Text(normalized.to_string())).await.is_err() {
+        if let Ok(mut client) = SpineServiceClient::connect(spine_addr).await {
+            if let Ok(response) = client.stream_system_events(StreamSystemEventsRequest { filter_sources: vec![] }).await {
+                let mut stream = response.into_inner();
+                while let Ok(Some(event)) = stream.message().await {
+                    let payload_str = event.message;
+                    
+                    // Normalize messages for the Frontend
+                    if let Ok(mut json) = serde_json::from_str::<Value>(&payload_str) {
+                        let msg_type = json["type"].as_str().unwrap_or_default().to_lowercase();
+                        if msg_type == "session_update" {
+                            let normalized = json!({
+                                "type": "SESSION_UPDATE",
+                                "payload": json["data"].take()
+                            });
+                            if sender.send(Message::Text(normalized.to_string())).await.is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+                    }
+
+                    if sender.send(Message::Text(payload_str)).await.is_err() {
                         break;
                     }
-                    continue;
                 }
-            }
-
-            if sender.send(Message::Text(payload_str)).await.is_err() {
-                break;
             }
         }
     });

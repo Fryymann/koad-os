@@ -13,8 +13,8 @@ use crossterm::{
 use std::io;
 use std::time::{Duration, Instant};
 use anyhow::Result;
-use koad_proto::kernel::kernel_service_client::KernelServiceClient;
-use koad_proto::kernel::Empty;
+use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
+use koad_proto::spine::v1::{Empty, StreamSystemEventsRequest};
 use tonic::transport::{Endpoint, Uri};
 use tower::service_fn;
 use tokio::net::UnixStream;
@@ -110,8 +110,10 @@ pub async fn run_tui() -> Result<()> {
         }))
         .await?;
 
-    let mut client = KernelServiceClient::new(channel);
-    let mut telemetry_stream = client.stream_telemetry(Empty {}).await?.into_inner();
+    let mut client = SpineServiceClient::new(channel);
+    let mut telemetry_stream = client.stream_system_events(StreamSystemEventsRequest {
+        filter_sources: vec![],
+    }).await?.into_inner();
 
     let mut app = KoadApp::new();
     let tick_rate = Duration::from_millis(100);

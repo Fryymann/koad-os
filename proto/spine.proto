@@ -6,23 +6,56 @@ import "google/protobuf/timestamp.proto";
 
 // The Spine service is the central nervous system for KoadOS.
 service SpineService {
-  // Task Management
+  // --- Core Execution ---
+  
+  // Synchronous execution of a command (replaces kernel.Execute)
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+  
+  // Heartbeat for session health monitoring (replaces kernel.Heartbeat)
+  rpc Heartbeat(Empty) returns (Empty);
+
+  // --- Task Management ---
+  
+  // Asynchronous task dispatch
   rpc DispatchTask(DispatchTaskRequest) returns (DispatchTaskResponse);
   rpc StreamTaskStatus(StreamTaskStatusRequest) returns (stream TaskStatusUpdate);
   
-  // System Telemetry & Monitoring
+  // --- System Telemetry & Monitoring ---
+  
+  // Unified event and telemetry stream
   rpc StreamSystemEvents(StreamSystemEventsRequest) returns (stream SystemEvent);
   rpc GetSystemState(GetSystemStateRequest) returns (GetSystemStateResponse);
 
-  // Service Discovery: Finding where the Web Deck, Redis, or gRPC is hosted.
+  // --- Service Discovery ---
+  
   rpc GetService(GetServiceRequest) returns (GetServiceResponse);
   rpc RegisterService(RegisterServiceRequest) returns (RegisterServiceResponse);
 
-  // Identity & Discovery
+  // --- Identity & Lifecycle ---
+  
   rpc RegisterComponent(RegisterComponentRequest) returns (RegisterComponentResponse);
-
-  // Agent Session Lifecycle & Hydration (v4.0)
   rpc InitializeSession(InitializeSessionRequest) returns (SessionPackage);
+}
+
+// --- Common Messages ---
+
+message Empty {}
+
+// --- Core Execution Messages ---
+
+message ExecuteRequest {
+  string command_id = 1;
+  string name = 2;
+  map<string, string> args = 3;
+  string identity = 4;
+  string working_dir = 5;
+}
+
+message ExecuteResponse {
+  string command_id = 1;
+  bool success = 2;
+  string output = 3;
+  string error = 4;
 }
 
 // --- Agent Hydration Messages ---
@@ -36,13 +69,13 @@ message InitializeSessionRequest {
 
 message SessionPackage {
   string session_id = 1;
-  string identity_json = 2; // Identity details
-  string project_context_json = 3; // ProjectContext details
+  string identity_json = 2; 
+  string project_context_json = 3;
   IntelligencePackage intelligence = 4;
 }
 
 message IntelligencePackage {
-  string mission_briefing = 1; // Tailored task summary for the agent
+  string mission_briefing = 1; 
   repeated TaskStatusUpdate active_tasks = 2;
   repeated SystemEvent recent_events = 3;
   map<string, string> metadata = 4;
@@ -51,7 +84,7 @@ message IntelligencePackage {
 // --- Service Discovery Messages ---
 
 message GetServiceRequest {
-  string name = 1; // e.g., "web-deck", "redis", "grpc"
+  string name = 1; 
 }
 
 message GetServiceResponse {
@@ -70,9 +103,9 @@ message ServiceEntry {
   string name = 1;
   string host = 2;
   uint32 port = 3;
-  string protocol = 4; // "http", "ws", "grpc", "redis"
+  string protocol = 4; 
   EnvironmentType environment = 5;
-  string status = 6; // "UP", "DOWN", "STARTING"
+  string status = 6; 
 }
 
 // --- Task Messages ---
@@ -81,8 +114,9 @@ message DispatchTaskRequest {
   string command = 1;
   repeated string args = 2;
   string working_dir = 3;
-  EnvironmentType environment = 4; // WSL or WINDOWS
+  EnvironmentType environment = 4; 
   map<string, string> env_vars = 5;
+  string identity = 6;
 }
 
 message DispatchTaskResponse {
@@ -91,7 +125,7 @@ message DispatchTaskResponse {
 }
 
 message StreamTaskStatusRequest {
-  string task_id = 1; // Optional: if empty, streams all tasks
+  string task_id = 1; 
 }
 
 message TaskStatusUpdate {
@@ -107,7 +141,7 @@ message TaskStatusUpdate {
 
 message SystemEvent {
   string event_id = 1;
-  string source = 2; // e.g., "engine", "web", "windows-cli"
+  string source = 2; 
   EventSeverity severity = 3;
   string message = 4;
   string metadata_json = 5;

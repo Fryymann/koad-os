@@ -1,1 +1,0 @@
-use rusqlite::Connection; fn main() { let conn = Connection::open("../../koad.db").unwrap(); let _ = conn.execute("ALTER TABLE knowledge ADD COLUMN active INTEGER DEFAULT 1;", []); }

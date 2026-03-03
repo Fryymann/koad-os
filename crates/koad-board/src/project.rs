@@ -145,34 +145,45 @@ impl GitHubClient {
     }
 
     pub async fn list_project_items(&self, project_number: i32) -> Result<Vec<ProjectItem>> {
-        let query = r#"
-            query($owner: String!, $number: Int!) {
-              user(login: $owner) {
-                projectV2(number: $number) {
-                  items(first: 100) {
-                    nodes {
-                      id
-                      content {
-                        ... on Issue {
-                          title
-                          number
+        let mut all_items = Vec::new();
+        let mut has_next_page = true;
+        let mut cursor: Option<String> = None;
+
+        while has_next_page {
+            let query = r#"
+                query($owner: String!, $number: Int!, $after: String) {
+                  user(login: $owner) {
+                    projectV2(number: $number) {
+                      items(first: 100, after: $after) {
+                        pageInfo {
+                          hasNextPage
+                          endCursor
                         }
-                      }
-                      fieldValues(first: 20) {
                         nodes {
-                          ... on ProjectV2ItemFieldSingleSelectValue {
-                            name
-                            field {
-                              ... on ProjectV2FieldCommon {
-                                name
-                              }
+                          id
+                          content {
+                            ... on Issue {
+                              title
+                              number
                             }
                           }
-                          ... on ProjectV2ItemFieldDateValue {
-                            date
-                            field {
-                              ... on ProjectV2FieldCommon {
+                          fieldValues(first: 20) {
+                            nodes {
+                              ... on ProjectV2ItemFieldSingleSelectValue {
                                 name
+                                field {
+                                  ... on ProjectV2FieldCommon {
+                                    name
+                                  }
+                                }
+                              }
+                              ... on ProjectV2ItemFieldDateValue {
+                                date
+                                field {
+                                  ... on ProjectV2FieldCommon {
+                                    name
+                                  }
+                                }
                               }
                             }
                           }
@@ -181,63 +192,67 @@ impl GitHubClient {
                     }
                   }
                 }
-              }
-            }
-        "#;
+            "#;
 
-        let variables = serde_json::json!({
-            "owner": self.owner,
-            "number": project_number,
-        });
+            let variables = serde_json::json!({
+                "owner": self.owner,
+                "number": project_number,
+                "after": cursor
+            });
 
-        let data: serde_json::Value = self.graphql(query, variables).await?;
-        
-        let mut items = Vec::new();
-        if let Some(nodes) = data.get("user").and_then(|u| u.get("projectV2")).and_then(|p| p.get("items")).and_then(|i| i.get("nodes")) {
-            for node in nodes.as_array().unwrap_or(&vec![]) {
-                let id = node["id"].as_str().unwrap_or_default().to_string();
-                let title = node["content"]["title"].as_str().unwrap_or_default().to_string();
-                let number = node["content"]["number"].as_i64().map(|n| n as i32);
-                
-                let mut status = "Unknown".to_string();
-                let mut start_date = None;
-                let mut target_date = None;
-                let mut target_version = None;
+            let data: serde_json::Value = self.graphql(query, variables).await?;
+            let items_data = &data["user"]["projectV2"]["items"];
+            
+            if let Some(nodes) = items_data["nodes"].as_array() {
+                for node in nodes {
+                    let id = node["id"].as_str().unwrap_or_default().to_string();
+                    let title = node["content"]["title"].as_str().unwrap_or_default().to_string();
+                    let number = node["content"]["number"].as_i64().map(|n| n as i32);
+                    
+                    let mut status = "Unknown".to_string();
+                    let mut start_date = None;
+                    let mut target_date = None;
+                    let mut target_version = None;
 
-                if let Some(values) = node["fieldValues"]["nodes"].as_array() {
-                    for val in values {
-                        let field_name = val["field"]["name"].as_str().unwrap_or_default();
-                        match field_name {
-                            "Status" => {
-                                status = val["name"].as_str().unwrap_or("Unknown").to_string();
+                    if let Some(values) = node["fieldValues"]["nodes"].as_array() {
+                        for val in values {
+                            let field_name = val["field"]["name"].as_str().unwrap_or_default();
+                            match field_name {
+                                "Status" => {
+                                    status = val["name"].as_str().unwrap_or("Unknown").to_string();
+                                }
+                                "Start Date" => {
+                                    start_date = val["date"].as_str().map(|s| s.to_string());
+                                }
+                                "Target Date" => {
+                                    target_date = val["date"].as_str().map(|s| s.to_string());
+                                }
+                                "Target Version" => {
+                                    target_version = val["name"].as_str().map(|s| s.to_string());
+                                }
+                                _ => {}
                             }
-                            "Start Date" => {
-                                start_date = val["date"].as_str().map(|s| s.to_string());
-                            }
-                            "Target Date" => {
-                                target_date = val["date"].as_str().map(|s| s.to_string());
-                            }
-                            "Target Version" => {
-                                target_version = val["name"].as_str().map(|s| s.to_string());
-                            }
-                            _ => {}
                         }
                     }
-                }
 
-                items.push(ProjectItem {
-                    id,
-                    title,
-                    status,
-                    start_date,
-                    target_date,
-                    target_version,
-                    number,
-                });
+                    all_items.push(ProjectItem {
+                        id,
+                        title,
+                        status,
+                        start_date,
+                        target_date,
+                        target_version,
+                        number,
+                    });
+                }
             }
+
+            has_next_page = items_data["pageInfo"]["hasNextPage"].as_bool().unwrap_or(false);
+            cursor = items_data["pageInfo"]["endCursor"].as_str().map(|s| s.to_string());
         }
 
-        Ok(items)
+        println!("Debug: Found {} total items in project board.", all_items.len());
+        Ok(all_items)
     }
 
     pub async fn add_item_to_project(&self, project_id: &str, content_id: &str) -> Result<String> {

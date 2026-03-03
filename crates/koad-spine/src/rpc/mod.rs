@@ -6,8 +6,6 @@ use std::collections::HashMap;
 use crate::engine::Engine;
 use koad_proto::spine::v1::spine_service_server::SpineService;
 use koad_proto::spine::v1::*;
-use koad_proto::kernel::kernel_service_server::KernelService;
-use koad_proto::kernel::{CommandRequest, CommandResponse, TelemetryUpdate, Empty as KernelEmpty};
 use fred::interfaces::{PubsubInterface, HashesInterface, EventInterface};
 use serde_json::json;
 use chrono::Utc;
@@ -37,67 +35,7 @@ impl KoadSpine {
         let _: () = self.engine.redis.client.hset("koad:services", ("grpc", service_entry.to_string())).await?;
         Ok(())
     }
-}
 
-#[tonic::async_trait]
-impl KernelService for KoadSpine {
-    async fn execute(
-        &self,
-        request: Request<CommandRequest>,
-    ) -> Result<Response<CommandResponse>, Status> {
-        let req = request.into_inner();
-        println!("Kernel: Executing command [{}] from {}", req.name, req.identity);
-
-        Ok(Response::new(CommandResponse {
-            command_id: req.command_id,
-            success: true,
-            output: format!("Command '{}' executed successfully by v3 Kernel.", req.name),
-            error: "".to_string(),
-        }))
-    }
-
-    type StreamTelemetryStream = Pin<Box<dyn Stream<Item = Result<TelemetryUpdate, Status>> + Send>>;
-
-    async fn stream_telemetry(
-        &self,
-        _request: Request<KernelEmpty>,
-    ) -> Result<Response<Self::StreamTelemetryStream>, Status> {
-        println!("Kernel: TUI connected to telemetry stream.");
-        
-        let (tx, rx) = tokio::sync::mpsc::channel(128);
-        let redis = self._engine().redis.clone(); // use private helper if needed or fix access
-
-        tokio::spawn(async move {
-            let mut message_stream = redis.subscriber.message_rx();
-            
-            if let Err(e) = redis.subscriber.subscribe(vec!["koad:telemetry", "koad:telemetry:stats"]).await {
-                eprintln!("Kernel Telemetry Error: Failed to subscribe to Redis: {}", e);
-                return;
-            }
-
-            while let Ok(message) = message_stream.recv().await {
-                let payload = message.value.as_string().unwrap_or_default();
-                if tx.send(Ok(TelemetryUpdate {
-                    source: "redis".to_string(),
-                    message: payload,
-                    timestamp: chrono::Utc::now().timestamp(),
-                    level: 0, // INFO
-                })).await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        let output_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-        Ok(Response::new(Box::pin(output_stream) as Self::StreamTelemetryStream))
-    }
-
-    async fn heartbeat(&self, _request: Request<KernelEmpty>) -> Result<Response<KernelEmpty>, Status> {
-        Ok(Response::new(KernelEmpty {}))
-    }
-}
-
-impl KoadSpine {
     fn _engine(&self) -> &Engine {
         &self.engine
     }
@@ -105,13 +43,38 @@ impl KoadSpine {
 
 #[tonic::async_trait]
 impl SpineService for KoadSpine {
+    // --- Core Execution ---
+
+    async fn execute(
+        &self,
+        request: Request<ExecuteRequest>,
+    ) -> Result<Response<ExecuteResponse>, Status> {
+        let req = request.into_inner();
+        println!("Kernel: Executing command [{}] from {}", req.name, req.identity);
+
+        // For now, synchronous execution just returns a success message.
+        // Real implementation would route through DirectiveRouter or Engine.
+        Ok(Response::new(ExecuteResponse {
+            command_id: req.command_id,
+            success: true,
+            output: format!("Command '{}' executed successfully by unified v4 Spine.", req.name),
+            error: "".to_string(),
+        }))
+    }
+
+    async fn heartbeat(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
+        Ok(Response::new(Empty {}))
+    }
+
+    // --- Task Management ---
+
     async fn dispatch_task(
         &self,
         request: Request<DispatchTaskRequest>,
     ) -> Result<Response<DispatchTaskResponse>, Status> {
         let req = request.into_inner();
         let cmd_str = req.command;
-        let identity = "admin";
+        let identity = if req.identity.is_empty() { "admin" } else { &req.identity };
 
         let intent = Intent::Execute(ExecuteIntent {
             identity: identity.to_string(),
@@ -152,24 +115,68 @@ impl SpineService for KoadSpine {
         Ok(Response::new(Box::pin(output) as Self::StreamTaskStatusStream))
     }
 
+    // --- System Telemetry & Monitoring ---
+
     type StreamSystemEventsStream = Pin<Box<dyn Stream<Item = Result<SystemEvent, Status>> + Send>>;
 
     async fn stream_system_events(
         &self,
         _request: Request<StreamSystemEventsRequest>,
     ) -> Result<Response<Self::StreamSystemEventsStream>, Status> {
-        let output = try_stream! {
-            yield SystemEvent {
-                event_id: "0".to_string(),
-                source: "spine:grpc".to_string(),
-                severity: EventSeverity::Info as i32,
-                message: "Event stream active".to_string(),
-                metadata_json: "{}".to_string(),
-                timestamp: None,
-            };
-        };
+        println!("Kernel: Client connected to unified system event stream.");
+        
+        let (tx, rx) = tokio::sync::mpsc::channel(128);
+        let redis = self.engine.redis.clone();
 
-        Ok(Response::new(Box::pin(output) as Self::StreamSystemEventsStream))
+        // Initial welcome event
+        let welcome = SystemEvent {
+            event_id: "0".to_string(),
+            source: "spine:grpc".to_string(),
+            severity: EventSeverity::Info as i32,
+            message: json!({ "type": "INFO", "message": "Event stream active" }).to_string(),
+            metadata_json: "{}".to_string(),
+            timestamp: Some(prost_types::Timestamp {
+                seconds: Utc::now().timestamp(),
+                nanos: Utc::now().timestamp_subsec_nanos() as i32,
+            }),
+        };
+        let _ = tx.send(Ok(welcome)).await;
+
+        tokio::spawn(async move {
+            let mut message_stream = redis.subscriber.message_rx();
+            
+            // Subscribe to all telemetry and session channels
+            if let Err(e) = redis.subscriber.subscribe(vec![
+                "koad:telemetry", 
+                "koad:telemetry:stats", 
+                "koad:sessions"
+            ]).await {
+                eprintln!("Spine Event Stream Error: Failed to subscribe to Redis: {}", e);
+                return;
+            }
+
+            while let Ok(message) = message_stream.recv().await {
+                let payload = message.value.as_string().unwrap_or_default();
+                let event = SystemEvent {
+                    event_id: uuid::Uuid::new_v4().to_string(),
+                    source: format!("redis:{}", message.channel),
+                    severity: EventSeverity::Info as i32,
+                    message: payload,
+                    metadata_json: "{}".to_string(),
+                    timestamp: Some(prost_types::Timestamp {
+                        seconds: Utc::now().timestamp(),
+                        nanos: Utc::now().timestamp_subsec_nanos() as i32,
+                    }),
+                };
+
+                if tx.send(Ok(event)).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        let output_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+        Ok(Response::new(Box::pin(output_stream) as Self::StreamSystemEventsStream))
     }
 
     async fn get_system_state(
@@ -179,9 +186,11 @@ impl SpineService for KoadSpine {
         Ok(Response::new(GetSystemStateResponse {
             identity_json: "{}".to_string(),
             active_tasks: 0,
-            version: "3.2.0".to_string(),
+            version: "4.0.0".to_string(),
         }))
     }
+
+    // --- Service Discovery ---
 
     async fn get_service(
         &self,
@@ -226,6 +235,8 @@ impl SpineService for KoadSpine {
         
         Ok(Response::new(RegisterServiceResponse { success: true }))
     }
+
+    // --- Identity & Lifecycle ---
 
     async fn register_component(
         &self,

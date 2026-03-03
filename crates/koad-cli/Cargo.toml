@@ -1,18 +1,41 @@
 [package]
-name = "koad-cli"
+name = "koad"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-koad-core = { path = "../koad-core" }
-koad-proto = { path = "../koad-proto" }
-tokio.workspace = true
-tonic.workspace = true
-prost.workspace = true
-clap.workspace = true
+# Workspace Unified
 serde.workspace = true
 serde_json.workspace = true
+clap.workspace = true
 anyhow.workspace = true
-tower = { version = "0.5", features = ["util"] }
-hyper-util = { workspace = true, features = ["tokio"] }
-uuid = { workspace = true, features = ["v4"] }
+tokio.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+rusqlite.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+
+# Crate Specific
+dirs = "5.0"
+tempfile = "3.8"
+notify = "6.1"
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+r2d2 = "0.8.10"
+r2d2_sqlite = "0.25.0"
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["fs", "cors"] }
+tungstenite = "0.24.0"
+url = "2.5"
+ctrlc = "3.4"
+sysinfo = "0.30"
+redis = { version = "0.24", features = ["tokio-comp"] }
+
+# Internal
+koad-core = { path = "../koad-core" }
+koad-proto = { path = "../koad-proto" }
+koad-board = { path = "../koad-board" }
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.0"

@@ -7,8 +7,7 @@ members = [
     "crates/koad-tui",
     "crates/koad-gateway",
     "crates/koad-board",
-    "crates/koad-skill-airtable",
-    "core/rust"
+    "crates/koad-skill-airtable"
 ]
 resolver = "2"
 

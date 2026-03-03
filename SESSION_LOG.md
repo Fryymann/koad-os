@@ -46,3 +46,16 @@
 ## 2026-03-02 - Saveup: Conducted codebase-wide Deep Audit and restored full-stack service integrity.
 - Scope: Ops/Audit
 - Facts: Issue #40 created, 37 E2E tests passing, Spine path fixed
+
+## 2026-03-02 - Session Close: v4.0 Architectural Unification (Issue #38, #39)
+- **Status**: CONDITION GREEN (Refactor Complete)
+- **CLI**: Migrated active CLI source to `crates/koad-cli`, renamed package to `koad`, and purged `core/rust`.
+- **gRPC**: Unified fragmented protobuf definitions into a single `spine.proto` under `koad.spine.v1`.
+- **Refactor**: Updated `koad-spine`, `koad-gateway`, and `koad-tui` to use unified gRPC client and system event stream.
+- **Board**: Implemented GraphQL pagination for large project boards.
+- **Testing**: All 37 E2E tests passing, including full-stack loopback.
+- **Issues**: Closed #38, #39.
+
+## 2026-03-02 - Saveup: Unified CLI and gRPC contracts. Purged legacy core/rust and implemented board pagination.
+- Scope: Core/Architecture
+- Facts: Issue #38 closed, Issue #39 closed, gRPC unified, CLI migrated
