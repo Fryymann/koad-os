@@ -23,16 +23,16 @@ impl KoadConfig {
 
         let redis_socket = env::var("REDIS_SOCKET")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| home.join("koad.sock"));
+            .unwrap_or_else(|_| home.join(crate::constants::DEFAULT_REDIS_SOCK));
 
         let spine_socket = env::var("SPINE_SOCKET")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| home.join("kspine.sock"));
+            .unwrap_or_else(|_| home.join(crate::constants::DEFAULT_SPINE_SOCK));
 
         let spine_grpc_addr =
-            env::var("SPINE_GRPC_ADDR").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+            env::var("SPINE_GRPC_ADDR").unwrap_or_else(|_| crate::constants::DEFAULT_SPINE_GRPC_ADDR.to_string());
 
-        let gateway_addr = env::var("GATEWAY_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
+        let gateway_addr = env::var("GATEWAY_ADDR").unwrap_or_else(|_| crate::constants::DEFAULT_GATEWAY_ADDR.to_string());
 
         let github_project_number = env::var("GITHUB_PROJECT_NUMBER")
             .ok()

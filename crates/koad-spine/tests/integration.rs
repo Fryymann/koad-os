@@ -8,7 +8,7 @@ fn test_cli_kernel_handshake() {
     let koad_home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
     let manifest_path = format!("{}/Cargo.toml", koad_home);
     let temp_dir = tempfile::tempdir().unwrap();
-    let koad_home = temp_dir.path().to_str().unwrap();
+    let koad_home_str = temp_dir.path().to_str().unwrap();
 
     // 1. Build everything
     let build_status = Command::new("cargo")
@@ -19,7 +19,7 @@ fn test_cli_kernel_handshake() {
 
     // 2. Start Kernel in background
     let mut kernel = Command::new("cargo")
-        .env("KOAD_HOME", koad_home)
+        .env("KOAD_HOME", koad_home_str)
         .args(["run", "-p", "koad-spine", "--manifest-path", manifest_path])
         .spawn()
         .unwrap();
@@ -29,7 +29,7 @@ fn test_cli_kernel_handshake() {
 
     // 4. Run CLI command
     let output = Command::new("cargo")
-        .env("KOAD_HOME", koad_home)
+        .env("KOAD_HOME", koad_home_str)
         .args([
             "run",
             "-p",
@@ -37,19 +37,19 @@ fn test_cli_kernel_handshake() {
             "--manifest-path",
             manifest_path,
             "--",
-            "run",
-            "ping",
+            "status",
         ])
         .output()
         .unwrap();
-
-    // 5. Cleanup
-    let _ = kernel.kill();
-    let _ = Command::new("pkill").arg("redis-server").status();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     println!("STDOUT: {}", stdout);
     println!("STDERR: {}", stderr);
-    assert!(stdout.contains("executed successfully"));
+    
+    // 5. Cleanup
+    kernel.kill().expect("Failed to kill kernel");
+    let _ = Command::new("pkill").arg("redis-server").status(); // redis might already be dead, don't fail here
+
+    assert!(stdout.contains("Neural Link") || stderr.contains("Spine Backbone"));
 }

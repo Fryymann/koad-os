@@ -1,6 +1,7 @@
 use crate::engine::redis::RedisClient;
 use crate::engine::storage_bridge::KoadStorageBridge;
 use koad_core::storage::StorageBridge;
+use anyhow::Context;
 use chrono::Utc;
 use fred::interfaces::{
     ClientLike, HashesInterface, ListInterface, PubsubInterface, SetsInterface, StreamsInterface,
@@ -179,8 +180,8 @@ impl ShipDiagnostics {
     }
 
     async fn check_services(&self) -> anyhow::Result<()> {
-        let port = 3000;
-        let addr = format!("127.0.0.1:{}", port);
+        let addr = std::env::var("GATEWAY_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+        let port = addr.split(':').last().and_then(|p| p.parse::<u32>().ok()).unwrap_or(3000);
         
         let status = match tokio::time::timeout(
             Duration::from_millis(500),
@@ -188,7 +189,7 @@ impl ShipDiagnostics {
         ).await {
             Ok(Ok(_)) => "UP".to_string(),
             _ => {
-                let msg = format!("Web Deck (kgateway) unresponsive on port {}. Initiating recovery...", port);
+                let msg = format!("Web Deck (kgateway) unresponsive on {}. Initiating recovery...", addr);
                 let _ = self.report_incident("Sentinel:Gateway", "WARN", &msg, false).await;
                 let _ = self.restart_gateway().await;
                 "RECOVERING".to_string()
@@ -275,14 +276,15 @@ impl ShipDiagnostics {
 
     async fn restart_gateway(&self) -> anyhow::Result<()> {
         println!("Autonomic Sentinel: Restarting kgateway...");
-        let home = std::env::var("KOAD_HOME").unwrap_or_else(|_| "/home/ideans/.koad-os".to_string());
+        let addr = std::env::var("GATEWAY_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
+        let home = std::env::var("KOAD_HOME").context("KOAD_HOME not set. Cannot restart gateway.")?;
         let bin_path = PathBuf::from(&home).join("bin/kgateway");
         let log_path = PathBuf::from(&home).join("gateway.log");
 
         let _ = std::process::Command::new("nohup")
             .arg(bin_path)
             .arg("--addr")
-            .arg("0.0.0.0:3000")
+            .arg(addr)
             .stdout(std::process::Stdio::from(std::fs::File::create(&log_path)?))
             .stderr(std::process::Stdio::from(std::fs::File::create(&log_path)?))
             .spawn()?;

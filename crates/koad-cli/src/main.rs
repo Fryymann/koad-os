@@ -794,7 +794,21 @@ mod tests {
     use super::*;
     #[test]
     fn test_detect_context_tags() {
-        let path = Path::new("/tmp/");
-        assert!(detect_context_tags(path).is_empty() || !detect_context_tags(path).is_empty());
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path();
+        
+        // 1. Empty dir
+        assert!(detect_context_tags(path).is_empty());
+        
+        // 2. Rust project
+        std::fs::File::create(path.join("Cargo.toml")).unwrap();
+        let tags = detect_context_tags(path);
+        assert!(tags.contains(&"rust".to_string()));
+        
+        // 3. Mixed project
+        std::fs::File::create(path.join("package.json")).unwrap();
+        let tags = detect_context_tags(path);
+        assert!(tags.contains(&"rust".to_string()));
+        assert!(tags.contains(&"node".to_string()));
     }
 }

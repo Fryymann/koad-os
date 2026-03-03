@@ -2,6 +2,7 @@
 //! Shared traits, types, and constants for the KoadOS workspace.
 
 pub mod config;
+pub mod constants;
 pub mod identity;
 pub mod intent;
 pub mod logging;
