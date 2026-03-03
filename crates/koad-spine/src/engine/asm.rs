@@ -117,7 +117,7 @@ impl AgentSessionManager {
         if let Ok(all_state) = self.storage.redis.client.hgetall::<std::collections::HashMap<String, String>, _>("koad:state").await {
             for (key, val) in all_state {
                 if key.starts_with("koad:session:") {
-                    if let Ok(mut raw_json) = serde_json::from_str::<serde_json::Value>(&val) {
+                    if let Ok(raw_json) = serde_json::from_str::<serde_json::Value>(&val) {
                         let data = if let Some(inner) = raw_json.get("data") { inner } else { &raw_json };
                         if data["status"] == "active" {
                             if let Ok(session) = serde_json::from_value::<AgentSession>(data.clone()) {

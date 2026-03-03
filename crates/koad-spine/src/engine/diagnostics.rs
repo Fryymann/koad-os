@@ -1,10 +1,10 @@
 use crate::engine::redis::RedisClient;
 use crate::engine::storage_bridge::KoadStorageBridge;
-use koad_core::storage::StorageBridge;
+
 use anyhow::Context;
 use chrono::Utc;
 use fred::interfaces::{
-    ClientLike, HashesInterface, ListInterface, PubsubInterface, SetsInterface, StreamsInterface,
+    ClientLike, HashesInterface, PubsubInterface, SetsInterface, StreamsInterface,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -42,7 +42,7 @@ pub struct ServiceEntry {
 pub struct ShipDiagnostics {
     redis: Arc<RedisClient>,
     storage: Arc<KoadStorageBridge>,
-    identity: Arc<crate::engine::identity::KAILeaseManager>,
+     _identity: Arc<crate::engine::identity::KAILeaseManager>,
     sys: Arc<Mutex<System>>,
     skill_registry: Arc<Mutex<SkillRegistry>>,
 }
@@ -51,7 +51,7 @@ impl ShipDiagnostics {
     pub fn new(
         redis: Arc<RedisClient>,
         storage: Arc<KoadStorageBridge>,
-        identity: Arc<crate::engine::identity::KAILeaseManager>,
+         _identity: Arc<crate::engine::identity::KAILeaseManager>,
         skill_registry: Arc<Mutex<SkillRegistry>>,
     ) -> Self {
         let mut sys = System::new_all();
@@ -59,7 +59,7 @@ impl ShipDiagnostics {
         Self {
             redis,
             storage,
-            identity,
+            _identity: _identity,
             sys: Arc::new(Mutex::new(sys)),
             skill_registry,
         }

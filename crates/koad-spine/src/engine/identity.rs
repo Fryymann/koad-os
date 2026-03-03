@@ -61,7 +61,7 @@ impl KAILeaseManager {
             is_sovereign,
         };
 
-        let lease_json = serde_json::to_string(&lease)?;
+        let _lease_json = serde_json::to_string(&lease)?;
         self.storage.set_state(&key, serde_json::to_value(&lease)?, Some(model_tier)).await?;
 
         info!("KAI Lease Acquired: {} -> Session {} (Driver: {})", kai_name, session_id, driver_id);

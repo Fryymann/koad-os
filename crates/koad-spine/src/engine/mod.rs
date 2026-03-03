@@ -19,7 +19,7 @@ use crate::engine::identity::KAILeaseManager;
 use crate::engine::kcm::KoadComplianceManager;
 use crate::engine::redis::RedisClient;
 use crate::engine::storage_bridge::KoadStorageBridge;
-use koad_core::storage::StorageBridge;
+
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

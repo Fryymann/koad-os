@@ -15,17 +15,17 @@ use koad_board::GitHubClient;
 use koad_core::config::KoadConfig as CoreConfig;
 use koad_core::intent::{ExecuteIntent, Intent};
 use koad_core::logging::init_logging;
-use koad_core::session::AgentSession;
+
 use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
 use koad_proto::spine::v1::*;
 use rusqlite::Connection;
 use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::path::PathBuf;
+
+
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 #[derive(Parser)]
 struct Cli {
@@ -36,7 +36,7 @@ struct Cli {
 
 struct GatewayState {
     pub client: RedisClient,
-    pub subscriber: RedisClient,
+    pub _subscriber: RedisClient,
     pub gh_client: Option<GitHubClient>,
     pub config: CoreConfig,
 }
@@ -84,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(GatewayState {
         client,
-        subscriber,
+        _subscriber: subscriber,
         gh_client,
         config: config.clone(),
     });
@@ -183,7 +183,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
     {
         for (key, val) in all_state {
             if key.starts_with("koad:session:") {
-                if let Ok(mut raw_json) = serde_json::from_str::<Value>(&val) {
+                if let Ok(raw_json) = serde_json::from_str::<Value>(&val) {
                     // Check if it's wrapped in a 'data' field (from Spine hydration)
                     let data = if let Some(inner) = raw_json.get("data") {
                         inner

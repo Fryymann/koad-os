@@ -5,7 +5,7 @@ pub mod rpc;
 use crate::engine::kernel::KernelBuilder;
 use koad_core::config::KoadConfig;
 use koad_core::logging::init_logging;
-use std::path::PathBuf;
+
 use tokio::signal;
 use tracing::{error, info};
 

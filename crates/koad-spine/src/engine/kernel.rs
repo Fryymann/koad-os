@@ -1,4 +1,4 @@
-use crate::discovery::SkillRegistry;
+
 use crate::engine::Engine;
 use crate::rpc::KoadSpine;
 use koad_proto::spine::v1::spine_service_server::SpineServiceServer;
@@ -67,7 +67,7 @@ impl KernelBuilder {
             home_dir.display()
         );
 
-        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
         // 1. Engine & State Initialization (Handles Skill Discovery internally now)
         let engine =

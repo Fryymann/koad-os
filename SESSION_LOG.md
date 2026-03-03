@@ -185,3 +185,10 @@
 - **Automation:** 'koad system tokenaudit --cleanup' automatically prunes duplicate knowledge and stale session records.
 - **Impact:** Reduced knowledge entry count and cleaned up the crew manifest, improving signal-to-noise ratio for all agents.
 - **Validation:** Verified via 5-iteration development loop; 19 duplicates and 15 zombie sessions purged.
+
+## 2026-03-03 - [Lean] main.rs Refactor & Condition Green (#68)
+- **Status:** [RESOLVED]
+- **Milestone:** CLI main.rs reduced by 90% (814 -> 85 lines).
+- **Architecture:** Transitioned to modular handler pattern under src/handlers/.
+- **Quality:** Achieved Zero-Warning (Condition Green) build state across primary crates.
+- **Impact:** Significant reduction in cognitive load and navigation speed for future development.
