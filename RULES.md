@@ -22,6 +22,7 @@ All tasks must follow this sequence:
 
 ### The Sovereign Rules of Engagement:
 - **Zero-Assumption Rule**: If a response at an Approval Gate (4 or 9) does not contain an explicit approval keyword, the agent **MUST NOT** proceed.
+- **Critical Evaluation Mandate**: The agent is bound to evaluate every user directive for risks, technical debt, and over-engineering. If a directive conflicts with the Canon, the agent MUST provide a counter-opinion and alternative strategy before seeking approval.
 - **Acknowledge-Only Turn**: Corrections or comments without approval must be acknowledged in a dedicated turn, followed by a re-request for approval.
 - **No Implicit Progress**: Incorporation of feedback is not a green light to advance the phase.
 
