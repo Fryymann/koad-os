@@ -4,7 +4,7 @@ use koad_core::storage::StorageBridge;
 use anyhow::Context;
 use chrono::Utc;
 use fred::interfaces::{
-    ClientLike, HashesInterface, ListInterface, PubsubInterface, SetsInterface, StreamsInterface,
+    ClientLike, HashesInterface, PubsubInterface, StreamsInterface,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::collections::HashMap;
 use sysinfo::System;
 use tokio::time::sleep;
-use tracing::{info, error, warn, debug};
+use tracing::{info, error, warn};
 
 use crate::discovery::SkillRegistry;
 use tokio::sync::Mutex;
@@ -73,21 +73,24 @@ impl ShipDiagnostics {
         loop {
             iteration += 1;
             
-            // 1. Core Telemetry (Non-blocking PUBLISH)
+            // 1. Registry Integrity (Self-Healing - MUST BE FIRST)
+            let _ = self.check_registry_integrity().await;
+
+            // 2. Core Telemetry (Non-blocking PUBLISH)
             let _ = self.run_integrity_scan().await;
 
-            // 2. Service & Port checks
+            // 3. Service & Port checks
             let _ = self.check_services().await;
 
-            // 3. Crew manifest update (Identity-First)
+            // 4. Crew manifest update (Identity-First)
             let _ = self.update_crew_manifest().await;
 
-            // 4. Long-cycle Pruning (Every 1 minute)
+            // 5. Long-cycle Pruning (Every 1 minute)
             if iteration % 12 == 0 {
                 let _ = self.prune_orphaned_sessions().await;
             }
 
-            // 5. Vital Signs
+            // 6. Vital Signs
             let _ = self.check_neural_bus().await;
             
             self.last_heartbeat.store(Utc::now().timestamp(), Ordering::SeqCst);
@@ -97,6 +100,50 @@ impl ShipDiagnostics {
 
     async fn check_neural_bus(&self) -> anyhow::Result<()> {
         let _: String = self.redis.pool.next().ping().await?;
+        Ok(())
+    }
+
+    async fn check_registry_integrity(&self) -> anyhow::Result<()> {
+        let initialized: bool = self.redis.pool.next().hexists("koad:state", "initialized").await?;
+        if !initialized {
+            warn!("Sentinel: Registry state loss detected. Triggering autonomic hydration...");
+            let _ = self.report_incident("Sentinel:Registry", "CRITICAL", "Redis state incomplete. Auto-hydration initiated.", false).await;
+            
+            if let Err(e) = self.storage.hydrate_all().await {
+                error!("Sentinel: Registry hydration FAILED: {}", e);
+            } else {
+                // Mark as initialized
+                let _: () = self.redis.pool.next().hset("koad:state", ("initialized", "true")).await?;
+                info!("Sentinel: Registry hydration complete. State restored.");
+            }
+        }
+        Ok(())
+    }
+
+    async fn report_incident(&self, source: &str, severity: &str, message: &str, recovered: bool) -> anyhow::Result<()> {
+        let incident = json!({
+            "incident_id": uuid::Uuid::new_v4().to_string(),
+            "source": source,
+            "severity": severity,
+            "root_cause": message,
+            "recovery_attempted": true,
+            "status": if recovered { "RECOVERED" } else { "FAILED" }
+        });
+
+        let _: Result<String, _> = self.redis.pool.next().xadd(
+            "koad:events:stream",
+            false,
+            None,
+            "*",
+            vec![
+                ("source", source),
+                ("severity", severity),
+                ("message", "INCIDENT_REPORT"),
+                ("metadata", &incident.to_string()),
+                ("timestamp", &Utc::now().timestamp().to_string()),
+            ],
+        ).await;
+
         Ok(())
     }
 
@@ -242,7 +289,7 @@ impl ShipDiagnostics {
         Ok(())
     }
 
-    async fn restart_gateway(&self) -> anyhow::Result<()> {
+    async fn _restart_gateway(&self) -> anyhow::Result<()> {
         let addr = std::env::var("GATEWAY_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
         let home = std::env::var("KOAD_HOME").context("KOAD_HOME not set. Cannot restart gateway.")?;
         let bin_path = PathBuf::from(&home).join("bin/kgateway");

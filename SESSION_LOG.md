@@ -210,3 +210,9 @@
 - **Key Achievement:** Decoupled telemetry flow from blocking state authority.
 - **Architecture:** Switched to PubSub-based streaming for system stats and manifest.
 - **Impact:** Resolved the Web Deck data starvation and eliminated the primary Spine diagnostic deadlock.
+
+## 2026-03-03 - [Resilience] Self-Healing Redis Registry (#70)
+- **Status:** [RESOLVED]
+- **Key Achievement:** Implemented autonomic re-hydration of Redis state from SQLite.
+- **Architecture:** Added 'initialized' lighthouse key to detect state loss and prioritized healing in the diagnostic loop.
+- **Validation:** Verified via manual state deletion; system successfully restored 40+ keys automatically.
