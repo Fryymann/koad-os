@@ -70,7 +70,7 @@ impl GitHubClient {
         Ok(())
     }
 
-    pub async fn get_status_field_id(&self, project_id: &str) -> Result<String> {
+    pub async fn get_field_id(&self, project_id: &str, field_name: &str) -> Result<String> {
         let query = r#"
             query($projectId: ID!) {
               node(id: $projectId) {
@@ -102,7 +102,7 @@ impl GitHubClient {
             .ok_or_else(|| anyhow::anyhow!("No fields found"))?;
 
         for field in fields {
-            if field["name"].as_str() == Some("Status") {
+            if field["name"].as_str() == Some(field_name) {
                 return field["id"]
                     .as_str()
                     .map(|s| s.to_string())
@@ -110,12 +110,13 @@ impl GitHubClient {
             }
         }
 
-        anyhow::bail!("Status field not found in project")
+        anyhow::bail!("Field '{}' not found in project", field_name)
     }
 
-    pub async fn get_status_option_id(
+    pub async fn get_single_select_option_id(
         &self,
         project_id: &str,
+        field_name: &str,
         option_name: &str,
     ) -> Result<String> {
         let query = r#"
@@ -148,10 +149,10 @@ impl GitHubClient {
             .ok_or_else(|| anyhow::anyhow!("No fields found"))?;
 
         for field in fields {
-            if field["name"].as_str() == Some("Status") {
+            if field["name"].as_str() == Some(field_name) {
                 let options = field["options"]
                     .as_array()
-                    .ok_or_else(|| anyhow::anyhow!("No options found for Status field"))?;
+                    .ok_or_else(|| anyhow::anyhow!("No options found for field '{}'", field_name))?;
                 for option in options {
                     if option["name"].as_str() == Some(option_name) {
                         return option["id"]
@@ -163,7 +164,19 @@ impl GitHubClient {
             }
         }
 
-        anyhow::bail!("Status option '{}' not found in project", option_name)
+        anyhow::bail!("Option '{}' not found in field '{}'", option_name, field_name)
+    }
+
+    pub async fn get_status_field_id(&self, project_id: &str) -> Result<String> {
+        self.get_field_id(project_id, "Status").await
+    }
+
+    pub async fn get_status_option_id(
+        &self,
+        project_id: &str,
+        option_name: &str,
+    ) -> Result<String> {
+        self.get_single_select_option_id(project_id, "Status", option_name).await
     }
 
     pub async fn list_project_items(&self, project_number: i32) -> Result<Vec<ProjectItem>> {
@@ -334,7 +347,7 @@ impl GitHubClient {
             .ok_or_else(|| anyhow::anyhow!("Repository not found"))
     }
 
-    pub async fn list_open_issues(&self) -> Result<Vec<(String, i32, String)>> {
+    pub async fn list_open_issues(&self) -> Result<Vec<(String, i32, String, Option<String>)>> {
         let query = r#"
             query($owner: String!, $repo: String!) {
               repository(owner: $owner, name: $repo) {
@@ -343,6 +356,9 @@ impl GitHubClient {
                     id
                     number
                     title
+                    milestone {
+                      title
+                    }
                   }
                 }
               }
@@ -366,7 +382,8 @@ impl GitHubClient {
                 let id = node["id"].as_str().unwrap_or_default().to_string();
                 let number = node["number"].as_i64().unwrap_or_default() as i32;
                 let title = node["title"].as_str().unwrap_or_default().to_string();
-                issues.push((id, number, title));
+                let milestone = node["milestone"]["title"].as_str().map(|s| s.to_string());
+                issues.push((id, number, title, milestone));
             }
         }
         Ok(issues)

@@ -13,6 +13,64 @@ use crate::db::KoadDB;
 use crate::utils::{feature_gate, get_gh_pat_for_path, get_gdrive_token_for_path};
 use rusqlite::params;
 
+pub async fn spawn_issue(
+    config: &KoadConfig,
+    template: &str,
+    title: &str,
+    weight: &str,
+    objective: Option<String>,
+    scope: Option<String>,
+    labels: Vec<String>,
+    raw_body: Option<String>,
+) -> Result<koad_board::issue::Issue> {
+    let token = config.resolve_gh_token()?;
+    let owner = config.get_github_owner()?;
+    let repo = config.get_github_repo()?;
+    let client = koad_board::GitHubClient::new(token, owner.clone(), repo.clone())?;
+
+    let body = if let Some(rb) = raw_body {
+        rb
+    } else {
+        let template_path = config
+            .home
+            .join("templates")
+            .join("issues")
+            .join(format!("{}.md", template));
+        if !template_path.exists() {
+            anyhow::bail!("Template '{}' not found at {:?}", template, template_path);
+        }
+
+        let mut b = std::fs::read_to_string(&template_path)?;
+
+        // String Substitution for fast-spawning
+        b = b.replace("[trivial | standard | complex]", weight);
+
+        if let Some(obj) = objective {
+            b = b.replace(
+                "[Describe the high-level goal of this architectural change]",
+                &obj,
+            );
+            b = b.replace("[Describe the system subsystem to be hardened]", &obj);
+            b = b.replace("[Identify the resource or latency bottleneck]", &obj);
+            b = b.replace("[Describe the observed behavior vs expected behavior]", &obj);
+        }
+        if let Some(sc) = scope {
+            b = b.replace(
+                "- [Component A]\n- [Component B]\n- [Interface change/Addition]",
+                &sc,
+            );
+            b = b.replace("- [Recovery logic for X]\n- [Watchdog implementation for Y]\n- [Self-healing procedure for Z]", &sc);
+            b = b.replace(
+                "- [Caching strategy]\n- [Refactor of inefficient loop]\n- [Payload reduction]",
+                &sc,
+            );
+        }
+        b
+    };
+
+    client.create_issue(title, &body, labels).await
+}
+
 pub async fn handle_system_action(
     action: SystemAction,
     config: &KoadConfig,
@@ -287,6 +345,24 @@ pub async fn handle_system_action(
 
             println!("\x1b[1m---------------------------------------------------\x1b[0m
 ");
+        }
+        SystemAction::Spawn {
+            template,
+            title,
+            weight,
+            objective,
+            scope,
+            labels,
+        } => {
+            println!(">>> [SPAWN] Energizing Forge for Issue: {}...", title);
+            let issue = spawn_issue(config, &template, &title, &weight, objective, scope, labels, None).await?;
+            let owner = config.get_github_owner()?;
+            let repo = config.get_github_repo()?;
+            println!("\x1b[32m[SPAWNED]\x1b[0m Issue #{} live at: https://github.com/{}/{}/issues/{}", 
+                issue.number, owner, repo, issue.number);
+        }
+        SystemAction::Import { .. } => {
+            // Handled in main.rs dispatcher
         }
     }
     Ok(())

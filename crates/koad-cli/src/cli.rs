@@ -57,6 +57,16 @@ pub enum Commands {
         #[arg(short, long)]
         full: bool,
     },
+    /// Synchronize and manage the Command Deck (Project Board)
+    Board {
+        #[command(subcommand)]
+        action: BoardAction,
+    },
+    /// Project management and registration
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
+    },
     /// Display current persona and bio
     Whoami,
     /// Launch the TUI dashboard
@@ -106,6 +116,46 @@ pub enum SystemAction {
         #[arg(short, long)]
         cleanup: bool,
     },
+    /// Spawn a new GitHub issue from a template
+    Spawn {
+        #[arg(short, long)]
+        template: String,
+        #[arg(short = 'T', long)]
+        title: String,
+        #[arg(short, long, default_value = "standard")]
+        weight: String,
+        #[arg(long)]
+        objective: Option<String>,
+        #[arg(long)]
+        scope: Option<String>,
+        #[arg(short, long)]
+        labels: Vec<String>,
+    },
+    /// Bulk import data from a file into KoadOS subsystems
+    Import {
+        #[arg(short, long)]
+        source: PathBuf,
+        #[arg(short, long, default_value = "md")]
+        format: String,
+        #[arg(short, long)]
+        delimiter: Option<String>,
+        #[arg(short, long)]
+        route: ImportRoute,
+        #[arg(short, long)]
+        template: Option<String>,
+        #[arg(short, long)]
+        labels: Vec<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+#[derive(clap::ValueEnum, Clone, Debug)]
+pub enum ImportRoute {
+    GithubIssues,
+    MemoryBank,
+    Commands,
+    Hydration,
 }
 
 #[derive(Subcommand)]
@@ -293,7 +343,10 @@ pub enum BoardAction {
         #[arg(short, long)]
         active: bool,
     },
-    Sync,
+    Sync {
+        #[arg(short, long)]
+        dry_run: bool,
+    },
     Sdr,
     Done {
         id: i32,
