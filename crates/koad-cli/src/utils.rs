@@ -2,11 +2,20 @@ use std::path::Path;
 use std::env;
 use koad_core::config::KoadConfig;
 use sysinfo::System;
+use anyhow::{Context, Result};
+use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
+use tonic::transport::Channel;
 
 pub enum PreFlightStatus {
     Optimal,
     Degraded(String),
     Critical(String),
+}
+
+pub async fn get_spine_client(config: &KoadConfig) -> Result<SpineServiceClient<Channel>> {
+    SpineServiceClient::connect(config.spine_grpc_addr.clone())
+        .await
+        .context("Failed to connect to Koad Spine gRPC")
 }
 
 pub fn pre_flight(config: &KoadConfig) -> PreFlightStatus {

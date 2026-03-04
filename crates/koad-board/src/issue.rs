@@ -18,7 +18,8 @@ impl GitHubClient {
         labels: Vec<String>,
     ) -> Result<Issue> {
         let url = format!(
-            "https://api.github.com/repos/{}/{}/issues",
+            "{}/repos/{}/{}/issues",
+            koad_core::constants::GITHUB_API_BASE,
             self.owner, self.repo
         );
         let payload = serde_json::json!({

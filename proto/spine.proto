@@ -39,6 +39,10 @@ service SpineService {
 
   // --- Intel & Context ---
   rpc GetFileSnippet(GetFileSnippetRequest) returns (SnippetResponse);
+  rpc HydrateContext(HydrationRequest) returns (HydrationResponse);
+
+  // --- External Event Injection ---
+  rpc PostSystemEvent(SystemEvent) returns (Empty);
 }
 
 // --- Intel Messages ---
@@ -54,6 +58,24 @@ message SnippetResponse {
   string content = 1;
   int32 total_lines = 2;
   string source = 3; // "cache" or "disk"
+}
+
+message HydrationRequest {
+  string session_id = 1;
+  HotContextChunk chunk = 2;
+}
+
+message HydrationResponse {
+  bool success = 1;
+  string error = 2;
+  int32 current_context_size = 3;
+}
+
+message HotContextChunk {
+  string chunk_id = 1; // Content hash or unique label
+  string content = 2;
+  int32 ttl_seconds = 3; // 0 = persistent for session
+  google.protobuf.Timestamp created_at = 4;
 }
 
 // --- Common Messages ---
@@ -108,6 +130,7 @@ message IntelligencePackage {
   repeated TaskStatusUpdate active_tasks = 2;
   repeated SystemEvent recent_events = 3;
   map<string, string> metadata = 4;
+  repeated HotContextChunk hot_context = 5;
 }
 
 // --- Service Discovery Messages ---

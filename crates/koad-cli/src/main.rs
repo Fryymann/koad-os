@@ -59,7 +59,14 @@ async fn main() -> Result<()> {
             handle_boot_command(agent, project, task, compact, role, &config).await?;
         }
         Commands::System { action } => {
-            handle_system_action(action, &config, &db, role, is_admin).await?;
+            match action {
+                SystemAction::Import { source, format, delimiter, route, template, labels, dry_run } => {
+                    crate::handlers::import::handle_import(source, format, delimiter, route, template, labels, dry_run, &config).await?;
+                }
+                _ => {
+                    handle_system_action(action, &config, &db, role, is_admin).await?;
+                }
+            }
         }
         Commands::Intel { action } => {
             handle_intel_action(action, &config, &db).await?;
@@ -69,6 +76,12 @@ async fn main() -> Result<()> {
         }
         Commands::Bridge { action } => {
             handle_bridge_action(action, &config, &db).await?;
+        }
+        Commands::Board { action } => {
+            crate::handlers::board::handle_board(action, &config).await?;
+        }
+        Commands::Project { action } => {
+            crate::handlers::project::handle_project(action, &config).await?;
         }
         Commands::Status { json, full } => {
             handle_status_command(json, full, &config, &db).await?;

@@ -16,6 +16,8 @@ use koad_board::GitHubClient;
 use koad_core::config::KoadConfig as CoreConfig;
 use koad_core::intent::{ExecuteIntent, Intent};
 use koad_core::logging::init_logging;
+use koad_core::utils::pid::PidGuard;
+use koad_core::constants::DEFAULT_GATEWAY_PID;
 
 use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
 use koad_proto::spine::v1::*;
@@ -46,6 +48,10 @@ struct GatewayState {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let mut config = CoreConfig::load()?;
+
+    // Acquire PID lock immediately
+    let pid_path = config.home.join(DEFAULT_GATEWAY_PID);
+    let _pid_guard = PidGuard::new(pid_path)?;
 
     if let Some(addr) = cli.addr {
         config.gateway_addr = addr;
@@ -119,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
     let service_entry = json!({
         "name": "web-deck",
         "host": "0.0.0.0",
-        "port": 3000,
+        "port": koad_core::constants::DEFAULT_GATEWAY_PORT,
         "protocol": "http/ws",
         "status": "UP",
         "last_seen": Utc::now().timestamp()

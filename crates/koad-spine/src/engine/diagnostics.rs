@@ -187,7 +187,7 @@ impl ShipDiagnostics {
     }
 
     async fn check_services(&self) -> anyhow::Result<()> {
-        let addr = std::env::var("GATEWAY_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+        let addr = std::env::var("GATEWAY_ADDR").unwrap_or_else(|_| koad_core::constants::DEFAULT_GATEWAY_ADDR.to_string());
         
         let status = match tokio::time::timeout(
             Duration::from_millis(500),
@@ -200,7 +200,7 @@ impl ShipDiagnostics {
         let web_deck = ServiceEntry {
             name: "web-deck".to_string(),
             host: "0.0.0.0".to_string(),
-            port: 3000,
+            port: koad_core::constants::DEFAULT_GATEWAY_PORT,
             protocol: "http".to_string(),
             status,
             last_seen: Utc::now().timestamp(),
@@ -290,7 +290,7 @@ impl ShipDiagnostics {
     }
 
     async fn _restart_gateway(&self) -> anyhow::Result<()> {
-        let addr = std::env::var("GATEWAY_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
+        let addr = std::env::var("GATEWAY_ADDR").unwrap_or_else(|_| koad_core::constants::DEFAULT_GATEWAY_ADDR.to_string());
         let home = std::env::var("KOAD_HOME").context("KOAD_HOME not set. Cannot restart gateway.")?;
         let bin_path = PathBuf::from(&home).join("bin/kgateway");
         let log_path = PathBuf::from(&home).join("gateway.log");

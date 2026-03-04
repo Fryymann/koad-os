@@ -94,7 +94,7 @@ impl NotionClient {
     }
 
     async fn get_page(&self, page_id: &str) -> Result<serde_json::Value> {
-        let url = format!("https://api.notion.com/v1/pages/{}", page_id);
+        let url = format!("{}/pages/{}", koad_core::constants::NOTION_API_BASE, page_id);
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", self.token))?);
         headers.insert("Notion-Version", HeaderValue::from_static("2022-06-28"));
@@ -104,7 +104,7 @@ impl NotionClient {
     }
 
     async fn query_database(&self, db_id: &str) -> Result<Vec<NotionPage>> {
-        let url = format!("https://api.notion.com/v1/databases/{}/query", db_id);
+        let url = format!("{}/databases/{}/query", koad_core::constants::NOTION_API_BASE, db_id);
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", self.token))?);
         headers.insert("Notion-Version", HeaderValue::from_static("2022-06-28"));
@@ -127,7 +127,7 @@ impl NotionClient {
     }
 
     async fn search_pages(&self, query: &str) -> Result<Vec<serde_json::Value>> {
-        let url = "https://api.notion.com/v1/search";
+        let url = format!("{}/search", koad_core::constants::NOTION_API_BASE);
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", self.token))?);
         headers.insert("Notion-Version", HeaderValue::from_static("2022-06-28"));
@@ -147,7 +147,7 @@ impl NotionClient {
     }
 
     async fn get_block_children(&self, block_id: &str) -> Result<Vec<serde_json::Value>> {
-        let url = format!("https://api.notion.com/v1/blocks/{}/children", block_id);
+        let url = format!("{}/blocks/{}/children", koad_core::constants::NOTION_API_BASE, block_id);
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", self.token))?);
         headers.insert("Notion-Version", HeaderValue::from_static("2022-06-28"));
@@ -163,7 +163,7 @@ impl NotionClient {
     }
 
     async fn delete_block(&self, block_id: &str) -> Result<()> {
-        let url = format!("https://api.notion.com/v1/blocks/{}", block_id);
+        let url = format!("{}/blocks/{}", koad_core::constants::NOTION_API_BASE, block_id);
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", self.token))?);
         headers.insert("Notion-Version", HeaderValue::from_static("2022-06-28"));
@@ -173,7 +173,7 @@ impl NotionClient {
     }
 
     async fn append_block_children(&self, block_id: &str, children: Vec<serde_json::Value>) -> Result<()> {
-        let url = format!("https://api.notion.com/v1/blocks/{}/children", block_id);
+        let url = format!("{}/blocks/{}/children", koad_core::constants::NOTION_API_BASE, block_id);
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", self.token))?);
         headers.insert("Notion-Version", HeaderValue::from_static("2022-06-28"));
@@ -188,7 +188,7 @@ impl NotionClient {
     }
 
     async fn update_page(&self, page_id: &str, properties: serde_json::Value) -> Result<()> {
-        let url = format!("https://api.notion.com/v1/pages/{}", page_id);
+        let url = format!("{}/pages/{}", koad_core::constants::NOTION_API_BASE, page_id);
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", self.token))?);
         headers.insert("Notion-Version", HeaderValue::from_static("2022-06-28"));
@@ -209,7 +209,7 @@ impl NotionClient {
 }
 
 async fn fetch_dnd_beyond_char(char_id: &str) -> Result<serde_json::Value> {
-    let url = format!("https://character-service.dndbeyond.com/character/v5/character/{}", char_id);
+    let url = format!("{}/{}", koad_core::constants::DND_BEYOND_CHAR_SERVICE, char_id);
     let res = reqwest::get(&url).await?.json::<serde_json::Value>().await?;
     Ok(res["data"].clone())
 }

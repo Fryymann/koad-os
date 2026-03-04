@@ -4,3 +4,6 @@ pub mod intel;
 pub mod fleet;
 pub mod bridge;
 pub mod status;
+pub mod board;
+pub mod project;
+pub mod import;

@@ -5,6 +5,7 @@ use serde::Deserialize;
 pub mod actions;
 pub mod issue;
 pub mod project;
+pub mod sync;
 
 pub struct GitHubClient {
     client: reqwest::Client,
@@ -44,7 +45,7 @@ impl GitHubClient {
 
         let response = self
             .client
-            .post("https://api.github.com/graphql")
+            .post(format!("{}/graphql", koad_core::constants::GITHUB_API_BASE))
             .json(&body)
             .send()
             .await?;
@@ -72,7 +73,8 @@ impl GitHubClient {
         T: for<'de> Deserialize<'de>,
     {
         let url = format!(
-            "https://api.github.com/repos/{}/{}/{}",
+            "{}/repos/{}/{}/{}",
+            koad_core::constants::GITHUB_API_BASE,
             self.owner, self.repo, path
         );
         let response = self.client.get(&url).send().await?;
@@ -104,7 +106,7 @@ impl GitHubClient {
         let open_issues = self.list_open_issues().await?;
 
         // 4. Add missing issues to project
-        for (content_id, number, title) in open_issues {
+        for (content_id, number, title, _milestone) in open_issues {
             if !existing_numbers.contains(&number) {
                 println!("Adding Issue #{}: {} to project...", number, title);
                 self.add_item_to_project(&project_id, &content_id).await?;

@@ -173,7 +173,7 @@ impl KernelBuilder {
 
             // Register gRPC service in Redis inventory
             spine_service_arc
-                .register_in_inventory("0.0.0.0", 50051)
+                .register_in_inventory("0.0.0.0", koad_core::constants::DEFAULT_SPINE_GRPC_PORT)
                 .await?;
 
             // TCP Server

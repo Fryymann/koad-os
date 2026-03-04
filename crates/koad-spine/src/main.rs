@@ -5,6 +5,8 @@ pub mod rpc;
 use crate::engine::kernel::KernelBuilder;
 use koad_core::config::KoadConfig;
 use koad_core::logging::init_logging;
+use koad_core::utils::pid::PidGuard;
+use koad_core::constants::DEFAULT_SPINE_PID;
 
 use tokio::signal;
 use tracing::{error, info};
@@ -14,6 +16,10 @@ async fn main() -> anyhow::Result<()> {
     let config = KoadConfig::load()?;
     let koad_home = config.home.to_string_lossy().to_string();
     std::env::set_var("KOAD_HOME", &koad_home);
+
+    // Acquire PID lock immediately
+    let pid_path = config.home.join(DEFAULT_SPINE_PID);
+    let _pid_guard = PidGuard::new(pid_path)?;
 
     // Initialize Structured Logging
     let _guard = init_logging("kspine", Some(config.home.clone()));

@@ -3,6 +3,10 @@ name = "koad-spine"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "test_client"
+path = "src/test_client.rs"
+
 [dependencies]
 koad-core = { path = "../koad-core" }
 koad-proto = { path = "../koad-proto" }

@@ -57,6 +57,14 @@ impl KoadConfig {
             )
     }
 
+    pub fn get_github_owner(&self) -> Result<String> {
+        Ok(env::var("GITHUB_OWNER").unwrap_or_else(|_| crate::constants::DEFAULT_GITHUB_OWNER.to_string()))
+    }
+
+    pub fn get_github_repo(&self) -> Result<String> {
+        Ok(env::var("GITHUB_REPO").unwrap_or_else(|_| crate::constants::DEFAULT_GITHUB_REPO.to_string()))
+    }
+
     pub fn get_db_path(&self) -> PathBuf {
         self.home.join("koad.db")
     }

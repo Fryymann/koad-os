@@ -365,12 +365,33 @@ impl SpineService for KoadSpine {
             .create_session(session)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
+        // 3. Hydrate Intelligence Package
         let hydration = self
             .engine
             .asm
             .hydrate_session(&session_id)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
+
+        // 4. Fetch Hot Context from Redis
+        let context_key = format!("koad:session:{}:hot_context", session_id);
+        let mut conn = self.engine.redis.pool.next();
+        let hot_context_raw: std::collections::HashMap<String, String> = conn
+            .hgetall(&context_key)
+            .await
+            .unwrap_or_default();
+        
+        let mut hot_context = Vec::new();
+        for val in hot_context_raw.values() {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(val) {
+                hot_context.push(HotContextChunk {
+                    chunk_id: v["chunk_id"].as_str().unwrap_or_default().to_string(),
+                    content: v["content"].as_str().unwrap_or_default().to_string(),
+                    ttl_seconds: v["ttl_seconds"].as_i64().unwrap_or(0) as i32,
+                    created_at: None, // Simplified for now
+                });
+            }
+        }
 
         Ok(Response::new(SessionPackage {
             session_id: session_id.clone(),
@@ -384,8 +405,66 @@ impl SpineService for KoadSpine {
                 active_tasks: vec![],
                 recent_events: vec![],
                 metadata: HashMap::new(),
+                hot_context,
             }),
             lease: Some(lease),
+        }))
+    }
+
+    async fn hydrate_context(
+        &self,
+        request: Request<HydrationRequest>,
+    ) -> Result<Response<HydrationResponse>, Status> {
+        let req = request.into_inner();
+        let session_id = req.session_id;
+        let chunk = req.chunk.ok_or_else(|| Status::invalid_argument("Missing chunk"))?;
+        
+        let context_key = format!("koad:session:{}:hot_context", session_id);
+        let mut conn = self.engine.redis.pool.next();
+
+        // 1. Get current context size (Governor)
+        let current_chunks: std::collections::HashMap<String, String> = conn
+            .hgetall(&context_key)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        
+        let mut current_size: usize = 0;
+        for val in current_chunks.values() {
+            current_size += val.len();
+        }
+
+        if current_size + chunk.content.len() > 50000 {
+            return Ok(Response::new(HydrationResponse {
+                success: false,
+                error: "Context Governor: character limit (50k) exceeded.".to_string(),
+                current_context_size: current_size as i32,
+            }));
+        }
+
+        // 2. Deduplication check (Chunk ID)
+        if current_chunks.contains_key(&chunk.chunk_id) {
+            return Ok(Response::new(HydrationResponse {
+                success: true,
+                error: "Chunk already exists. Skipping.".to_string(),
+                current_context_size: current_size as i32,
+            }));
+        }
+
+        // 3. Persist to Redis
+        let payload = json!({
+            "chunk_id": chunk.chunk_id,
+            "content": chunk.content,
+            "ttl_seconds": chunk.ttl_seconds,
+        }).to_string();
+        
+        let _: () = conn.hset(&context_key, (&chunk.chunk_id, payload))
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(HydrationResponse {
+            success: true,
+            error: "".to_string(),
+            current_context_size: (current_size + chunk.content.len()) as i32,
         }))
     }
 
@@ -421,5 +500,30 @@ impl SpineService for KoadSpine {
             total_lines: total as i32,
             source,
         }))
+    }
+
+    async fn post_system_event(
+        &self,
+        request: Request<SystemEvent>,
+    ) -> Result<Response<Empty>, Status> {
+        let event = request.into_inner();
+        
+        // Manually construct JSON since SystemEvent doesn't implement Serialize
+        let payload = json!({
+            "event_id": event.event_id,
+            "source": event.source,
+            "severity": event.severity,
+            "message": event.message,
+            "metadata_json": event.metadata_json,
+            "timestamp": event.timestamp.map(|t| format!("{}.{}", t.seconds, t.nanos))
+        }).to_string();
+
+        let mut conn = self.engine.redis.pool.next();
+        let _: () = conn
+            .publish(koad_core::constants::REDIS_CHANNEL_TELEMETRY, payload)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(Empty {}))
     }
 }

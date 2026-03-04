@@ -4,15 +4,19 @@
 > Admin (Koad) is in SLEEP MODE. 
 > The Spine Kernel is active in the background.
 
-## 1. Handover State (2026-03-02)
-- **Active Version**: v4.0.0 (Stable)
-- **Repo Status**: [CONDITION GREEN] - v4.0 Outage Awareness & Process Hygiene Live.
-- **Kernel State**: `koad` CLI upgraded with backend-aware pre-flight checks and deep telemetry.
-- **Process Hygiene**: E2E framework hardened with process group termination; ghost detection active in `doctor`.
-- **Testing**: [v4.0] E2E suite expanded to 31 tests covering outage scenarios and telemetry validation.
-- **Project Deck**: Issue #29 and #30 closed.
+## 1. Handover State (2026-03-04)
+- **Active Version**: v4.1.1 (Stabilization Sprint Active)
+- **Repo Status**: [CONDITION GREEN] - SGP, Bulk Import, and PID Guards live.
+- **Kernel State**: Dual-Bus CQRS architecture documented; Spine decoupled from hardcoded ports.
+- **Process Hygiene**: PID Guards enforcing single-instance execution to prevent ghost processes.
+- **Project Deck**: v5.0 Epic mapped. Backlog properly weighted and milestoned via deterministic sync.
 
 ## 2. Completed Mission Objectives
+- **Protocol**: Established the Sovereign GitHub Protocol (SGP) and deterministic project syncing (#81, #82).
+- **Tooling**: Built `koad system spawn` and `koad system import` to eliminate bureaucratic drudgery (#75, #86).
+- **Architecture**: Mapped the v5.0 Dual-Bus CQRS perspective using strict RDP standards (#100).
+- **Resilience**: Standardized all KoadOS ports/URLs to constants and implemented PID file guards (#79, #95).
+- **Diagnostics**: Hardened gateway logging and initiated Koad Doctor planning (#80, #98).
 - **Technical Debt**: Implemented graceful shutdowns and WebSocket robustness (#33, #34).
 - **Resilience**: Implemented Graceful Shutdowns and WebSocket Keep-alive (#33, #34).
 - **Technical Debt**: Centralized configuration and secrets; implemented structured logging (#36, #37, #38, #39).
@@ -32,3 +36,15 @@
 - **Protocol**: 
     - Maintain hygiene: `doodskills/repo-clean.py`
     - Version Management: `doodskills/version-bump.py <version>`
+
+## 4. Strategic Action Plan (v5.0 Migration)
+- **Status**: [PENDING]
+- **Summary**: Shift to Dual-Bus CQRS architecture (Data/Control Planes).
+- **Key Violations to Resolve**:
+    - ASM is tightly coupled to the Spine (must be extracted to micro-daemon).
+    - Agents use gRPC for Data Plane tasks (must switch to direct Redis reads).
+    - Configuration is fragmented (must implement 'Hot Config' register in Redis).
+- **Execution Order**:
+    1. **Issue #91**: Unified Configuration handling (Redis-backed).
+    2. **Spine Decoupling**: Extract ASM into `crates/koad-asm`.
+    3. **CLI Refactor**: Implement the "Read-Only" Query Path for Data Plane tasks.

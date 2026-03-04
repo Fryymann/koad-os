@@ -8,6 +8,7 @@ pub mod intent;
 pub mod logging;
 pub mod session;
 pub mod storage;
+pub mod utils;
 pub mod types;
 
 /// The basic trait for any system component that can be started and stopped.
