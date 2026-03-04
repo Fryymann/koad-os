@@ -242,6 +242,29 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
 
     let _ = outbox_tx.send(Message::Text(sync_msg.to_string())).await;
 
+    // Telemetry Relay: Redis PubSub (Non-blocking) -> Outbox
+    let mut telemetry_subscriber = state._subscriber.clone();
+    let tx_telemetry = outbox_tx.clone();
+    let _telemetry_handle = tokio::spawn(async move {
+        let mut message_stream = telemetry_subscriber.message_rx();
+        let _ = telemetry_subscriber.subscribe(vec!["koad:telemetry:stats", "koad:telemetry:manifest"]).await;
+        
+        while let Ok(msg) = message_stream.recv().await {
+            let channel = msg.channel.to_string();
+            let payload = msg.value.as_string().unwrap_or_default();
+            
+            let ws_msg = match channel.as_str() {
+                "koad:telemetry:stats" => json!({ "type": "SYSTEM_STATS", "payload": serde_json::from_str::<Value>(&payload).unwrap_or_default() }),
+                "koad:telemetry:manifest" => json!({ "type": "CREW_MANIFEST", "payload": serde_json::from_str::<Value>(&payload).unwrap_or_default() }),
+                _ => continue,
+            };
+            
+            if tx_telemetry.send(Message::Text(ws_msg.to_string())).await.is_err() {
+                break;
+            }
+        }
+    });
+
     // Relay Task: Spine gRPC (Real-time Events) -> Outbox
     let spine_addr = state.config.spine_grpc_addr.clone();
     let tx_relay = outbox_tx.clone();

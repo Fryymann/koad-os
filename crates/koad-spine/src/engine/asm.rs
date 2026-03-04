@@ -41,7 +41,7 @@ impl AgentSessionManager {
         for old_sid in to_remove {
             info!("ASM: Pruning duplicate session for KAI '{}': {}", agent_name, old_sid);
             sessions.remove(&old_sid);
-            let _: () = self.storage.redis.client.hdel("koad:state", format!("koad:session:{}", old_sid)).await?;
+            let _: () = self.storage.redis.pool.hdel("koad:state", format!("koad:session:{}", old_sid)).await?;
         }
 
         // 2. Register New Session
@@ -63,7 +63,8 @@ impl AgentSessionManager {
         let _: () = self
             .storage
             .redis
-            .client
+            .pool
+            .next()
             .publish("koad:sessions", msg.to_string())
             .await?;
 
@@ -92,9 +93,9 @@ impl AgentSessionManager {
             let _: () = self
                 .storage
                 .redis
-                .client
-                .publish("koad:sessions", msg.to_string())
-                .await?;
+                .pool
+                .next()
+                .publish("koad:sessions", msg.to_string())                .await?;
 
             Ok(())
         } else {
@@ -114,7 +115,7 @@ impl AgentSessionManager {
         let mut sessions = self.sessions.lock().await;
         
         // We'll use the storage bridge's internal redis client to fetch all keys starting with koad:session
-        if let Ok(all_state) = self.storage.redis.client.hgetall::<std::collections::HashMap<String, String>, _>("koad:state").await {
+        if let Ok(all_state) = self.storage.redis.pool.hgetall::<std::collections::HashMap<String, String>, _>("koad:state").await {
             for (key, val) in all_state {
                 if key.starts_with("koad:session:") {
                     if let Ok(raw_json) = serde_json::from_str::<serde_json::Value>(&val) {
@@ -141,7 +142,7 @@ impl AgentSessionManager {
         let active_task_ids: Vec<String> = self
             .storage
             .redis
-            .client
+            .pool
             .smembers("koad:active_tasks")
             .await?;
         let mut active_tasks = Vec::new();
@@ -149,7 +150,7 @@ impl AgentSessionManager {
             if let Some(state_str) = self
                 .storage
                 .redis
-                .client
+                .pool
                 .hget::<Option<String>, _, _>(format!("koad:task:{}", id), "state")
                 .await?
             {
@@ -160,7 +161,7 @@ impl AgentSessionManager {
         let events: Vec<(String, HashMap<String, String>)> = self
             .storage
             .redis
-            .client
+            .pool
             .xrevrange("koad:events:stream", "+", "-", Some(10))
             .await?;
 
@@ -229,7 +230,7 @@ impl AgentSessionManager {
             let _: () = self
                 .storage
                 .redis
-                .client
+                .pool
                 .hdel("koad:state", format!("koad:session:{}", sid))
                 .await?;
         }
@@ -247,9 +248,9 @@ impl AgentSessionManager {
             let _: () = self
                 .storage
                 .redis
-                .client
-                .publish("koad:sessions", msg.to_string())
-                .await?;
+                .pool
+                .next()
+                .publish("koad:sessions", msg.to_string())                .await?;
         }
 
         Ok(())

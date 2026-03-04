@@ -192,3 +192,21 @@
 - **Architecture:** Transitioned to modular handler pattern under src/handlers/.
 - **Quality:** Achieved Zero-Warning (Condition Green) build state across primary crates.
 - **Impact:** Significant reduction in cognitive load and navigation speed for future development.
+
+## 2026-03-03 - [Architecture] Redis Connection Pooling (#71)
+- **Status:** [RESOLVED]
+- **Key Achievement:** Implemented RedisPool with 8 parallel connections to resolve UDS contention.
+- **Refactor:** Migrated all Spine components to use the pooler via .next() dispatcher.
+- **Resilience:** Decoupled heavy system scans from the Spine boot sequence.
+
+## 2026-03-03 - [Diagnostics] Spine Watchdog (#72)
+- **Status:** [RESOLVED]
+- **Key Achievement:** Implemented recursive health monitoring for the Spine's diagnostic loop.
+- **Refactor:** Added Atomic heartbeat and self-healing task re-spawning in the Kernel.
+- **Stability:** The system can now detect and report stalls in the autonomic monitor.
+
+## 2026-03-03 - [Observability] Non-Blocking Telemetry (#73)
+- **Status:** [RESOLVED]
+- **Key Achievement:** Decoupled telemetry flow from blocking state authority.
+- **Architecture:** Switched to PubSub-based streaming for system stats and manifest.
+- **Impact:** Resolved the Web Deck data starvation and eliminated the primary Spine diagnostic deadlock.

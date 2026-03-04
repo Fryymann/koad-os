@@ -41,7 +41,7 @@ impl KoadComplianceManager {
         let _: () = self
             .storage
             .redis
-            .client
+            .pool
             .xadd(
                 "koad:events:stream",
                 false,

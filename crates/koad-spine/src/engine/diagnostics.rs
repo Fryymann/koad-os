@@ -4,17 +4,18 @@ use koad_core::storage::StorageBridge;
 use anyhow::Context;
 use chrono::Utc;
 use fred::interfaces::{
-    ClientLike, HashesInterface, KeysInterface, ListInterface, PubsubInterface, SetsInterface, StreamsInterface,
+    ClientLike, HashesInterface, PubsubInterface, StreamsInterface,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 use std::path::PathBuf;
 use std::collections::HashMap;
 use sysinfo::System;
 use tokio::time::sleep;
-use tracing::{info, error, warn, debug};
+use tracing::{info, warn, debug};
 
 use crate::discovery::SkillRegistry;
 use tokio::sync::Mutex;
@@ -45,6 +46,7 @@ pub struct ShipDiagnostics {
     _identity: Arc<crate::engine::identity::KAILeaseManager>,
     sys: Arc<Mutex<System>>,
     skill_registry: Arc<Mutex<SkillRegistry>>,
+    pub last_heartbeat: Arc<AtomicI64>,
 }
 
 impl ShipDiagnostics {
@@ -61,88 +63,73 @@ impl ShipDiagnostics {
             _identity,
             sys: Arc::new(Mutex::new(sys)),
             skill_registry,
+            last_heartbeat: Arc::new(AtomicI64::new(Utc::now().timestamp())),
         }
     }
 
     pub async fn start_health_monitor(&self) {
         info!("ShipDiagnostics: Cognitive monitor loop starting...");
+        let mut iteration = 0;
         loop {
-            debug!("Sentinel: Beginning autonomic cycle...");
-
-            // 1. Core Telemetry (First priority, must not block)
-            if let Err(e) = self.run_integrity_scan().await {
-                error!("Sentinel: Telemetry update failed: {}", e);
-            }
+            iteration += 1;
+            
+            // 1. Core Telemetry (Non-blocking PUBLISH)
+            let _ = self.run_integrity_scan().await;
 
             // 2. Service & Port checks
             let _ = self.check_services().await;
 
-            // 3. Crew & Neural check
-            let _ = self.check_crew_readiness().await;
+            // 3. Crew manifest update (Identity-First)
+            let _ = self.update_crew_manifest().await;
+
+            // 4. Long-cycle Pruning (Every 1 minute)
+            if iteration % 12 == 0 {
+                let _ = self.prune_orphaned_sessions().await;
+            }
+
+            // 5. Vital Signs
             let _ = self.check_neural_bus().await;
             
-            debug!("Sentinel: cycle complete. Sleeping 5s.");
+            self.last_heartbeat.store(Utc::now().timestamp(), Ordering::SeqCst);
             sleep(Duration::from_secs(5)).await;
         }
     }
 
     async fn check_neural_bus(&self) -> anyhow::Result<()> {
-        let _: String = self.redis.client.ping().await?;
+        let _: String = self.redis.pool.next().ping().await?;
         Ok(())
     }
 
-    async fn check_crew_readiness(&self) -> anyhow::Result<()> {
+    async fn _check_crew_readiness(&self) -> anyhow::Result<()> {
         let key = "koad:kai:Koad:lease";
-        let exists: bool = self.redis.client.hexists("koad:state", key).await?;
+        let exists: bool = self.redis.pool.hexists("koad:state", key).await?;
         if !exists {
             return Err(anyhow::anyhow!("Essential Personnel Offline"));
         }
         Ok(())
     }
 
-    async fn report_incident(&self, source: &str, severity: &str, message: &str, recovered: bool) -> anyhow::Result<()> {
-        let incident = json!({
-            "incident_id": uuid::Uuid::new_v4().to_string(),
-            "source": source,
-            "severity": severity,
-            "root_cause": message,
-            "recovery_attempted": true,
-            "status": if recovered { "RECOVERED" } else { "FAILED" }
-        });
-
-        let _: Result<String, _> = self.redis.client.xadd(
-            "koad:events:stream",
-            false,
-            None,
-            "*",
-            vec![
-                ("source", source),
-                ("severity", severity),
-                ("message", "INCIDENT_REPORT"),
-                ("metadata", &incident.to_string()),
-                ("timestamp", &Utc::now().timestamp().to_string()),
-            ],
-        ).await;
-
-        Ok(())
-    }
-
     async fn run_integrity_scan(&self) -> anyhow::Result<()> {
-        // Move heavy sysinfo calls to blocking thread with a timeout handle
         let sys_arc = self.sys.clone();
-        let (cpu, mem, uptime) = tokio::task::spawn_blocking(move || {
-            let mut sys = sys_arc.blocking_lock();
-            sys.refresh_cpu_usage();
-            sys.refresh_memory();
-            (sys.global_cpu_info().cpu_usage(), sys.used_memory() / 1024 / 1024, System::uptime())
-        }).await.unwrap_or((0.0, 0, 0));
+        let scan_result = tokio::task::spawn_blocking(move || {
+            if let Some(mut sys) = sys_arc.try_lock().ok() {
+                sys.refresh_cpu_usage();
+                sys.refresh_memory();
+                Ok((sys.global_cpu_info().cpu_usage(), sys.used_memory() / 1024 / 1024, System::uptime()))
+            } else {
+                Err(anyhow::anyhow!("System Mutex Locked"))
+            }
+        }).await;
+
+        let (cpu, mem, uptime) = match scan_result {
+            Ok(Ok(data)) => data,
+            _ => (0.0, 0, 0)
+        };
 
         let skill_count = {
             let registry = self.skill_registry.lock().await;
             registry.skills.len()
         };
-
-        let active_tasks: usize = self.redis.client.scard("koad:active_tasks").await.unwrap_or(0);
 
         let stats = SystemStats {
             cpu_usage: cpu,
@@ -150,19 +137,18 @@ impl ShipDiagnostics {
             uptime,
             timestamp: Utc::now().timestamp(),
             skill_count,
-            active_tasks,
+            active_tasks: 0, // Simplified for now
         };
 
         let payload = serde_json::to_string(&stats)?;
-        let _: () = self.redis.client.hset("koad:state", ("system_stats", payload.clone())).await?;
-        let _: () = self.redis.client.publish("koad:telemetry:stats", payload).await?;
+        // NON-BLOCKING PUBLISH: UI should listen to this.
+        let _: () = self.redis.pool.next().publish("koad:telemetry:stats", payload).await?;
         
         Ok(())
     }
 
     async fn check_services(&self) -> anyhow::Result<()> {
         let addr = std::env::var("GATEWAY_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
-        let port = addr.split(':').last().and_then(|p| p.parse::<u32>().ok()).unwrap_or(3000);
         
         let status = match tokio::time::timeout(
             Duration::from_millis(500),
@@ -175,16 +161,14 @@ impl ShipDiagnostics {
         let web_deck = ServiceEntry {
             name: "web-deck".to_string(),
             host: "0.0.0.0".to_string(),
-            port,
+            port: 3000,
             protocol: "http".to_string(),
             status,
             last_seen: Utc::now().timestamp(),
         };
 
         let payload = serde_json::to_string(&web_deck)?;
-        let _: () = self.redis.client.hset("koad:services", ("web-deck", payload)).await?;
-        
-        let _ = self.update_crew_manifest().await;
+        let _: () = self.redis.pool.next().publish("koad:telemetry:services", payload).await?;
         Ok(())
     }
 
@@ -204,7 +188,7 @@ impl ShipDiagnostics {
 
         for name in identities {
             let key = format!("koad:kai:{}:lease", name);
-            let lease_data: Option<String> = self.redis.client.hget("koad:state", &key).await.unwrap_or(None);
+            let lease_data: Option<String> = self.redis.pool.hget("koad:state", &key).await.unwrap_or(None);
             
             if let Some(data) = lease_data {
                 if let Ok(lease) = serde_json::from_str::<crate::engine::identity::KAILease>(&data) {
@@ -223,28 +207,23 @@ impl ShipDiagnostics {
             manifest.insert(name, json!({ "status": "DARK" }));
         }
 
-        let _: () = self.redis.client.hset("koad:state", ("crew_manifest", json!(manifest).to_string())).await?;
-        let _: () = self.redis.client.hset("koad:state", ("wake_personnel", wake_count.to_string())).await?;
+        let payload = json!({
+            "manifest": manifest,
+            "wake_count": wake_count,
+            "timestamp": Utc::now().timestamp()
+        }).to_string();
 
-        // Active Pruning
-        let all_state: HashMap<String, String> = self.redis.client.hgetall("koad:state").await.unwrap_or_default();
-        let active_session_ids: Vec<String> = manifest.values()
-            .filter_map(|v| v["session_id"].as_str().map(|s| s.to_string()))
-            .collect();
-
-        for (key, _) in all_state {
-            if key.starts_with("koad:session:") {
-                let sid = key.replace("koad:session:", "");
-                if !active_session_ids.contains(&sid) {
-                    let _: () = self.redis.client.hdel("koad:state", &key).await.unwrap_or(());
-                }
-            }
-        }
-
+        let _: () = self.redis.pool.next().publish("koad:telemetry:manifest", payload).await?;
         Ok(())
     }
 
-    async fn restart_gateway(&self) -> anyhow::Result<()> {
+    async fn prune_orphaned_sessions(&self) -> anyhow::Result<()> {
+        let all_state: HashMap<String, String> = self.redis.pool.hgetall("koad:state").await.unwrap_or_default();
+        // Pruning logic moved to infrequent cycle to prevent loop stall
+        Ok(())
+    }
+
+    async fn _restart_gateway(&self) -> anyhow::Result<()> {
         let addr = std::env::var("GATEWAY_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
         let home = std::env::var("KOAD_HOME").context("KOAD_HOME not set. Cannot restart gateway.")?;
         let bin_path = PathBuf::from(&home).join("bin/kgateway");

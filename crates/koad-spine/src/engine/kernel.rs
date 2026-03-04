@@ -115,9 +115,38 @@ impl KernelBuilder {
         let diagnostics = engine.diagnostics.clone();
         let mut rx_diag = shutdown_rx.clone();
         tokio::spawn(async move {
-            tokio::select! {
-                _ = diagnostics.start_health_monitor() => {},
-                _ = rx_diag.changed() => { println!("Kernel: Health monitor stopping."); }
+            println!("Kernel: Autonomic Watchdog ACTIVE.");
+            loop {
+                let last_hb = diagnostics.last_heartbeat.load(std::sync::atomic::Ordering::SeqCst);
+                let now = chrono::Utc::now().timestamp();
+                let gap = now - last_hb;
+
+                if gap > 15 {
+                    eprintln!("\x1b[31mCRITICAL: ShipDiagnostics loop stalled (Gap: {}s). Recovery required.\x1b[0m", gap);
+                }
+
+                tokio::select! {
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {},
+                    _ = rx_diag.changed() => { break; }
+                }
+            }
+            println!("Kernel: Watchdog stopping.");
+        });
+
+        let diag_inner = engine.diagnostics.clone();
+        let mut rx_diag_task = shutdown_rx.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = diag_inner.start_health_monitor() => {
+                        eprintln!("\x1b[33mSHIP ALERT: Health monitor task exited unexpectedly. Restarting...\x1b[0m");
+                    },
+                    _ = rx_diag_task.changed() => {
+                        println!("Kernel: Health monitor stopping.");
+                        break;
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
         });
 

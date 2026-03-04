@@ -1,16 +1,15 @@
 use fred::prelude::*;
+use fred::clients::RedisPool;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::Duration;
 use tokio::time::sleep;
 
 pub struct RedisClient {
-    pub client: RedisClientInner,
-    pub subscriber: RedisClientInner,
+    pub pool: RedisPool,
+    pub subscriber: fred::clients::RedisClient,
     pub _process: Option<Child>,
 }
-
-pub type RedisClientInner = fred::clients::RedisClient;
 
 impl RedisClient {
     pub async fn new(koad_home: &str) -> anyhow::Result<Self> {
@@ -62,7 +61,7 @@ impl RedisClient {
             }
         }
 
-        // 1. Start Redis Process ONLY if socket doesn't exist (Self-managed)
+        // 1. Start Redis Process ONLY if socket doesn't exist
         if !socket_path.exists() {
             println!(
                 "Starting Koad-managed Redis server at {}...",
@@ -86,13 +85,7 @@ impl RedisClient {
                     .spawn()?,
             );
 
-            // Give it a moment to create the socket
             sleep(Duration::from_millis(500)).await;
-        } else {
-            println!(
-                "Connecting to existing Redis socket at {}...",
-                socket_path.display()
-            );
         }
 
         // 2. Connect via UDS
@@ -101,12 +94,12 @@ impl RedisClient {
             ..Default::default()
         };
 
-        // Primary client for commands
-        let client = Builder::from_config(config.clone())
+        // Primary Connection Pool (8 connections)
+        let pool = Builder::from_config(config.clone())
             .with_connection_config(|c| {
                 c.connection_timeout = Duration::from_secs(5);
             })
-            .build()?;
+            .build_pool(8)?;
 
         // Subscriber client for PubSub
         let subscriber = Builder::from_config(config)
@@ -115,13 +108,13 @@ impl RedisClient {
             })
             .build()?;
 
-        client.init().await?;
+        pool.init().await?;
         subscriber.init().await?;
 
-        println!("Connected to Redis via UDS (Primary + Subscriber).");
+        println!("Connected to Redis Pool (8 connections) + Subscriber.");
 
         Ok(Self {
-            client,
+            pool,
             subscriber,
             _process: process,
         })

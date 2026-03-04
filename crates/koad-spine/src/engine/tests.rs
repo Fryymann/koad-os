@@ -14,7 +14,7 @@ mod tests {
         let tdir = tempdir().unwrap();
         let home = tdir.path().to_str().unwrap();
         let redis = RedisClient::new(home).await.unwrap();
-        let _: String = redis.client.ping().await.unwrap();
+        let _: String = redis.pool.ping().await.unwrap();
     }
 
     use koad_core::intent::{ExecuteIntent, Intent};
@@ -45,7 +45,7 @@ mod tests {
         println!("Test: Publishing intent to koad:commands: {}", payload);
         let _: () = engine
             .redis
-            .client
+            .pool
             .publish("koad:commands", payload)
             .await
             .unwrap();
@@ -58,7 +58,7 @@ mod tests {
 
             let events: Vec<(String, std::collections::HashMap<String, String>)> = engine
                 .redis
-                .client
+                .pool
                 .xrange("koad:events:stream", "-", "+", None)
                 .await
                 .unwrap_or_default();
@@ -112,7 +112,7 @@ mod tests {
         println!("Test: Publishing path check intent: {}", payload);
         let _: () = engine
             .redis
-            .client
+            .pool
             .publish("koad:commands", payload)
             .await
             .unwrap();
@@ -123,7 +123,7 @@ mod tests {
             println!("Test: Checking path events (attempt {})...", i + 1);
             let events: Vec<(String, std::collections::HashMap<String, String>)> = engine
                 .redis
-                .client
+                .pool
                 .xrange("koad:events:stream", "-", "+", None)
                 .await
                 .unwrap_or_default();

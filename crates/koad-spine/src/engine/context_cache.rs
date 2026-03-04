@@ -25,7 +25,7 @@ impl KoadContextCache {
         
         // 1. Check Cache
         if !bypass_cache {
-            match self.redis.client.hget::<Option<String>, _, _>(&cache_key, "content").await {
+            match self.redis.pool.hget::<Option<String>, _, _>(&cache_key, "content").await {
                 Ok(Some(cached_content)) => {
                     info!("Cache Hit: serving snippet from memory for {:?}", path);
                     return self.extract_range(&cached_content, start_line, end_line, "cache");
@@ -44,8 +44,8 @@ impl KoadContextCache {
         let full_content = std::fs::read_to_string(&full_path)?;
         
         // 3. Update Cache
-        let _: () = self.redis.client.hset(&cache_key, ("content", &full_content)).await?;
-        let _: () = self.redis.client.expire(&cache_key, 600).await?;
+        let _: () = self.redis.pool.hset(&cache_key, ("content", &full_content)).await?;
+        let _: () = self.redis.pool.expire(&cache_key, 600).await?;
 
         self.extract_range(&full_content, start_line, end_line, "disk")
     }

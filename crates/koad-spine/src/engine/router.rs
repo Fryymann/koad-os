@@ -142,7 +142,7 @@ impl DirectiveRouter {
                 });
                 let _: () = engine
                     .redis
-                    .client
+                    .pool
                     .hset(
                         format!("koad:task:{}", task_id),
                         ("state", error_state.to_string()),
@@ -152,7 +152,7 @@ impl DirectiveRouter {
 
                 let _: () = engine
                     .redis
-                    .client
+                    .pool
                     .xadd(
                         "koad:events:stream",
                         false,
@@ -184,7 +184,7 @@ impl DirectiveRouter {
         });
         let _: () = engine
             .redis
-            .client
+            .pool
             .hset(
                 format!("koad:task:{}", task_id),
                 ("state", initial_state.to_string()),
@@ -193,7 +193,7 @@ impl DirectiveRouter {
             .unwrap_or_default();
         let _: () = engine
             .redis
-            .client
+            .pool
             .sadd("koad:active_tasks", task_id.clone())
             .await
             .unwrap_or_default();
@@ -201,7 +201,7 @@ impl DirectiveRouter {
         // 3. Broadcast START Event
         let _: () = engine
             .redis
-            .client
+            .pool
             .xadd(
                 "koad:events:stream",
                 false,
@@ -265,7 +265,7 @@ impl DirectiveRouter {
                 });
                 let _: () = engine
                     .redis
-                    .client
+                    .pool
                     .hset(
                         format!("koad:task:{}", task_id),
                         ("state", final_state.to_string()),
@@ -274,14 +274,14 @@ impl DirectiveRouter {
                     .unwrap_or_default();
                 let _: () = engine
                     .redis
-                    .client
+                    .pool
                     .srem("koad:active_tasks", task_id.clone())
                     .await
                     .unwrap_or_default();
 
                 if let Err(e) = engine
                     .redis
-                    .client
+                    .pool
                     .xadd::<String, _, _, _, _>(
                         "koad:events:stream",
                         false,
@@ -303,13 +303,13 @@ impl DirectiveRouter {
             Err(e) => {
                 let _: () = engine
                     .redis
-                    .client
+                    .pool
                     .srem("koad:active_tasks", task_id.clone())
                     .await
                     .unwrap_or_default();
                 let _: () = engine
                     .redis
-                    .client
+                    .pool
                     .xadd(
                         "koad:events:stream",
                         false,

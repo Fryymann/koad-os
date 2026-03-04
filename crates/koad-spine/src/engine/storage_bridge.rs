@@ -105,7 +105,7 @@ impl StorageBridge for KoadStorageBridge {
         // 1. Update Redis (Hot Path)
         let _: () = self
             .redis
-            .client
+            .pool
             .hset::<(), _, _>("koad:state", (key, val_str.clone()))
             .await?;
 
@@ -128,7 +128,7 @@ impl StorageBridge for KoadStorageBridge {
 
     async fn get_state(&self, key: &str) -> anyhow::Result<Option<Value>> {
         // 1. Check Redis (Hot Path)
-        let res: Option<String> = self.redis.client.hget("koad:state", key).await?;
+        let res: Option<String> = self.redis.pool.hget("koad:state", key).await?;
         if let Some(s) = res {
             return Ok(Some(serde_json::from_str(&s)?));
         }
@@ -153,7 +153,7 @@ impl StorageBridge for KoadStorageBridge {
             // Hydrate back to Redis
             let _: () = self
                 .redis
-                .client
+                .pool
                 .hset::<(), _, _>("koad:state", (key, s))
                 .await?;
             return Ok(Some(val));
@@ -168,7 +168,7 @@ impl StorageBridge for KoadStorageBridge {
         let sqlite = self.sqlite.clone();
 
         let state: std::collections::HashMap<String, String> =
-            redis.client.hgetall("koad:state").await?;
+            redis.pool.hgetall("koad:state").await?;
         let now = Utc::now().timestamp();
 
         if !state.is_empty() {
@@ -212,7 +212,7 @@ impl StorageBridge for KoadStorageBridge {
         .await??;
 
         for (k, v) in entries {
-            let _: () = redis.client.hset::<(), _, _>("koad:state", (k, v)).await?;
+            let _: () = redis.pool.hset::<(), _, _>("koad:state", (k, v)).await?;
         }
 
         Ok(())

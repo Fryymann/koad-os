@@ -37,7 +37,7 @@ impl KoadSpine {
         let _: () = self
             .engine
             .redis
-            .client
+            .pool
             .hset("koad:services", ("grpc", service_entry.to_string()))
             .await?;
         Ok(())
@@ -115,7 +115,8 @@ impl SpineService for KoadSpine {
         if let Err(e) = self
             .engine
             .redis
-            .client
+            .pool
+            .next()
             .publish::<(), _, _>("koad:commands", intent_str)
             .await
         {
@@ -245,7 +246,7 @@ impl SpineService for KoadSpine {
         let res: Option<String> = self
             .engine
             .redis
-            .client
+            .pool
             .hget("koad:services", &name)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -288,7 +289,7 @@ impl SpineService for KoadSpine {
         let _: () = self
             .engine
             .redis
-            .client
+            .pool
             .hset("koad:services", (entry.name, payload.to_string()))
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
