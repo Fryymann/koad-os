@@ -8,8 +8,9 @@ use axum::{
 };
 use chrono::Utc;
 use clap::Parser;
-use fred::interfaces::{HashesInterface, PubsubInterface};
+use fred::interfaces::{HashesInterface, PubsubInterface, ClientLike};
 use fred::prelude::*;
+use fred::clients::RedisPool;
 use futures::{SinkExt, StreamExt};
 use koad_board::GitHubClient;
 use koad_core::config::KoadConfig as CoreConfig;
@@ -25,7 +26,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 
 #[derive(Parser)]
 struct Cli {
@@ -35,8 +36,8 @@ struct Cli {
 }
 
 struct GatewayState {
-    pub client: RedisClient,
-    pub _subscriber: RedisClient,
+    pub pool: RedisPool,
+    pub subscriber: fred::clients::RedisClient,
     pub gh_client: Option<GitHubClient>,
     pub config: CoreConfig,
 }
@@ -76,24 +77,30 @@ async fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    let client = Builder::from_config(redis_config.clone()).build()?;
+    // Connection Pool for commands
+    let pool = Builder::from_config(redis_config.clone())
+        .with_connection_config(|c| {
+            c.connection_timeout = std::time::Duration::from_secs(5);
+        })
+        .build_pool(4)?;
+
+    // Dedicated subscriber for PubSub
     let subscriber = Builder::from_config(redis_config).build()?;
 
-    client.init().await?;
+    pool.init().await?;
     subscriber.init().await?;
 
     let state = Arc::new(GatewayState {
-        client,
-        _subscriber: subscriber,
+        pool,
+        subscriber,
         gh_client,
         config: config.clone(),
     });
 
-    // 1. Initialize and Start Deck Manager (Vite Dev Server if needed)
+    // 1. Initialize and Start Deck Manager
     let deck_path = config.home.join("web/deck").to_string_lossy().into_owned();
     let deck_manager = DeckManager::new(&deck_path).start().await?;
 
-    // Ensure static dist directory exists for Vite Dashboard
     let dist_path = config.home.join("web/deck/dist");
     let _ = std::fs::create_dir_all(&dist_path);
 
@@ -118,7 +125,8 @@ async fn main() -> anyhow::Result<()> {
         "last_seen": Utc::now().timestamp()
     });
     let _: () = state
-        .client
+        .pool
+        .next()
         .hset::<(), _, _>("koad:services", ("web-deck", service_entry.to_string()))
         .await
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
@@ -134,28 +142,9 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn shutdown_signal() {
-    let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
-    }
-
+    tokio::signal::ctrl_c()
+        .await
+        .expect("failed to install Ctrl+C handler");
     info!("Gateway: Termination signal received. Commencing graceful shutdown...");
 }
 
@@ -169,29 +158,20 @@ async fn ws_handler(
 async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
     info!("Gateway: WebSocket client connected.");
     let (mut sender, mut receiver) = socket.split();
-    let client = state.client.clone();
+    let pool = state.pool.clone();
 
-    // Outbox channel: All tasks send messages here, one task sends to WebSocket
     let (outbox_tx, mut outbox_rx) = tokio::sync::mpsc::channel::<Message>(64);
 
-    // 1. Initial Sync (Agents + Issues + Projects)
+    // 1. Initial Sync
     let mut agents = vec![];
-    info!("Gateway: Syncing agents from Redis...");
-    if let Ok(all_state) = client
+    if let Ok(all_state) = pool.next()
         .hgetall::<std::collections::HashMap<String, String>, _>("koad:state")
         .await
     {
         for (key, val) in all_state {
             if key.starts_with("koad:session:") {
                 if let Ok(raw_json) = serde_json::from_str::<Value>(&val) {
-                    // Check if it's wrapped in a 'data' field (from Spine hydration)
-                    let data = if let Some(inner) = raw_json.get("data") {
-                        inner
-                    } else {
-                        &raw_json
-                    };
-
-                    // CRITICAL FILTER: Only push active or idle sessions to the UI
+                    let data = if let Some(inner) = raw_json.get("data") { inner } else { &raw_json };
                     let status = data["status"].as_str().unwrap_or("unknown");
                     if status == "active" || status == "idle" {
                         agents.push(data.clone());
@@ -210,9 +190,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
 
     let mut projects = vec![];
     if let Ok(conn) = Connection::open(state.config.get_db_path()) {
-        if let Ok(mut stmt) =
-            conn.prepare("SELECT id, name, path, branch, health FROM projects WHERE active = 1")
-        {
+        if let Ok(mut stmt) = conn.prepare("SELECT id, name, path, branch, health FROM projects WHERE active = 1") {
             if let Ok(rows) = stmt.query_map([], |row| {
                 Ok(json!({
                     "id": row.get::<_, i32>(0)?,
@@ -222,28 +200,19 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
                     "health": row.get::<_, Option<String>>(4)?.unwrap_or_else(|| "unknown".into()),
                 }))
             }) {
-                for r in rows {
-                    if let Ok(p) = r {
-                        projects.push(p);
-                    }
-                }
+                for r in rows { if let Ok(p) = r { projects.push(p); } }
             }
         }
     }
 
     let sync_msg = json!({
         "type": "SYSTEM_SYNC",
-        "payload": {
-            "agents": agents,
-            "issues": issues,
-            "projects": projects
-        }
+        "payload": { "agents": agents, "issues": issues, "projects": projects }
     });
-
     let _ = outbox_tx.send(Message::Text(sync_msg.to_string())).await;
 
     // Telemetry Relay: Redis PubSub (Non-blocking) -> Outbox
-    let mut telemetry_subscriber = state._subscriber.clone();
+    let mut telemetry_subscriber = state.subscriber.clone();
     let tx_telemetry = outbox_tx.clone();
     let _telemetry_handle = tokio::spawn(async move {
         let mut message_stream = telemetry_subscriber.message_rx();
@@ -259,9 +228,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
                 _ => continue,
             };
             
-            if tx_telemetry.send(Message::Text(ws_msg.to_string())).await.is_err() {
-                break;
-            }
+            if tx_telemetry.send(Message::Text(ws_msg.to_string())).await.is_err() { break; }
         }
     });
 
@@ -270,61 +237,28 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
     let tx_relay = outbox_tx.clone();
     let relay_handle = tokio::spawn(async move {
         if let Ok(mut client) = SpineServiceClient::connect(spine_addr).await {
-            if let Ok(response) = client
-                .stream_system_events(StreamSystemEventsRequest {
-                    filter_sources: vec![],
-                })
-                .await
-            {
+            if let Ok(response) = client.stream_system_events(StreamSystemEventsRequest { filter_sources: vec![] }).await {
                 let mut stream = response.into_inner();
                 while let Ok(Some(event)) = stream.message().await {
                     let payload_str = event.message;
-
-                    // Normalize messages for the Frontend
                     if let Ok(mut json) = serde_json::from_str::<Value>(&payload_str) {
                         let msg_type = json["type"].as_str().unwrap_or_default().to_lowercase();
                         if msg_type == "session_update" {
-                            let normalized = json!({
-                                "type": "SESSION_UPDATE",
-                                "payload": json["data"].take()
-                            });
-                            if tx_relay
-                                .send(Message::Text(normalized.to_string()))
-                                .await
-                                .is_err()
-                            {
-                                break;
-                            }
+                            let normalized = json!({ "type": "SESSION_UPDATE", "payload": json["data"].take() });
+                            if tx_relay.send(Message::Text(normalized.to_string())).await.is_err() { break; }
                             continue;
                         }
                     }
-
-                    if tx_relay.send(Message::Text(payload_str)).await.is_err() {
-                        break;
-                    }
+                    if tx_relay.send(Message::Text(payload_str)).await.is_err() { break; }
                 }
             }
         }
     });
 
-    // Heartbeat Task: Keep connection alive
-    let tx_hb = outbox_tx.clone();
-    let hb_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
-        loop {
-            interval.tick().await;
-            if tx_hb.send(Message::Ping(vec![])).await.is_err() {
-                break;
-            }
-        }
-    });
-
-    // Outbox Sender: Send all messages to WebSocket
+    // Outbox Sender
     let outbox_sender_handle = tokio::spawn(async move {
         while let Some(msg) = outbox_rx.recv().await {
-            if sender.send(msg).await.is_err() {
-                break;
-            }
+            if sender.send(msg).await.is_err() { break; }
         }
     });
 
@@ -343,8 +277,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
                                 env_vars: std::collections::HashMap::new(),
                             });
                             if let Ok(intent_str) = serde_json::to_string(&intent) {
-                                let _: Result<(), _> =
-                                    client.publish("koad:commands", intent_str).await;
+                                let _: Result<(), _> = pool.next().publish("koad:commands", intent_str).await;
                             }
                         }
                     }
@@ -356,6 +289,5 @@ async fn handle_socket(socket: WebSocket, state: Arc<GatewayState>) {
     }
 
     relay_handle.abort();
-    hb_handle.abort();
     outbox_sender_handle.abort();
 }

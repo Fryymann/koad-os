@@ -4,7 +4,7 @@ use koad_core::storage::StorageBridge;
 use anyhow::Context;
 use chrono::Utc;
 use fred::interfaces::{
-    ClientLike, HashesInterface, PubsubInterface, StreamsInterface,
+    ClientLike, HashesInterface, ListInterface, PubsubInterface, SetsInterface, StreamsInterface,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::collections::HashMap;
 use sysinfo::System;
 use tokio::time::sleep;
-use tracing::{info, warn, debug};
+use tracing::{info, error, warn, debug};
 
 use crate::discovery::SkillRegistry;
 use tokio::sync::Mutex;
@@ -100,15 +100,6 @@ impl ShipDiagnostics {
         Ok(())
     }
 
-    async fn _check_crew_readiness(&self) -> anyhow::Result<()> {
-        let key = "koad:kai:Koad:lease";
-        let exists: bool = self.redis.pool.hexists("koad:state", key).await?;
-        if !exists {
-            return Err(anyhow::anyhow!("Essential Personnel Offline"));
-        }
-        Ok(())
-    }
-
     async fn run_integrity_scan(&self) -> anyhow::Result<()> {
         let sys_arc = self.sys.clone();
         let scan_result = tokio::task::spawn_blocking(move || {
@@ -137,12 +128,13 @@ impl ShipDiagnostics {
             uptime,
             timestamp: Utc::now().timestamp(),
             skill_count,
-            active_tasks: 0, // Simplified for now
+            active_tasks: 0,
         };
 
         let payload = serde_json::to_string(&stats)?;
-        // NON-BLOCKING PUBLISH: UI should listen to this.
-        let _: () = self.redis.pool.next().publish("koad:telemetry:stats", payload).await?;
+        let _: () = self.redis.pool.next().publish("koad:telemetry:stats", &payload).await?;
+        // Persistent key for status --json
+        let _: () = self.redis.pool.next().hset("koad:state", ("system_stats", payload)).await?;
         
         Ok(())
     }
@@ -168,7 +160,7 @@ impl ShipDiagnostics {
         };
 
         let payload = serde_json::to_string(&web_deck)?;
-        let _: () = self.redis.pool.next().publish("koad:telemetry:services", payload).await?;
+        let _: () = self.redis.pool.next().publish("koad:telemetry:services", &payload).await?;
         Ok(())
     }
 
@@ -188,19 +180,23 @@ impl ShipDiagnostics {
 
         for name in identities {
             let key = format!("koad:kai:{}:lease", name);
-            let lease_data: Option<String> = self.redis.pool.hget("koad:state", &key).await.unwrap_or(None);
+            let lease_data: Option<String> = self.redis.pool.next().hget("koad:state", &key).await.unwrap_or(None);
             
             if let Some(data) = lease_data {
-                if let Ok(lease) = serde_json::from_str::<crate::engine::identity::KAILease>(&data) {
-                    if lease.expires_at > Utc::now() {
-                        manifest.insert(name, json!({
-                            "status": "WAKE",
-                            "session_id": lease.session_id,
-                            "driver": lease.driver_id,
-                            "last_seen": lease.expires_at.to_rfc3339()
-                        }));
-                        wake_count += 1;
-                        continue;
+                if let Ok(lease) = serde_json::from_str::<serde_json::Value>(&data) {
+                    // Robust timestamp parsing
+                    let expires_at = lease["expires_at"].as_str().unwrap_or("");
+                    if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(expires_at) {
+                        if ts.with_timezone(&Utc) > Utc::now() {
+                            manifest.insert(name, json!({
+                                "status": "WAKE",
+                                "session_id": lease["session_id"],
+                                "driver": lease["driver_id"],
+                                "last_seen": expires_at
+                            }));
+                            wake_count += 1;
+                            continue;
+                        }
                     }
                 }
             }
@@ -213,17 +209,40 @@ impl ShipDiagnostics {
             "timestamp": Utc::now().timestamp()
         }).to_string();
 
-        let _: () = self.redis.pool.next().publish("koad:telemetry:manifest", payload).await?;
+        let _: () = self.redis.pool.next().publish("koad:telemetry:manifest", &payload).await?;
+        // Persistent key for status --json
+        let _: () = self.redis.pool.next().hset("koad:state", ("crew_manifest", payload)).await?;
         Ok(())
     }
 
     async fn prune_orphaned_sessions(&self) -> anyhow::Result<()> {
-        let all_state: HashMap<String, String> = self.redis.pool.hgetall("koad:state").await.unwrap_or_default();
-        // Pruning logic moved to infrequent cycle to prevent loop stall
+        let all_state: HashMap<String, String> = self.redis.pool.next().hgetall("koad:state").await.unwrap_or_default();
+        let mut active_session_ids = Vec::new();
+        
+        // Find session IDs currently linked to leases
+        for (key, val) in &all_state {
+            if key.starts_with("koad:kai:") && key.ends_with(":lease") {
+                if let Ok(lease) = serde_json::from_str::<serde_json::Value>(val) {
+                    if let Some(sid) = lease["session_id"].as_str() {
+                        active_session_ids.push(sid.to_string());
+                    }
+                }
+            }
+        }
+
+        for (key, _) in all_state {
+            if key.starts_with("koad:session:") {
+                let sid = key.replace("koad:session:", "");
+                if !active_session_ids.contains(&sid) {
+                    info!("Autonomic Sentinel: Pruning orphaned session key: {}", key);
+                    let _: () = self.redis.pool.next().hdel("koad:state", &key).await.unwrap_or(());
+                }
+            }
+        }
         Ok(())
     }
 
-    async fn _restart_gateway(&self) -> anyhow::Result<()> {
+    async fn restart_gateway(&self) -> anyhow::Result<()> {
         let addr = std::env::var("GATEWAY_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
         let home = std::env::var("KOAD_HOME").context("KOAD_HOME not set. Cannot restart gateway.")?;
         let bin_path = PathBuf::from(&home).join("bin/kgateway");
