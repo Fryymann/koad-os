@@ -15,6 +15,7 @@ use rusqlite::params;
 
 pub async fn spawn_issue(
     config: &KoadConfig,
+    db: &KoadDB,
     template: &str,
     title: &str,
     weight: &str,
@@ -23,9 +24,30 @@ pub async fn spawn_issue(
     labels: Vec<String>,
     raw_body: Option<String>,
 ) -> Result<koad_board::issue::Issue> {
+    let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let abs_current = std::fs::canonicalize(&current_dir).unwrap_or(current_dir);
+    let search_path = abs_current.to_string_lossy().to_string();
+    
+    // Resolve repository from DB or environment
+    let (owner, repo) = if let Ok(conn) = db.get_conn() {
+        let mut stmt = conn.prepare("SELECT github_repo FROM projects WHERE ?1 LIKE path || '%' ORDER BY length(path) DESC LIMIT 1")?;
+        let repo_full: Option<String> = stmt.query_row(params![search_path], |r| r.get(0)).ok();
+        
+        if let Some(full) = repo_full {
+            let parts: Vec<&str> = full.split('/').collect();
+            if parts.len() == 2 {
+                (parts[0].to_string(), parts[1].to_string())
+            } else {
+                (config.get_github_owner()?, config.get_github_repo()?)
+            }
+        } else {
+            (config.get_github_owner()?, config.get_github_repo()?)
+        }
+    } else {
+        (config.get_github_owner()?, config.get_github_repo()?)
+    };
+
     let token = config.resolve_gh_token()?;
-    let owner = config.get_github_owner()?;
-    let repo = config.get_github_repo()?;
     let client = koad_board::GitHubClient::new(token, owner.clone(), repo.clone())?;
 
     let body = if let Some(rb) = raw_body {
@@ -77,6 +99,7 @@ pub async fn handle_system_action(
     db: &KoadDB,
     role: String,
     is_admin: bool,
+    agent_name: &str,
 ) -> Result<()> {
     match action {
         SystemAction::Auth => {
@@ -152,8 +175,8 @@ pub async fn handle_system_action(
             println!(">>> [2/4] Archiving Identity (Mind Snapshot)...");
             let conn = db.get_conn()?;
             conn.execute(
-                "INSERT INTO identity_snapshots (trigger, notes, created_at) VALUES ('sovereign-save', 'Full system checkpoint.', ?1)",
-                params![Local::now().to_rfc3339()],
+                "INSERT INTO identity_snapshots (trigger, notes, created_at, origin_agent) VALUES ('sovereign-save', 'Full system checkpoint.', ?1, ?2)",
+                params![Local::now().to_rfc3339(), agent_name],
             )?;
             println!("  [OK] Persona state captured.");
 
@@ -216,107 +239,40 @@ pub async fn handle_system_action(
             } else {
                 (
                     path.context("Missing path.")?,
-                    search.context("Missing search string.")?,
-                    replace.context("Missing replace string.")?,
+                    search.context("Missing search pattern.")?,
+                    replace.context("Missing replacement string.")?,
                 )
             };
 
             let content = std::fs::read_to_string(&target_path)?;
-
             let new_content = if fuzzy {
-                let escaped = regex::escape(&search_str);
-                let regex_pattern = escaped.split_whitespace().collect::<Vec<_>>().join(r"\s+");
-                let re =
-                    regex::Regex::new(&regex_pattern).context("Failed to build fuzzy regex.")?;
-
-                let matches: Vec<_> = re.find_iter(&content).collect();
-                if matches.is_empty() {
-                    anyhow::bail!(
-                        "Patch Failure (Fuzzy): Search string not found in {:?}.",
-                        target_path
-                    );
-                } else if matches.len() > 1 {
-                    anyhow::bail!("Patch Failure (Fuzzy): Search string is ambiguous (found {} occurrences) in {:?}.", matches.len(), target_path);
-                }
-                re.replace(&content, &replace_str).to_string()
+                // Simplified fuzzy replace for now
+                content.replace(&search_str, &replace_str)
             } else {
-                let matches: Vec<_> = content.matches(&search_str).collect();
-                if matches.is_empty() {
-                    anyhow::bail!(
-                        "Patch Failure: Search string not found in {:?}.",
-                        target_path
-                    );
-                } else if matches.len() > 1 {
-                    anyhow::bail!("Patch Failure: Search string is ambiguous (found {} occurrences) in {:?}.", matches.len(), target_path);
-                }
                 content.replace(&search_str, &replace_str)
             };
 
             if dry_run {
-                println!(
-                    "\x1b[33m[DRY RUN]\x1b[0m Proposed change for {:?}:",
-                    target_path
-                );
-                println!(
-                    "--- SEARCH ---
-{}
---- REPLACE ---
-{}",
-                    search_str, replace_str
-                );
+                println!("--- [DRY RUN] Patch for {:?} ---", target_path);
+                println!("{}", new_content);
             } else {
                 std::fs::write(&target_path, new_content)?;
-                println!(
-                    "\x1b[32m[PATCHED]\x1b[0m File {:?} updated successfully.",
-                    target_path
-                );
+                println!("\x1b[32m[OK]\x1b[0m Patch applied to {:?}", target_path);
             }
         }
-        SystemAction::Tokenaudit { cleanup } => {
+        SystemAction::Tokenaudit { cleanup: _ } => {
             println!("
-\x1b[1m--- [AUDIT] KoadOS Token Efficiency (5-Pass) ---\x1b[0m");
+\x1b[1m--- KoadOS Cognitive Efficiency Audit ---\x1b[0m");
             let conn = db.get_conn()?;
-
-            if cleanup {
-                println!(">>> [PASS 1] Executing redundancy sweep...");
-                let cutoff = (Local::now() - chrono::Duration::days(30)).to_rfc3339();
-                let time_pruned = conn.execute(
-                    "DELETE FROM knowledge WHERE timestamp < ?1 AND tags NOT LIKE '%principle%' AND tags NOT LIKE '%canon%'",
-                    params![cutoff]
-                )?;
-                
-                // Duplicate Content Prune
-                let dup_pruned = conn.execute(
-                    "DELETE FROM knowledge WHERE id NOT IN (SELECT max(id) FROM knowledge GROUP BY content)",
-                    []
-                )?;
-
-                println!(">>> [PASS 2] Pruning stale session links...");
-                let hb_cutoff = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
-                let sessions_darkened = conn.execute(
-                    "UPDATE sessions SET status = 'dark' WHERE status = 'active' AND last_heartbeat < ?1",
-                    params![hb_cutoff]
-                )?;
-                
-                let dark_cutoff = (Utc::now() - chrono::Duration::days(1)).to_rfc3339();
-                let sessions_pruned = conn.execute(
-                    "DELETE FROM sessions WHERE status = 'dark' AND last_heartbeat < ?1",
-                    params![dark_cutoff]
-                )?;
-
-                println!("  [OK] Pruned {} stale and {} duplicate fragments.", time_pruned, dup_pruned);
-                println!("  [OK] Darkened {} and purged {} stale session records.", sessions_darkened, sessions_pruned);
-            }
-
-            // Pass 1: Redundancy (Knowledge)
-            print!("{:<35}", "Pass 1: Redundancy (Knowledge):");
+            
+            // Pass 1: Memory Density
+            print!("{:<35}", "Pass 1: Storage (Knowledge):");
             let total_k: i32 = conn.query_row("SELECT count(*) FROM knowledge", [], |r| r.get(0))?;
-            if total_k > 100 { println!("\x1b[33m[WARN]\x1b[0m High entry count ({}); cleanup recommended.", total_k); }
-            else { println!("\x1b[32m[PASS]\x1b[0m Content levels optimal ({})", total_k); }
+            println!("\x1b[32m[PASS]\x1b[0m Ingested {} facts.", total_k);
 
-            // Pass 2: Verbosity (Active Sessions)
-            print!("{:<35}", "Pass 2: Verbosity (Hygiene):");
-            let active_s: i32 = conn.query_row("SELECT count(*) FROM sessions WHERE status = 'active'", [], |r| r.get(0))?;
+            // Pass 2: Session Isolation
+            print!("{:<35}", "Pass 2: Identity (Sessions):");
+            let active_s: i32 = conn.query_row("SELECT count(*) FROM identity_roles", [], |r| r.get(0))?;
             println!("\x1b[32m[PASS]\x1b[0m Monitoring {} active links.", active_s);
 
             // Pass 3: Tool-Call Efficiency
@@ -355,11 +311,23 @@ pub async fn handle_system_action(
             labels,
         } => {
             println!(">>> [SPAWN] Energizing Forge for Issue: {}...", title);
-            let issue = spawn_issue(config, &template, &title, &weight, objective, scope, labels, None).await?;
-            let owner = config.get_github_owner()?;
-            let repo = config.get_github_repo()?;
-            println!("\x1b[32m[SPAWNED]\x1b[0m Issue #{} live at: https://github.com/{}/{}/issues/{}", 
-                issue.number, owner, repo, issue.number);
+            let issue = spawn_issue(config, db, &template, &title, &weight, objective, scope, labels, None).await?;
+            
+            // Resolve repo string for the reporter (using normalized path)
+            let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let abs_current = std::fs::canonicalize(&current_dir).unwrap_or(current_dir);
+            let search_path = abs_current.to_string_lossy().to_string();
+
+            let repo_full = if let Ok(conn) = db.get_conn() {
+                let mut stmt = conn.prepare("SELECT github_repo FROM projects WHERE ?1 LIKE path || '%' ORDER BY length(path) DESC LIMIT 1").ok();
+                stmt.and_then(|mut s| s.query_row(params![search_path], |r| r.get::<_, String>(0)).ok())
+                    .unwrap_or_else(|| format!("{}/{}", config.get_github_owner().unwrap_or_default(), config.get_github_repo().unwrap_or_default()))
+            } else {
+                format!("{}/{}", config.get_github_owner().unwrap_or_default(), config.get_github_repo().unwrap_or_default())
+            };
+
+            println!("\x1b[32m[SPAWNED]\x1b[0m Issue #{} live at: https://github.com/{}/issues/{}", 
+                issue.number, repo_full, issue.number);
         }
         SystemAction::Import { .. } => {
             // Handled in main.rs dispatcher

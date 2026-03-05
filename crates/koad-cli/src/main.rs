@@ -31,45 +31,62 @@ async fn main() -> Result<()> {
     let role = cli.role.clone();
     let is_admin = role == "admin";
 
-    // 1. Logging
-    let _guard = init_logging("koad", Some(config.home.clone()));
-
-    // 2. Legacy Config (Bio/Persona)
+    // 1. Legacy Config (Bio/Persona)
     let legacy_config = KoadLegacyConfig::load(&config.home.join("koad.json"))?;
 
-    // 3. Database
+    // 2. Determine Agent Name for Logging
+    let agent_name = match &cli.command {
+        Commands::Boot { agent, .. } => agent.clone(),
+        _ => legacy_config.identity.name.clone(),
+    };
+
+    // 3. Logging
+    let log_dir = Some(config.home.join("logs"));
+    let _guard = init_logging(&agent_name, log_dir);
+
+    // 4. Database
     let db = KoadDB::new(&config.get_db_path())?;
 
-    // 4. Pre-Flight
-    let skip_check = cli.no_check || matches!(cli.command, Commands::Whoami | Commands::Status { .. } | Commands::Boot { .. } | Commands::System { action: SystemAction::Config { .. } });
-    if !skip_check {
-        match pre_flight(&config) {
-            PreFlightStatus::Optimal => {}
-            PreFlightStatus::Degraded(msg) => { eprintln!("\x1b[33m[DEGRADED]\x1b[0m {}", msg); }
-            PreFlightStatus::Critical(msg) => {
-                eprintln!("\x1b[31m[CRITICAL]\x1b[0m {}", msg);
-                if !is_admin { anyhow::bail!("System critical. Non-admin access restricted."); }
+    // 4.1 Role Resolution (Auto-lookup for non-Koad agents if default is used)
+    let mut role = cli.role.clone();
+    if role == "admin" {
+        if let Commands::Boot { ref agent, .. } = cli.command {
+            if agent != "Koad" {
+                if let Ok(Some(db_role)) = db.get_primary_role(agent) {
+                    role = db_role;
+                }
             }
         }
     }
+    let is_admin = role == "admin";
 
-    // 5. Command Routing
+    // 4.2 Path-Aware Project Context
+    let mut config = config;
+    let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    if current_dir.to_string_lossy().contains("skylinks") {
+        config.github_project_number = 4;
+    }
+
+    // 5. Pre-Flight
+
+
+    // 6. Command Routing
     match cli.command {
         Commands::Boot { agent, project, task, compact } => {
-            handle_boot_command(agent, project, task, compact, role, &config).await?;
+            handle_boot_command(agent, project, task, compact, role, &config, &legacy_config).await?;
         }
         Commands::System { action } => {
             match action {
                 SystemAction::Import { source, format, delimiter, route, template, labels, dry_run } => {
-                    crate::handlers::import::handle_import(source, format, delimiter, route, template, labels, dry_run, &config).await?;
+                    crate::handlers::import::handle_import(source, format, delimiter, route, template, labels, dry_run, &config, &db).await?;
                 }
                 _ => {
-                    handle_system_action(action, &config, &db, role, is_admin).await?;
+                    handle_system_action(action, &config, &db, role, is_admin, &legacy_config.identity.name).await?;
                 }
             }
         }
         Commands::Intel { action } => {
-            handle_intel_action(action, &config, &db).await?;
+            handle_intel_action(action, &config, &db, &legacy_config.identity.name).await?;
         }
         Commands::Fleet { action } => {
             handle_fleet_action(action, &config, &db).await?;

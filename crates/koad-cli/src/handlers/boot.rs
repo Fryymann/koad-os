@@ -4,6 +4,7 @@ use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
 use koad_proto::spine::v1::*;
 use std::env;
 use crate::utils::{detect_context_tags, detect_model_tier, get_gh_pat_for_path};
+use crate::config_legacy::KoadLegacyConfig;
 
 pub async fn handle_boot_command(
     agent: String,
@@ -12,6 +13,7 @@ pub async fn handle_boot_command(
     compact: bool,
     role: String,
     config: &KoadConfig,
+    legacy_config: &KoadLegacyConfig,
 ) -> Result<()> {
     let model_tier = detect_model_tier();
     let current_dir = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -46,6 +48,18 @@ pub async fn handle_boot_command(
         println!("Role:     {}", role);
         println!("Session:  {}", session_id);
         println!("Tags:     {}", tags.join(", "));
+        
+        if let Some(ref drivers) = legacy_config.drivers {
+            if let Some(driver) = drivers.get(&agent) {
+                let b_path = driver.bootstrap.replace("~", &env::var("HOME").unwrap_or_default());
+                if let Ok(content) = std::fs::read_to_string(b_path) {
+                    println!("
+\x1b[1m[BOOTSTRAP: {}]\x1b[0m
+{}", agent, content);
+                }
+            }
+        }
+
         if let Some(briefing) = mission_briefing {
             println!("
 \x1b[1mMission Briefing:\x1b[0m

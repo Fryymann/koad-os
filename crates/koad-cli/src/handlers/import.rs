@@ -17,6 +17,7 @@ pub async fn handle_import(
     labels: Vec<String>,
     dry_run: bool,
     config: &KoadConfig,
+    db: &crate::db::KoadDB,
 ) -> Result<()> {
     println!(">>> [IMPORT] Energizing Ingestion Pipeline: {}...", source.display());
 
@@ -56,7 +57,7 @@ pub async fn handle_import(
             ImportRoute::GithubIssues => {
                 let tmpl = template.as_deref().unwrap_or("feature");
                 println!("[SYNC] Spawning Issue: {}...", title);
-                spawn_issue(config, tmpl, &title, "standard", None, None, labels.clone(), Some(body)).await?;
+                spawn_issue(config, db, tmpl, &title, "standard", None, None, labels.clone(), Some(body)).await?;
             }
             ImportRoute::Hydration => {
                 let mut hasher = Sha256::new();

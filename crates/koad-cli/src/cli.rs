@@ -3,148 +3,199 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "koad")]
-#[command(about = "The KoadOS Control Plane", long_about = None)]
+#[command(about = "The KoadOS Control Plane: Orchestrating the Neural Grid", long_about = "The primary interface for KoadOS agents and the Admiral. Manages session lifecycle, intellectual memory, and system-wide orchestration.")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    /// Set the role for the session (admin, pm, officer, crew)
+    /// Set the session authorization tier (admin, pm, officer, crew).
+    /// If omitted, KoadOS will attempt to auto-resolve based on the agent name.
     #[arg(short, long, default_value = "admin")]
     pub role: String,
 
-    /// Skip pre-flight health checks
+    /// Bypass pre-flight system integrity checks. Use only during recovery.
     #[arg(long)]
     pub no_check: bool,
 }
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Wake a KAI and initialize a session
+    /// Wake a KAI and initialize a neural link session.
     Boot {
+        /// The name of the agent to wake (e.g., Sky, Pippin).
         #[arg(short, long)]
         agent: String,
+
+        /// Enable path-aware project context detection.
         #[arg(short, long)]
         project: bool,
+
+        /// Target a specific task ID for the session.
         #[arg(short, long)]
         task: Option<String>,
+
+        /// Output session metadata in a compact, pipe-friendly format.
         #[arg(short, long)]
         compact: bool,
     },
-    /// Core system management and orchestration
+
+    /// Core system management, orchestration, and recovery.
     System {
         #[command(subcommand)]
         action: SystemAction,
     },
-    /// Intellectual and memory operations
+
+    /// Intellectual memory operations and knowledge retrieval.
     Intel {
         #[command(subcommand)]
         action: IntelAction,
     },
-    /// Fleet and project management
+
+    /// Fleet-wide project coordination and board synchronization.
     Fleet {
         #[command(subcommand)]
         action: FleetAction,
     },
-    /// Bridge and integration services
+
+    /// Integration bridges for cloud ecosystems (GCP, Airtable, Notion).
     Bridge {
         #[command(subcommand)]
         action: BridgeAction,
     },
-    /// Check system telemetry and neural link status
+
+    /// Display real-time system telemetry and grid integrity.
     Status {
+        /// Output telemetry data as JSON.
         #[arg(short, long)]
         json: bool,
+
+        /// Perform an exhaustive diagnostic sweep (Ghost detection, Resource allocation).
         #[arg(short, long)]
         full: bool,
     },
-    /// Synchronize and manage the Command Deck (Project Board)
+
+    /// Manage and sync the GitHub Command Deck (Project Board).
     Board {
         #[command(subcommand)]
         action: BoardAction,
     },
-    /// Project management and registration
+
+    /// High-level project mapping and registration.
     Project {
         #[command(subcommand)]
         action: ProjectAction,
     },
-    /// Display current persona and bio
+
+    /// Reveal active agent persona, bio, and authorization rank.
     Whoami,
-    /// Launch the TUI dashboard
+
+    /// Launch the terminal-native monitoring dashboard (TUI).
     Dash,
 }
 
 #[derive(Subcommand)]
 pub enum SystemAction {
-    /// Initialize KoadOS in the current directory
+    /// Initialize a new KoadOS environment in the current path.
     Init {
+        /// Force initialization, overwriting existing configs.
         #[arg(short, long)]
         force: bool,
     },
-    /// Authenticate and verify credentials
+
+    /// Display active credentials and path-aware PAT mapping.
     Auth,
-    /// Show current system configuration
+
+    /// Inspect or modify the global system configuration.
     Config {
+        /// Output configuration as JSON.
         #[arg(short, long)]
         json: bool,
     },
-    /// Refresh and rebuild the KoadOS environment
+
+    /// Rebuild and redeploy the KoadOS core from source.
     Refresh {
+        /// Restart services (Spine, Gateway) after successful build.
         #[arg(short, long)]
         restart: bool,
     },
-    /// Execute the Sovereign Save protocol
+
+    /// Execute the Sovereign Save Protocol (Total State Checkpoint).
     Save {
+        /// Create a full durable backup (Database + Git commit).
         #[arg(short, long)]
         full: bool,
     },
-    /// Apply an atomic patch to a file
+
+    /// Apply an atomic, surgical patch to a file.
     Patch {
+        /// Target file path.
         path: Option<PathBuf>,
+        /// Regex search pattern.
         #[arg(short, long)]
         search: Option<String>,
+        /// Replacement string.
         #[arg(short, long)]
         replace: Option<String>,
+        /// JSON payload for bulk patching.
         #[arg(long)]
         payload: Option<String>,
+        /// Enable fuzzy matching for complex diffs.
         #[arg(short, long)]
         fuzzy: bool,
-        #[arg(short, long)]
+        /// Show changes without modifying the file system.
+        #[arg(long)]
         dry_run: bool,
     },
-    /// Perform a 5-pass token efficiency audit
+
+    /// Perform a 5-pass cognitive efficiency audit.
     Tokenaudit {
+        /// Remove audit artifacts after completion.
         #[arg(short, long)]
         cleanup: bool,
     },
-    /// Spawn a new GitHub issue from a template
+
+    /// Spawn a new GitHub issue using a system template.
     Spawn {
-        #[arg(short, long)]
+        /// Template name (e.g., bug, feature, research).
+        #[arg(short, long, default_value = "feature")]
         template: String,
-        #[arg(short = 'T', long)]
+        /// Issue title.
+        #[arg(short, long)]
         title: String,
+        /// Complexity weight (trivial, standard, complex).
         #[arg(short, long, default_value = "standard")]
         weight: String,
-        #[arg(long)]
+        /// Describe the high-level goal or problem.
+        #[arg(short, long)]
         objective: Option<String>,
-        #[arg(long)]
+        /// Define the specific architectural or functional scope.
+        #[arg(short, long)]
         scope: Option<String>,
+        /// Specific labels to apply.
         #[arg(short, long)]
         labels: Vec<String>,
     },
-    /// Bulk import data from a file into KoadOS subsystems
+
+    /// Bulk import data (Markdown/CSV) into KoadOS subsystems.
     Import {
-        #[arg(short, long)]
+        /// Source file path.
         source: PathBuf,
+        /// Data format (md, csv). [default: md]
         #[arg(short, long, default_value = "md")]
         format: String,
+        /// Custom regex delimiter for chunking.
         #[arg(short, long)]
         delimiter: Option<String>,
-        #[arg(short, long)]
+        /// Destination route (github-issues, hydration).
+        #[arg(short, long, default_value = "github-issues")]
         route: ImportRoute,
+        /// Issue template to use (for github-issues route).
         #[arg(short, long)]
         template: Option<String>,
+        /// Labels to apply to imported items.
         #[arg(short, long)]
         labels: Vec<String>,
+        /// Preview changes without persisting.
         #[arg(long)]
         dry_run: bool,
     },
@@ -153,106 +204,79 @@ pub enum SystemAction {
 #[derive(clap::ValueEnum, Clone, Debug)]
 pub enum ImportRoute {
     GithubIssues,
-    MemoryBank,
-    Commands,
     Hydration,
+    Knowledge,
 }
 
 #[derive(Subcommand)]
 pub enum IntelAction {
+    /// Query the collective knowledge bank.
     Query {
+        /// Search term or regex pattern.
         term: String,
+        /// Maximum results to return.
         #[arg(short, long, default_value_t = 10)]
         limit: usize,
+        /// Filter by specific tags.
         #[arg(short, long)]
         tags: Option<String>,
+        /// Filter by agent identity (Captain's Oversight).
+        #[arg(short, long)]
+        agent: Option<String>,
     },
+
+    /// Commit a fact or learning to the durable memory bank.
     Remember {
         #[command(subcommand)]
         category: MemoryCategory,
     },
+
+    /// Record a persona-specific reflection or architectural thought.
     Ponder {
+        /// The reflection content.
         text: String,
+        /// Optional classification tags.
         #[arg(short, long)]
         tags: Option<String>,
     },
-    Guide {
-        topic: Option<String>,
-    },
-    Scan {
-        path: Option<PathBuf>,
-    },
+
+    /// Access the KoadOS Field Guide for a specific topic.
+    Guide { topic: Option<String> },
+
+    /// Perform a deep recursive scan of the workspace for project roots.
+    Scan { path: Option<PathBuf> },
+
+    /// Introspect on cognitive health and learning status.
     Mind {
         #[command(subcommand)]
         action: MindAction,
     },
-    /// Retrieve a specific line-range snippet from a file (Spine-cached)
+
+    /// Retrieve a precise line-range snippet from a file (Spine-cached).
     Snippet {
+        /// Target file path.
         path: PathBuf,
-        #[arg(short, long, default_value_t = 1)]
+        /// Start line (1-indexed).
+        #[arg(short, long)]
         start: i32,
-        #[arg(short, long, default_value_t = 100)]
+        /// End line (inclusive).
+        #[arg(short, long)]
         end: i32,
-        #[arg(long)]
+        /// Force reload from disk, bypassing Spine cache.
+        #[arg(short, long)]
         bypass: bool,
     },
 }
 
 #[derive(Subcommand)]
-pub enum FleetAction {
-    Board {
-        #[command(subcommand)]
-        action: BoardAction,
-    },
-    Project {
-        #[command(subcommand)]
-        action: ProjectAction,
-    },
-    Issue {
-        #[command(subcommand)]
-        action: IssueAction,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum BridgeAction {
-    Gcloud {
-        #[command(subcommand)]
-        action: GcloudAction,
-    },
-    Airtable {
-        #[command(subcommand)]
-        action: AirtableAction,
-    },
-    Sync {
-        #[command(subcommand)]
-        source: SyncSource,
-    },
-    Drive {
-        #[command(subcommand)]
-        action: DriveAction,
-    },
-    Stream {
-        #[command(subcommand)]
-        action: StreamAction,
-    },
-    Skill {
-        #[command(subcommand)]
-        action: SkillAction,
-    },
-    Publish {
-        #[arg(short, long)]
-        message: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
 pub enum MemoryCategory {
+    /// A persistent system fact.
     Fact {
         text: String,
         #[arg(short, long)]
         tags: Option<String>,
     },
+    /// A technical insight or discovery.
     Learning {
         text: String,
         #[arg(short, long)]
@@ -261,40 +285,120 @@ pub enum MemoryCategory {
 }
 
 #[derive(Subcommand)]
-pub enum GcloudAction {
-    List,
-    Deploy { name: String },
+pub enum FleetAction {
+    /// Manage the high-level Command Deck.
+    Board {
+        #[command(subcommand)]
+        action: BoardAction,
+    },
+    /// Low-level project mapping.
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
+    },
+    /// Atomic task tracking and state transitions.
+    Issue {
+        #[command(subcommand)]
+        action: IssueAction,
+    },
 }
 
 #[derive(Subcommand)]
-pub enum AirtableAction {
-    Sync,
-    List,
+pub enum BoardAction {
+    /// Display current project board items.
+    Status {
+        /// Only show 'In Progress' and 'Todo' items.
+        #[arg(short, long)]
+        active: bool,
+    },
+    /// Perform a 2-way sync between GitHub and the Local Memory Bank.
+    Sync {
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Transition a node to 'Done' on the Command Deck.
+    Done { id: i32 },
+    /// Re-open a node or move to 'Todo'.
+    Todo { id: i32 },
+    /// Run a Strategic Design Review (SDR).
+    Sdr,
+    /// Verify a node's status against the Command Deck.
+    Verify { id: i32 },
 }
 
 #[derive(Subcommand)]
-pub enum SyncSource {
-    Notion,
+pub enum ProjectAction {
+    /// List all registered projects in the Master Map.
+    List,
+    /// Manually register a new project root.
+    Register {
+        /// Project identifier.
+        name: String,
+        /// Physical directory path.
+        path: Option<PathBuf>,
+    },
+    /// Update project health and branch metadata.
+    Sync { id: Option<i32> },
+    /// Display detailed project diagnostics.
+    Info { id: i32 },
+    /// Mark a project as retired or inactive.
+    Retire { id: i32 },
+}
+
+#[derive(Subcommand)]
+pub enum IssueAction {
+    /// Track an existing GitHub issue in the local task graph.
+    Track {
+        number: i32,
+        description: String,
+    },
+    /// Advance an issue through the KoadOS Canon steps (1-9).
+    Move { number: i32, step: i32 },
+    /// Authorize implementation or closure (Admin/Captain only).
+    Approve { number: i32 },
+    /// Close an issue locally and on GitHub.
+    Close { number: i32 },
+    /// Show detailed sovereignty status for an issue.
+    Status { number: i32 },
+}
+
+#[derive(Subcommand)]
+pub enum BridgeAction {
+    /// Interface with Google Cloud Platform.
+    Gcloud,
+    /// Synchronize data with Airtable.
     Airtable,
-    All,
-}
-
-#[derive(Subcommand)]
-pub enum DriveAction {
-    List,
-    Download { id: String },
-    Upload { path: PathBuf },
+    /// Execute a global cloud-to-local sync.
+    Sync,
+    /// Manage Google Drive file anchors.
+    Drive,
+    /// Post a high-priority event to the KoadStream.
+    Stream {
+        #[command(subcommand)]
+        action: StreamAction,
+    },
+    /// Manage and execute specialized KoadOS Skills.
+    Skill {
+        #[command(subcommand)]
+        action: SkillAction,
+    },
+    /// Publish local changes to the remote grid (Git Push).
+    Publish {
+        /// Commit message.
+        #[arg(short, long)]
+        message: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
 pub enum StreamAction {
-    Logs {
-        #[arg(short, long)]
-        topic: Option<String>,
-    },
+    /// Broadcast a message to the Neural Bus.
     Post {
+        /// Topic or source identifier.
         topic: String,
+        /// Event payload.
         message: String,
+        /// Severity level (INFO, WARN, ERROR, CRITICAL).
         #[arg(short, long, default_value = "INFO")]
         msg_type: String,
     },
@@ -302,70 +406,28 @@ pub enum StreamAction {
 
 #[derive(Subcommand)]
 pub enum SkillAction {
+    /// List all currently available Skills.
     List,
+    /// Execute a specific Skill by name.
     Run {
         name: String,
-        #[arg(last = true)]
         args: Vec<String>,
     },
 }
 
 #[derive(Subcommand)]
-pub enum ProjectAction {
-    List,
-    Register {
-        name: String,
-        path: Option<PathBuf>,
-    },
-    Sync {
-        id: Option<i32>,
-    },
-    Retire {
-        id: i32,
-    },
-    Info {
-        id: i32,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum IssueAction {
-    Track { number: i32, description: String },
-    Move { number: i32, step: i32 },
-    Approve { number: i32 },
-    Close { number: i32 },
-    Status { number: i32 },
-}
-
-#[derive(Subcommand)]
-pub enum BoardAction {
-    Status {
-        #[arg(short, long)]
-        active: bool,
-    },
-    Sync {
-        #[arg(short, long)]
-        dry_run: bool,
-    },
-    Sdr,
-    Done {
-        id: i32,
-    },
-    Todo {
-        id: i32,
-    },
-    Verify {
-        id: i32,
-    },
-}
-
-#[derive(Subcommand)]
 pub enum MindAction {
+    /// Display cognitive health and learning metrics.
     Status,
+    /// Capture a manual identity snapshot.
     Snapshot,
+    /// Integrate a new structured insight into the Mind.
     Learn {
+        /// Technical domain (e.g., rust, ops, architecture).
         domain: String,
+        /// High-level summary of the insight.
         summary: String,
+        /// Detailed technical breakdown.
         #[arg(short, long)]
         detail: Option<String>,
     },
