@@ -21,6 +21,11 @@ impl Sandbox {
             return Self::evaluate_agent_policy(command);
         }
 
+        // Chief Officer Policies (Sky / SLE Isolation)
+        if role == "officer" {
+            return Self::evaluate_officer_policy(command);
+        }
+
         // Compliance Agent Policies (Overseer)
         if role == "compliance" || role == "overseer" {
             return Self::evaluate_compliance_policy(command);
@@ -28,6 +33,26 @@ impl Sandbox {
 
         // Default Deny for unknown identities
         PolicyResult::Denied(format!("Unknown identity role: {}", identity))
+    }
+
+    fn evaluate_officer_policy(command: &str) -> PolicyResult {
+        let cmd_lower = command.to_lowercase();
+
+        // 1. SLE Isolation Mandate (The "Chain of Trust" Guardrail)
+        // Officers managing the SCE (Skylinks Cloud Ecosystem) MUST NOT use production commands.
+        let production_triggers = ["--project skylinks-prod", "--live", "stripe listen", "gcloud functions deploy"];
+        
+        for trigger in production_triggers.iter() {
+            if cmd_lower.contains(trigger) && !cmd_lower.contains("--test") && !cmd_lower.contains("--sandbox") {
+                return PolicyResult::Denied(format!(
+                    "SLE_ISOLATION_MANDATE: Attempt to execute production command '{}' without --test or --sandbox flag.",
+                    trigger
+                ));
+            }
+        }
+
+        // 2. Blacklist and Sanctuary (Inherit from Agent Policy)
+        Self::evaluate_agent_policy(command)
     }
 
     fn evaluate_compliance_policy(command: &str) -> PolicyResult {

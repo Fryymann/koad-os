@@ -1,5 +1,5 @@
 use crate::engine::storage_bridge::KoadStorageBridge;
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Duration, Utc};
 use fred::interfaces::HashesInterface;
 use koad_core::storage::StorageBridge;
 use koad_proto::spine::v1::LeaseInfo;
@@ -34,13 +34,18 @@ impl KAILeaseManager {
         model_tier: i32,
     ) -> anyhow::Result<LeaseInfo> {
         let key = format!("koad:kai:{}:lease", kai_name);
-        
+
         // 1. Check existing lease
         let existing: Option<String> = self.storage.redis.pool.hget("koad:state", &key).await?;
         if let Some(data) = existing {
             let lease: KAILease = serde_json::from_str(&data)?;
             if lease.expires_at > Utc::now() && lease.session_id != session_id {
-                anyhow::bail!("IDENTITY_LOCKED: KAI '{}' is currently leased to Session {} (Driver: {}).", kai_name, lease.session_id, lease.driver_id);
+                anyhow::bail!(
+                    "IDENTITY_LOCKED: KAI '{}' is currently leased to Session {} (Driver: {}).",
+                    kai_name,
+                    lease.session_id,
+                    lease.driver_id
+                );
             }
         }
 
@@ -62,9 +67,14 @@ impl KAILeaseManager {
         };
 
         let _lease_json = serde_json::to_string(&lease)?;
-        self.storage.set_state(&key, serde_json::to_value(&lease)?, Some(model_tier)).await?;
+        self.storage
+            .set_state(&key, serde_json::to_value(&lease)?, Some(model_tier))
+            .await?;
 
-        info!("KAI Lease Acquired: {} -> Session {} (Driver: {})", kai_name, session_id, driver_id);
+        info!(
+            "KAI Lease Acquired: {} -> Session {} (Driver: {})",
+            kai_name, session_id, driver_id
+        );
 
         Ok(LeaseInfo {
             lock_id: format!("{}:{}", kai_name, session_id),
@@ -79,7 +89,7 @@ impl KAILeaseManager {
     pub async fn release_lease(&self, kai_name: &str, session_id: &str) -> anyhow::Result<()> {
         let key = format!("koad:kai:{}:lease", kai_name);
         let existing: Option<String> = self.storage.redis.pool.hget("koad:state", &key).await?;
-        
+
         if let Some(data) = existing {
             let lease: KAILease = serde_json::from_str(&data)?;
             if lease.session_id == session_id {
@@ -93,14 +103,17 @@ impl KAILeaseManager {
     pub async fn heartbeat(&self, session_id: &str) -> anyhow::Result<()> {
         // Find the lease for this session_id (This requires an inverse mapping or scanning)
         // For efficiency in v4.1, we'll scan the koad:state for koad:kai:*:lease matching this session_id.
-        let all_state: std::collections::HashMap<String, String> = self.storage.redis.pool.hgetall("koad:state").await?;
+        let all_state: std::collections::HashMap<String, String> =
+            self.storage.redis.pool.hgetall("koad:state").await?;
         for (key, val) in all_state {
             if key.starts_with("koad:kai:") && key.ends_with(":lease") {
                 if let Ok(mut lease) = serde_json::from_str::<KAILease>(&val) {
                     if lease.session_id == session_id {
                         // Extend lease
                         lease.expires_at = Utc::now() + Duration::seconds(90);
-                        self.storage.set_state(&key, serde_json::to_value(&lease)?, Some(lease.model_tier)).await?;
+                        self.storage
+                            .set_state(&key, serde_json::to_value(&lease)?, Some(lease.model_tier))
+                            .await?;
                         return Ok(());
                     }
                 }

@@ -13,11 +13,11 @@ impl PidGuard {
         if path.exists() {
             let content = fs::read_to_string(&path)
                 .with_context(|| format!("Failed to read existing PID file at {:?}", path))?;
-            
+
             if let Ok(old_pid_val) = content.trim().parse::<u32>() {
                 let mut sys = System::new_all();
                 sys.refresh_all();
-                
+
                 if sys.process(Pid::from(old_pid_val as usize)).is_some() {
                     anyhow::bail!(
                         "Process already running with PID {}. If this is a ghost, delete {:?}",

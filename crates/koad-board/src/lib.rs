@@ -75,7 +75,9 @@ impl GitHubClient {
         let url = format!(
             "{}/repos/{}/{}/{}",
             koad_core::constants::GITHUB_API_BASE,
-            self.owner, self.repo, path
+            self.owner,
+            self.repo,
+            path
         );
         let response = self.client.get(&url).send().await?;
 

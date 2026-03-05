@@ -3,7 +3,10 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "koad")]
-#[command(about = "The KoadOS Control Plane: Orchestrating the Neural Grid", long_about = "The primary interface for KoadOS agents and the Admiral. Manages session lifecycle, intellectual memory, and system-wide orchestration.")]
+#[command(
+    about = "The KoadOS Control Plane: Orchestrating the Neural Grid",
+    long_about = "The primary interface for KoadOS agents and the Admiral. Manages session lifecycle, intellectual memory, and system-wide orchestration."
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -348,10 +351,7 @@ pub enum ProjectAction {
 #[derive(Subcommand)]
 pub enum IssueAction {
     /// Track an existing GitHub issue in the local task graph.
-    Track {
-        number: i32,
-        description: String,
-    },
+    Track { number: i32, description: String },
     /// Advance an issue through the KoadOS Canon steps (1-9).
     Move { number: i32, step: i32 },
     /// Authorize implementation or closure (Admin/Captain only).
@@ -368,6 +368,11 @@ pub enum BridgeAction {
     Gcloud,
     /// Synchronize data with Airtable.
     Airtable,
+    /// Interface with Notion (Optimized Native Bridge).
+    Notion {
+        #[command(subcommand)]
+        action: NotionAction,
+    },
     /// Execute a global cloud-to-local sync.
     Sync,
     /// Manage Google Drive file anchors.
@@ -391,6 +396,26 @@ pub enum BridgeAction {
 }
 
 #[derive(Subcommand)]
+pub enum NotionAction {
+    /// Read a page's content as surgically parsed Markdown.
+    Read {
+        /// The Notion Page ID.
+        id: String,
+    },
+    /// Post a high-priority message to the KoadStream.
+    Stream {
+        /// The message to post.
+        message: String,
+        /// Target agent (e.g., Sky, Koad, Noti). [default: Koad]
+        #[arg(short, long, default_value = "Koad")]
+        target: String,
+        /// Priority level (Low, Medium, High). [default: Medium]
+        #[arg(short, long, default_value = "Medium")]
+        priority: String,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum StreamAction {
     /// Broadcast a message to the Neural Bus.
     Post {
@@ -409,10 +434,7 @@ pub enum SkillAction {
     /// List all currently available Skills.
     List,
     /// Execute a specific Skill by name.
-    Run {
-        name: String,
-        args: Vec<String>,
-    },
+    Run { name: String, args: Vec<String> },
 }
 
 #[derive(Subcommand)]

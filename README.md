@@ -1,28 +1,30 @@
-# KoadOS: The AI Software Engineering Partner
+# KoadOS — The Koados Citadel
 
-**KoadOS** is an open-source, programmatic-first framework for building a long-term, context-aware partnership between a developer and an AI agent. 
+**KoadOS** is a **Citadel-class Station** and the mothership of the Koad agent fleet. It is a programmatic-first framework for building a long-term, context-aware partnership between an **Admiral (Human)** and a **Captain (AI Agent)**.
 
-It acts as an **Operating System for your Agent**, providing a persistent memory (SQLite), a background cognitive booster (Rust Daemon), and an extensible skill system (Python/JS).
+The Citadel serves as the central intelligence hub, coordinating forward-deployed stations (like the **SLE — Skylinks Local Ecosystem**) and managing the orchestration, memory, and runtime protocols for the entire crew.
 
 ## 🚀 Key Features
 
-- **Contextual Boot**: Instantly inject identity, project state, and relevant facts into your AI agent's context window.
-- **Surgical Search**: Retrieve only the most relevant knowledge to minimize token usage and maximize reasoning accuracy.
-- **Background Booster**: A Rust-based daemon tracks file changes and summarizes local activity in real-time.
-- **Standardized Skills**: Extend Koad's capabilities with simple scripts that can interface with GCloud, Notion, Airtable, and more.
+- **Citadel Core**: High-performance Rust-based gRPC backbone (kspine).
+- **Command Deck**: A powerful Rust CLI (koad) for station management.
+- **Engine Room**: Ultra-fast Redis-backed state management and PubSub.
+- **Crew Hierarchy**: Multi-tier agent ranking (Captain, Chief Officer, Engineer).
+- **Integrated Bridges**: Native connectors for Notion, GCP, Airtable, and Stripe.
 
 ## 🛠️ Getting Started
 
 To install KoadOS and initialize your first partner, follow our **[Onboarding Guide](docs/ONBOARDING.md)**.
 
 ```bash
-git clone https://github.com/DoodzCode/koad-os.git ~/.koad-os
+git clone https://github.com/Fryymann/koad-os.git ~/.koad-os
 cd ~/.koad-os
-./koad-setup.sh --partner "YourName" --persona "Koad" --role "Partner" --langs "Rust,Python,Node.js"
+./koad-setup.sh --partner "YourName" --persona "Koad" --role "Captain" --langs "Rust,Python,Node.js"
 ```
 
 ## 📖 Documentation
 
+- **[Crew Hierarchy](docs/protocols/CREW_HIERARCHY.md)**: Ranks, Roles, and the SLE/SCE station definitions.
 - **[Onboarding](docs/ONBOARDING.md)**: Your first 15 minutes.
 - **[Developer Guide](docs/DEVELOPMENT.md)**: How to write skills and contribute to the core.
 - **[Architecture](docs/ARCHITECTURE.md)**: Deep dive into the Spine, Memory, and Drivers.
@@ -30,7 +32,7 @@ cd ~/.koad-os
 
 ## 🤝 Contributing
 
-We welcome contributions! Whether you're adding a new global skill or improving the Rust core, please check our **[Developer Guide](docs/DEVELOPMENT.md)** to get started.
+We welcome contributions! Whether you're adding a new global skill or improving the Rust core, please check our **[Contributor Manifesto](docs/protocols/CONTRIBUTOR_MANIFESTO.md)** to get started.
 
 ## ⚖️ License
 

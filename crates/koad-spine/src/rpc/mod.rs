@@ -21,6 +21,7 @@ pub struct KoadSpine {
 
 impl KoadSpine {
     pub fn new(engine: Arc<Engine>) -> Self {
+        info!("Kernel: Initializing KoadSpine gRPC service (v4.0.0-optimized).");
         Self { engine }
     }
 
@@ -62,8 +63,6 @@ impl SpineService for KoadSpine {
             req.name, req.identity
         );
 
-        // For now, synchronous execution just returns a success message.
-        // Real implementation would route through DirectiveRouter or Engine.
         Ok(Response::new(ExecuteResponse {
             command_id: req.command_id,
             success: true,
@@ -76,8 +75,11 @@ impl SpineService for KoadSpine {
     }
 
     async fn heartbeat(&self, request: Request<Empty>) -> Result<Response<Empty>, Status> {
-        // Extract session_id from metadata
-        if let Some(session_id) = request.metadata().get("x-session-id").and_then(|v| v.to_str().ok()) {
+        if let Some(session_id) = request
+            .metadata()
+            .get("x-session-id")
+            .and_then(|v| v.to_str().ok())
+        {
             let _ = self.engine.identity.heartbeat(session_id).await;
             let _ = self.engine.asm.heartbeat(session_id).await;
         }
@@ -165,7 +167,6 @@ impl SpineService for KoadSpine {
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let redis = self.engine.redis.clone();
 
-        // Initial welcome event
         let welcome = SystemEvent {
             event_id: "0".to_string(),
             source: "spine:grpc".to_string(),
@@ -182,7 +183,6 @@ impl SpineService for KoadSpine {
         tokio::spawn(async move {
             let mut message_stream = redis.subscriber.message_rx();
 
-            // Subscribe to all telemetry and session channels
             if let Err(e) = redis
                 .subscriber
                 .subscribe(vec![
@@ -229,8 +229,18 @@ impl SpineService for KoadSpine {
         &self,
         _request: Request<GetSystemStateRequest>,
     ) -> Result<Response<GetSystemStateResponse>, Status> {
+        info!("Kernel: GetSystemState request received.");
+        let sessions = self.engine.asm.list_active_sessions().await;
+        info!("Kernel: GetSystemState found {} active sessions.", sessions.len());
+        
+        let sessions_json = if sessions.is_empty() {
+            "[]".to_string()
+        } else {
+            serde_json::to_string(&sessions).map_err(|e| Status::internal(e.to_string()))?
+        };
+
         Ok(Response::new(GetSystemStateResponse {
-            identity_json: "{}".to_string(),
+            identity_json: sessions_json,
             active_tasks: 0,
             version: "4.0.0".to_string(),
         }))
@@ -316,13 +326,12 @@ impl SpineService for KoadSpine {
         let req = request.into_inner();
         let session_id = uuid::Uuid::new_v4().to_string();
 
-        // 1. Acquire KAI Lease
-        let lease = self.engine.identity.acquire_lease(
-            &req.agent_name,
-            &session_id,
-            &req.driver_id,
-            req.model_tier
-        ).await.map_err(|e| Status::permission_denied(e.to_string()))?;
+        let lease = self
+            .engine
+            .identity
+            .acquire_lease(&req.agent_name, &session_id, &req.driver_id, req.model_tier)
+            .await
+            .map_err(|e| Status::permission_denied(e.to_string()))?;
 
         let rank = match req.agent_role.to_lowercase().as_str() {
             "admiral" | "admin" => Rank::Admiral,
@@ -354,18 +363,19 @@ impl SpineService for KoadSpine {
             context.clone(),
         );
 
-        // 2. Persona Hydration: Fetch Bio from Registry
         if let Ok(Some(bio)) = self.engine.storage.get_identity_bio(&req.agent_name).await {
             session.metadata.insert("bio".to_string(), bio);
         }
-        session.metadata.insert("model_name".to_string(), req.model_name.clone());
+        session
+            .metadata
+            .insert("model_name".to_string(), req.model_name.clone());
 
         self.engine
             .asm
             .create_session(session)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
-        // 3. Hydrate Intelligence Package
+
         let hydration = self
             .engine
             .asm
@@ -373,14 +383,11 @@ impl SpineService for KoadSpine {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        // 4. Fetch Hot Context from Redis
         let context_key = format!("koad:session:{}:hot_context", session_id);
         let mut conn = self.engine.redis.pool.next();
-        let hot_context_raw: std::collections::HashMap<String, String> = conn
-            .hgetall(&context_key)
-            .await
-            .unwrap_or_default();
-        
+        let hot_context_raw: std::collections::HashMap<String, String> =
+            conn.hgetall(&context_key).await.unwrap_or_default();
+
         let mut hot_context = Vec::new();
         for val in hot_context_raw.values() {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(val) {
@@ -388,7 +395,7 @@ impl SpineService for KoadSpine {
                     chunk_id: v["chunk_id"].as_str().unwrap_or_default().to_string(),
                     content: v["content"].as_str().unwrap_or_default().to_string(),
                     ttl_seconds: v["ttl_seconds"].as_i64().unwrap_or(0) as i32,
-                    created_at: None, // Simplified for now
+                    created_at: None,
                 });
             }
         }
@@ -417,17 +424,18 @@ impl SpineService for KoadSpine {
     ) -> Result<Response<HydrationResponse>, Status> {
         let req = request.into_inner();
         let session_id = req.session_id;
-        let chunk = req.chunk.ok_or_else(|| Status::invalid_argument("Missing chunk"))?;
-        
+        let chunk = req
+            .chunk
+            .ok_or_else(|| Status::invalid_argument("Missing chunk"))?;
+
         let context_key = format!("koad:session:{}:hot_context", session_id);
         let mut conn = self.engine.redis.pool.next();
 
-        // 1. Get current context size (Governor)
         let current_chunks: std::collections::HashMap<String, String> = conn
             .hgetall(&context_key)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
-        
+
         let mut current_size: usize = 0;
         for val in current_chunks.values() {
             current_size += val.len();
@@ -441,7 +449,6 @@ impl SpineService for KoadSpine {
             }));
         }
 
-        // 2. Deduplication check (Chunk ID)
         if current_chunks.contains_key(&chunk.chunk_id) {
             return Ok(Response::new(HydrationResponse {
                 success: true,
@@ -450,14 +457,15 @@ impl SpineService for KoadSpine {
             }));
         }
 
-        // 3. Persist to Redis
         let payload = json!({
             "chunk_id": chunk.chunk_id,
             "content": chunk.content,
             "ttl_seconds": chunk.ttl_seconds,
-        }).to_string();
-        
-        let _: () = conn.hset(&context_key, (&chunk.chunk_id, payload))
+        })
+        .to_string();
+
+        let _: () = conn
+            .hset(&context_key, (&chunk.chunk_id, payload))
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -507,8 +515,7 @@ impl SpineService for KoadSpine {
         request: Request<SystemEvent>,
     ) -> Result<Response<Empty>, Status> {
         let event = request.into_inner();
-        
-        // Manually construct JSON since SystemEvent doesn't implement Serialize
+
         let payload = json!({
             "event_id": event.event_id,
             "source": event.source,
@@ -516,7 +523,8 @@ impl SpineService for KoadSpine {
             "message": event.message,
             "metadata_json": event.metadata_json,
             "timestamp": event.timestamp.map(|t| format!("{}.{}", t.seconds, t.nanos))
-        }).to_string();
+        })
+        .to_string();
 
         let mut conn = self.engine.redis.pool.next();
         let _: () = conn

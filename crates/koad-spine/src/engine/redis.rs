@@ -1,5 +1,5 @@
-use fred::prelude::*;
 use fred::clients::RedisPool;
+use fred::prelude::*;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::Duration;
@@ -29,22 +29,29 @@ impl RedisClient {
 
         // Socket Hygiene Check
         if socket_path.exists() {
-            println!("Testing existing Redis socket at {}...", socket_path.display());
+            println!(
+                "Testing existing Redis socket at {}...",
+                socket_path.display()
+            );
             let config = RedisConfig {
-                server: ServerConfig::Unix { path: socket_path.clone() },
+                server: ServerConfig::Unix {
+                    path: socket_path.clone(),
+                },
                 ..Default::default()
             };
-            
+
             let test_client = Builder::from_config(config)
                 .with_connection_config(|c| c.connection_timeout = Duration::from_millis(500))
                 .build()?;
-                
+
             let is_alive = match tokio::time::timeout(Duration::from_millis(1000), async {
                 let _ = test_client.init().await?;
                 test_client.wait_for_connect().await?;
                 let _: () = test_client.ping().await?;
                 Ok::<(), anyhow::Error>(())
-            }).await {
+            })
+            .await
+            {
                 Ok(Ok(())) => {
                     let _ = test_client.quit().await;
                     true

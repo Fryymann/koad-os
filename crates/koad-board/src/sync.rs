@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::GitHubClient;
+use anyhow::Result;
 use std::collections::HashSet;
 use tracing::info;
 
@@ -28,17 +28,18 @@ impl<'a> BoardSyncer<'a> {
         // 1. Fetch the Project ID and Field Metadata
         let project_id = self.client.get_project_id(self.project_number).await?;
         let _ = self.client.get_status_field_id(&project_id).await?;
-        let _ = self.client.get_status_option_id(&project_id, "Todo").await?;
+        let _ = self
+            .client
+            .get_status_option_id(&project_id, "Todo")
+            .await?;
 
         // Task Weight metadata
         let weight_field_id = self.client.get_field_id(&project_id, "Task Weight").await?;
 
         // 2. Fetch current Project Items to avoid duplicates and track existing state
         let current_items = self.client.list_project_items(self.project_number).await?;
-        let existing_numbers: HashSet<i32> = current_items
-            .iter()
-            .filter_map(|i| i.number)
-            .collect();
+        let existing_numbers: HashSet<i32> =
+            current_items.iter().filter_map(|i| i.number).collect();
 
         // 3. Fetch all open issues in the repository
         // We need the body for Task Weight extraction
@@ -93,12 +94,17 @@ impl<'a> BoardSyncer<'a> {
             let item_id = if !existing_numbers.contains(&number) {
                 info!("[SYNC] Adding Issue #{} '{}' to Backlog...", number, title);
                 if !self.dry_run {
-                    let res = self.client.add_item_to_project(&project_id, &content_id).await?;
+                    let res = self
+                        .client
+                        .add_item_to_project(&project_id, &content_id)
+                        .await?;
 
                     // Rule: If milestone is present, move to 'Todo' immediately
                     if milestone.is_some() {
                         info!("[SYNC] Milestone detected. Moving #{} to Todo...", number);
-                        self.client.update_item_status(self.project_number, number, "Todo").await?;
+                        self.client
+                            .update_item_status(self.project_number, number, "Todo")
+                            .await?;
                     }
                     Some(res)
                 } else {
@@ -107,10 +113,13 @@ impl<'a> BoardSyncer<'a> {
             } else {
                 // If it's already in, check if it needs to move to 'Todo'
                 if let Some(item) = current_items.iter().find(|i| i.number == Some(number)) {
-                    if (item.status == "Unknown" || item.status == "Backlog") && milestone.is_some() {
+                    if (item.status == "Unknown" || item.status == "Backlog") && milestone.is_some()
+                    {
                         info!("[SYNC] Existing issue #{} has Milestone but is in Backlog. Moving to Todo...", number);
                         if !self.dry_run {
-                            self.client.update_item_status(self.project_number, number, "Todo").await?;
+                            self.client
+                                .update_item_status(self.project_number, number, "Todo")
+                                .await?;
                         }
                     }
                     Some(item.id.clone())
@@ -122,8 +131,18 @@ impl<'a> BoardSyncer<'a> {
             // Sync Task Weight
             if let (Some(item_id), Some(weight)) = (item_id, weight_choice) {
                 if !self.dry_run {
-                    let option_id = self.client.get_single_select_option_id(&project_id, "Task Weight", weight).await?;
-                    self.client.update_item_field(&project_id, &item_id, &weight_field_id, serde_json::json!({ "singleSelectOptionId": option_id })).await?;
+                    let option_id = self
+                        .client
+                        .get_single_select_option_id(&project_id, "Task Weight", weight)
+                        .await?;
+                    self.client
+                        .update_item_field(
+                            &project_id,
+                            &item_id,
+                            &weight_field_id,
+                            serde_json::json!({ "singleSelectOptionId": option_id }),
+                        )
+                        .await?;
                 }
             }
         }

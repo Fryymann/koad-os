@@ -1,6 +1,6 @@
+use crate::cli::ProjectAction;
 use anyhow::Result;
 use koad_core::config::KoadConfig;
-use crate::cli::ProjectAction;
 
 pub async fn handle_project(action: ProjectAction, _config: &KoadConfig) -> Result<()> {
     match action {

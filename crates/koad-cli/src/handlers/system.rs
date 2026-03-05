@@ -1,18 +1,19 @@
+use crate::cli::SystemAction;
+use crate::db::KoadDB;
+use crate::utils::{feature_gate, get_gdrive_token_for_path, get_gh_pat_for_path};
 use anyhow::{Context, Result};
-use chrono::{Local, Utc};
+use chrono::Local;
 use koad_core::config::KoadConfig;
 use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
 use koad_proto::spine::v1::*;
+use rusqlite::params;
 use serde_json::Value;
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 use tracing::warn;
-use crate::cli::SystemAction;
-use crate::db::KoadDB;
-use crate::utils::{feature_gate, get_gh_pat_for_path, get_gdrive_token_for_path};
-use rusqlite::params;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_issue(
     config: &KoadConfig,
     db: &KoadDB,
@@ -27,12 +28,12 @@ pub async fn spawn_issue(
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let abs_current = std::fs::canonicalize(&current_dir).unwrap_or(current_dir);
     let search_path = abs_current.to_string_lossy().to_string();
-    
+
     // Resolve repository from DB or environment
     let (owner, repo) = if let Ok(conn) = db.get_conn() {
         let mut stmt = conn.prepare("SELECT github_repo FROM projects WHERE ?1 LIKE path || '%' ORDER BY length(path) DESC LIMIT 1")?;
         let repo_full: Option<String> = stmt.query_row(params![search_path], |r| r.get(0)).ok();
-        
+
         if let Some(full) = repo_full {
             let parts: Vec<&str> = full.split('/').collect();
             if parts.len() == 2 {
@@ -74,7 +75,10 @@ pub async fn spawn_issue(
             );
             b = b.replace("[Describe the system subsystem to be hardened]", &obj);
             b = b.replace("[Identify the resource or latency bottleneck]", &obj);
-            b = b.replace("[Describe the observed behavior vs expected behavior]", &obj);
+            b = b.replace(
+                "[Describe the observed behavior vs expected behavior]",
+                &obj,
+            );
         }
         if let Some(sc) = scope {
             b = b.replace(
@@ -130,8 +134,10 @@ pub async fn handle_system_action(
             if !is_admin {
                 anyhow::bail!("Admin only.");
             }
-            println!("
-\x1b[1m--- KoadOS Core Refresh (Hard Reset) ---\x1b[0m");
+            println!(
+                "
+\x1b[1m--- KoadOS Core Refresh (Hard Reset) ---\x1b[0m"
+            );
             let home = config.home.clone();
             println!(">>> [1/3] Energizing Forge (cargo build --release)...");
             let build_status = Command::new("cargo")
@@ -150,8 +156,10 @@ pub async fn handle_system_action(
             if !is_admin {
                 anyhow::bail!("Admin only.");
             }
-            println!("
-\x1b[1m--- KoadOS Sovereign Save Protocol ---\x1b[0m");
+            println!(
+                "
+\x1b[1m--- KoadOS Sovereign Save Protocol ---\x1b[0m"
+            );
             let home = config.home.clone();
             let now_ts = Local::now().format("%Y%m%d-%H%M%S").to_string();
 
@@ -207,8 +215,10 @@ pub async fn handle_system_action(
                     .status();
                 println!("  [OK] System checkpoint committed to git.");
             }
-            println!("
-\x1b[32m[CONDITION GREEN] Sovereign Save Complete.\x1b[0m");
+            println!(
+                "
+\x1b[32m[CONDITION GREEN] Sovereign Save Complete.\x1b[0m"
+            );
         }
         SystemAction::Patch {
             path,
@@ -261,25 +271,35 @@ pub async fn handle_system_action(
             }
         }
         SystemAction::Tokenaudit { cleanup: _ } => {
-            println!("
-\x1b[1m--- KoadOS Cognitive Efficiency Audit ---\x1b[0m");
+            println!(
+                "
+\x1b[1m--- KoadOS Cognitive Efficiency Audit ---\x1b[0m"
+            );
             let conn = db.get_conn()?;
-            
+
             // Pass 1: Memory Density
             print!("{:<35}", "Pass 1: Storage (Knowledge):");
-            let total_k: i32 = conn.query_row("SELECT count(*) FROM knowledge", [], |r| r.get(0))?;
+            let total_k: i32 =
+                conn.query_row("SELECT count(*) FROM knowledge", [], |r| r.get(0))?;
             println!("\x1b[32m[PASS]\x1b[0m Ingested {} facts.", total_k);
 
             // Pass 2: Session Isolation
             print!("{:<35}", "Pass 2: Identity (Sessions):");
-            let active_s: i32 = conn.query_row("SELECT count(*) FROM identity_roles", [], |r| r.get(0))?;
-            println!("\x1b[32m[PASS]\x1b[0m Monitoring {} active links.", active_s);
+            let active_s: i32 =
+                conn.query_row("SELECT count(*) FROM identity_roles", [], |r| r.get(0))?;
+            println!(
+                "\x1b[32m[PASS]\x1b[0m Monitoring {} active links.",
+                active_s
+            );
 
             // Pass 3: Tool-Call Efficiency
             print!("{:<35}", "Pass 3: Logic (Context Cache):");
             let cache_socket = config.home.join("koad.sock");
-            if cache_socket.exists() { println!("\x1b[32m[PASS]\x1b[0m Neural Bus Cache Active."); }
-            else { println!("\x1b[31m[FAIL]\x1b[0m Cache Offline."); }
+            if cache_socket.exists() {
+                println!("\x1b[32m[PASS]\x1b[0m Neural Bus Cache Active.");
+            } else {
+                println!("\x1b[31m[FAIL]\x1b[0m Cache Offline.");
+            }
 
             // Pass 4: Payload Trimming
             print!("{:<35}", "Pass 4: Data (Payloads):");
@@ -292,15 +312,22 @@ pub async fn handle_system_action(
             let mut high_density = true;
             for b in bios {
                 let (id, len) = b?;
-                if len > 200 { 
-                    println!("\x1b[33m[WARN]\x1b[0m KAI '{}' bio too long ({} chars).", id, len);
+                if len > 200 {
+                    println!(
+                        "\x1b[33m[WARN]\x1b[0m KAI '{}' bio too long ({} chars).",
+                        id, len
+                    );
                     high_density = false;
                 }
             }
-            if high_density { println!("\x1b[32m[PASS]\x1b[0m All KAIs high-density."); }
+            if high_density {
+                println!("\x1b[32m[PASS]\x1b[0m All KAIs high-density.");
+            }
 
-            println!("\x1b[1m---------------------------------------------------\x1b[0m
-");
+            println!(
+                "\x1b[1m---------------------------------------------------\x1b[0m
+"
+            );
         }
         SystemAction::Spawn {
             template,
@@ -311,23 +338,41 @@ pub async fn handle_system_action(
             labels,
         } => {
             println!(">>> [SPAWN] Energizing Forge for Issue: {}...", title);
-            let issue = spawn_issue(config, db, &template, &title, &weight, objective, scope, labels, None).await?;
-            
+            let issue = spawn_issue(
+                config, db, &template, &title, &weight, objective, scope, labels, None,
+            )
+            .await?;
+
             // Resolve repo string for the reporter (using normalized path)
             let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             let abs_current = std::fs::canonicalize(&current_dir).unwrap_or(current_dir);
             let search_path = abs_current.to_string_lossy().to_string();
 
             let repo_full = if let Ok(conn) = db.get_conn() {
-                let mut stmt = conn.prepare("SELECT github_repo FROM projects WHERE ?1 LIKE path || '%' ORDER BY length(path) DESC LIMIT 1").ok();
-                stmt.and_then(|mut s| s.query_row(params![search_path], |r| r.get::<_, String>(0)).ok())
-                    .unwrap_or_else(|| format!("{}/{}", config.get_github_owner().unwrap_or_default(), config.get_github_repo().unwrap_or_default()))
+                let stmt = conn.prepare("SELECT github_repo FROM projects WHERE ?1 LIKE path || '%' ORDER BY length(path) DESC LIMIT 1").ok();
+                stmt.and_then(|mut s| {
+                    s.query_row(params![search_path], |r| r.get::<_, String>(0))
+                        .ok()
+                })
+                .unwrap_or_else(|| {
+                    format!(
+                        "{}/{}",
+                        config.get_github_owner().unwrap_or_default(),
+                        config.get_github_repo().unwrap_or_default()
+                    )
+                })
             } else {
-                format!("{}/{}", config.get_github_owner().unwrap_or_default(), config.get_github_repo().unwrap_or_default())
+                format!(
+                    "{}/{}",
+                    config.get_github_owner().unwrap_or_default(),
+                    config.get_github_repo().unwrap_or_default()
+                )
             };
 
-            println!("\x1b[32m[SPAWNED]\x1b[0m Issue #{} live at: https://github.com/{}/issues/{}", 
-                issue.number, repo_full, issue.number);
+            println!(
+                "\x1b[32m[SPAWNED]\x1b[0m Issue #{} live at: https://github.com/{}/issues/{}",
+                issue.number, repo_full, issue.number
+            );
         }
         SystemAction::Import { .. } => {
             // Handled in main.rs dispatcher

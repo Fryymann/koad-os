@@ -37,8 +37,11 @@ async fn main() -> Result<()> {
     });
 
     let data: serde_json::Value = client.graphql(query, variables).await?;
-    println!("Project Fields Metadata:
-{}", serde_json::to_string_pretty(&data)?);
+    println!(
+        "Project Fields Metadata:
+{}",
+        serde_json::to_string_pretty(&data)?
+    );
 
     Ok(())
 }

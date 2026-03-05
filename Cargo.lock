@@ -1473,6 +1473,7 @@ dependencies = [
  "ctrlc",
  "dirs",
  "koad-board",
+ "koad-bridge-notion",
  "koad-core",
  "koad-proto",
  "notify",
@@ -1508,6 +1509,21 @@ dependencies = [
  "chrono",
  "koad-core",
  "log",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "koad-bridge-notion"
+version = "3.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "koad-core",
  "reqwest",
  "serde",
  "serde_json",

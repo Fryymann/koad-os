@@ -4,9 +4,9 @@ pub mod rpc;
 
 use crate::engine::kernel::KernelBuilder;
 use koad_core::config::KoadConfig;
+use koad_core::constants::DEFAULT_SPINE_PID;
 use koad_core::logging::init_logging;
 use koad_core::utils::pid::PidGuard;
-use koad_core::constants::DEFAULT_SPINE_PID;
 
 use tokio::signal;
 use tracing::{error, info};

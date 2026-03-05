@@ -1,6 +1,6 @@
-use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
-use koad_proto::spine::v1::{HydrationRequest, HotContextChunk};
 use chrono::Utc;
+use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
+use koad_proto::spine::v1::{HotContextChunk, HydrationRequest};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

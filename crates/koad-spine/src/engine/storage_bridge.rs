@@ -201,7 +201,9 @@ impl StorageBridge for KoadStorageBridge {
         let entries: Vec<(String, String)> = tokio::task::spawn_blocking(move || {
             let conn = sqlite.blocking_lock();
             let mut stmt = conn.prepare("SELECT key, value FROM state_ledger")?;
-            let rows = stmt.query_map([], |row: &rusqlite::Row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+            let rows = stmt.query_map([], |row: &rusqlite::Row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
             let mut results = Vec::new();
             for row in rows {
                 results.push(row?);
@@ -211,11 +213,19 @@ impl StorageBridge for KoadStorageBridge {
         .await??;
 
         for (k, v) in entries {
-            let _: () = redis.pool.next().hset::<(), _, _>("koad:state", (k, v)).await?;
+            let _: () = redis
+                .pool
+                .next()
+                .hset::<(), _, _>("koad:state", (k, v))
+                .await?;
         }
 
         // Set lighthouse key
-        let _: () = redis.pool.next().hset("koad:state", ("initialized", "true")).await?;
+        let _: () = redis
+            .pool
+            .next()
+            .hset("koad:state", ("initialized", "true"))
+            .await?;
 
         Ok(())
     }

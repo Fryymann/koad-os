@@ -29,10 +29,11 @@ impl KoadConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|_| home.join(crate::constants::DEFAULT_SPINE_SOCK));
 
-        let spine_grpc_addr =
-            env::var("SPINE_GRPC_ADDR").unwrap_or_else(|_| crate::constants::DEFAULT_SPINE_GRPC_ADDR.to_string());
+        let spine_grpc_addr = env::var("SPINE_GRPC_ADDR")
+            .unwrap_or_else(|_| crate::constants::DEFAULT_SPINE_GRPC_ADDR.to_string());
 
-        let gateway_addr = env::var("GATEWAY_ADDR").unwrap_or_else(|_| crate::constants::DEFAULT_GATEWAY_ADDR.to_string());
+        let gateway_addr = env::var("GATEWAY_ADDR")
+            .unwrap_or_else(|_| crate::constants::DEFAULT_GATEWAY_ADDR.to_string());
 
         let github_project_number = env::var("GITHUB_PROJECT_NUMBER")
             .ok()
@@ -58,11 +59,13 @@ impl KoadConfig {
     }
 
     pub fn get_github_owner(&self) -> Result<String> {
-        Ok(env::var("GITHUB_OWNER").unwrap_or_else(|_| crate::constants::DEFAULT_GITHUB_OWNER.to_string()))
+        Ok(env::var("GITHUB_OWNER")
+            .unwrap_or_else(|_| crate::constants::DEFAULT_GITHUB_OWNER.to_string()))
     }
 
     pub fn get_github_repo(&self) -> Result<String> {
-        Ok(env::var("GITHUB_REPO").unwrap_or_else(|_| crate::constants::DEFAULT_GITHUB_REPO.to_string()))
+        Ok(env::var("GITHUB_REPO")
+            .unwrap_or_else(|_| crate::constants::DEFAULT_GITHUB_REPO.to_string()))
     }
 
     pub fn get_db_path(&self) -> PathBuf {

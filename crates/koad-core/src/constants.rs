@@ -12,7 +12,8 @@ pub const DEFAULT_SPINE_GRPC_ADDR: &str = "http://127.0.0.1:50051";
 /// API Base URLs
 pub const GITHUB_API_BASE: &str = "https://api.github.com";
 pub const NOTION_API_BASE: &str = "https://api.notion.com/v1";
-pub const DND_BEYOND_CHAR_SERVICE: &str = "https://character-service.dndbeyond.com/character/v5/character";
+pub const DND_BEYOND_CHAR_SERVICE: &str =
+    "https://character-service.dndbeyond.com/character/v5/character";
 
 /// Default Redis socket filename
 pub const DEFAULT_REDIS_SOCK: &str = "koad.sock";

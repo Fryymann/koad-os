@@ -1,21 +1,19 @@
 use crate::engine::redis::RedisClient;
 use crate::engine::storage_bridge::KoadStorageBridge;
-use koad_core::storage::StorageBridge;
 use anyhow::Context;
 use chrono::Utc;
-use fred::interfaces::{
-    ClientLike, HashesInterface, PubsubInterface, StreamsInterface,
-};
+use fred::interfaces::{ClientLike, HashesInterface, PubsubInterface, StreamsInterface};
+use koad_core::storage::StorageBridge;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::Duration;
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 use sysinfo::System;
 use tokio::time::sleep;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 
 use crate::discovery::SkillRegistry;
 use tokio::sync::Mutex;
@@ -56,7 +54,7 @@ impl ShipDiagnostics {
         _identity: Arc<crate::engine::identity::KAILeaseManager>,
         skill_registry: Arc<Mutex<SkillRegistry>>,
     ) -> Self {
-        let sys = System::new(); 
+        let sys = System::new();
         Self {
             redis,
             storage,
@@ -72,7 +70,7 @@ impl ShipDiagnostics {
         let mut iteration = 0;
         loop {
             iteration += 1;
-            
+
             // 1. Registry Integrity (Self-Healing - MUST BE FIRST)
             let _ = self.check_registry_integrity().await;
 
@@ -92,8 +90,9 @@ impl ShipDiagnostics {
 
             // 6. Vital Signs
             let _ = self.check_neural_bus().await;
-            
-            self.last_heartbeat.store(Utc::now().timestamp(), Ordering::SeqCst);
+
+            self.last_heartbeat
+                .store(Utc::now().timestamp(), Ordering::SeqCst);
             sleep(Duration::from_secs(5)).await;
         }
     }
@@ -104,23 +103,46 @@ impl ShipDiagnostics {
     }
 
     async fn check_registry_integrity(&self) -> anyhow::Result<()> {
-        let initialized: bool = self.redis.pool.next().hexists("koad:state", "initialized").await?;
+        let initialized: bool = self
+            .redis
+            .pool
+            .next()
+            .hexists("koad:state", "initialized")
+            .await?;
         if !initialized {
             warn!("Sentinel: Registry state loss detected. Triggering autonomic hydration...");
-            let _ = self.report_incident("Sentinel:Registry", "CRITICAL", "Redis state incomplete. Auto-hydration initiated.", false).await;
-            
+            let _ = self
+                .report_incident(
+                    "Sentinel:Registry",
+                    "CRITICAL",
+                    "Redis state incomplete. Auto-hydration initiated.",
+                    false,
+                )
+                .await;
+
             if let Err(e) = self.storage.hydrate_all().await {
                 error!("Sentinel: Registry hydration FAILED: {}", e);
             } else {
                 // Mark as initialized
-                let _: () = self.redis.pool.next().hset("koad:state", ("initialized", "true")).await?;
+                let _: () = self
+                    .redis
+                    .pool
+                    .next()
+                    .hset("koad:state", ("initialized", "true"))
+                    .await?;
                 info!("Sentinel: Registry hydration complete. State restored.");
             }
         }
         Ok(())
     }
 
-    async fn report_incident(&self, source: &str, severity: &str, message: &str, recovered: bool) -> anyhow::Result<()> {
+    async fn report_incident(
+        &self,
+        source: &str,
+        severity: &str,
+        message: &str,
+        recovered: bool,
+    ) -> anyhow::Result<()> {
         let incident = json!({
             "incident_id": uuid::Uuid::new_v4().to_string(),
             "source": source,
@@ -130,19 +152,24 @@ impl ShipDiagnostics {
             "status": if recovered { "RECOVERED" } else { "FAILED" }
         });
 
-        let _: Result<String, _> = self.redis.pool.next().xadd(
-            "koad:events:stream",
-            false,
-            None,
-            "*",
-            vec![
-                ("source", source),
-                ("severity", severity),
-                ("message", "INCIDENT_REPORT"),
-                ("metadata", &incident.to_string()),
-                ("timestamp", &Utc::now().timestamp().to_string()),
-            ],
-        ).await;
+        let _: Result<String, _> = self
+            .redis
+            .pool
+            .next()
+            .xadd(
+                "koad:events:stream",
+                false,
+                None,
+                "*",
+                vec![
+                    ("source", source),
+                    ("severity", severity),
+                    ("message", "INCIDENT_REPORT"),
+                    ("metadata", &incident.to_string()),
+                    ("timestamp", &Utc::now().timestamp().to_string()),
+                ],
+            )
+            .await;
 
         Ok(())
     }
@@ -153,15 +180,20 @@ impl ShipDiagnostics {
             if let Some(mut sys) = sys_arc.try_lock().ok() {
                 sys.refresh_cpu_usage();
                 sys.refresh_memory();
-                Ok((sys.global_cpu_info().cpu_usage(), sys.used_memory() / 1024 / 1024, System::uptime()))
+                Ok((
+                    sys.global_cpu_info().cpu_usage(),
+                    sys.used_memory() / 1024 / 1024,
+                    System::uptime(),
+                ))
             } else {
                 Err(anyhow::anyhow!("System Mutex Locked"))
             }
-        }).await;
+        })
+        .await;
 
         let (cpu, mem, uptime) = match scan_result {
             Ok(Ok(data)) => data,
-            _ => (0.0, 0, 0)
+            _ => (0.0, 0, 0),
         };
 
         let skill_count = {
@@ -179,22 +211,35 @@ impl ShipDiagnostics {
         };
 
         let payload = serde_json::to_string(&stats)?;
-        let _: () = self.redis.pool.next().publish("koad:telemetry:stats", &payload).await?;
+        let _: () = self
+            .redis
+            .pool
+            .next()
+            .publish("koad:telemetry:stats", &payload)
+            .await?;
         // Persistent key for status --json
-        let _: () = self.redis.pool.next().hset("koad:state", ("system_stats", payload)).await?;
-        
+        let _: () = self
+            .redis
+            .pool
+            .next()
+            .hset("koad:state", ("system_stats", payload))
+            .await?;
+
         Ok(())
     }
 
     async fn check_services(&self) -> anyhow::Result<()> {
-        let addr = std::env::var("GATEWAY_ADDR").unwrap_or_else(|_| koad_core::constants::DEFAULT_GATEWAY_ADDR.to_string());
-        
+        let addr = std::env::var("GATEWAY_ADDR")
+            .unwrap_or_else(|_| koad_core::constants::DEFAULT_GATEWAY_ADDR.to_string());
+
         let status = match tokio::time::timeout(
             Duration::from_millis(500),
-            tokio::net::TcpStream::connect(&addr)
-        ).await {
+            tokio::net::TcpStream::connect(&addr),
+        )
+        .await
+        {
             Ok(Ok(_)) => "UP".to_string(),
-            _ => "DOWN".to_string()
+            _ => "DOWN".to_string(),
         };
 
         let web_deck = ServiceEntry {
@@ -207,7 +252,12 @@ impl ShipDiagnostics {
         };
 
         let payload = serde_json::to_string(&web_deck)?;
-        let _: () = self.redis.pool.next().publish("koad:telemetry:services", &payload).await?;
+        let _: () = self
+            .redis
+            .pool
+            .next()
+            .publish("koad:telemetry:services", &payload)
+            .await?;
         Ok(())
     }
 
@@ -218,29 +268,42 @@ impl ShipDiagnostics {
             let mut stmt = conn.prepare("SELECT name FROM identities")?;
             let rows = stmt.query_map([], |row: &rusqlite::Row| row.get::<_, String>(0))?;
             let mut names = Vec::new();
-            for r in rows { names.push(r?); }
+            for r in rows {
+                names.push(r?);
+            }
             Ok::<Vec<String>, anyhow::Error>(names)
-        }).await.unwrap_or_else(|_| Ok(Vec::new()))?;
+        })
+        .await
+        .unwrap_or_else(|_| Ok(Vec::new()))?;
 
         let mut wake_count = 0;
         let mut manifest = HashMap::new();
 
         for name in identities {
             let key = format!("koad:kai:{}:lease", name);
-            let lease_data: Option<String> = self.redis.pool.next().hget("koad:state", &key).await.unwrap_or(None);
-            
+            let lease_data: Option<String> = self
+                .redis
+                .pool
+                .next()
+                .hget("koad:state", &key)
+                .await
+                .unwrap_or(None);
+
             if let Some(data) = lease_data {
                 if let Ok(lease) = serde_json::from_str::<serde_json::Value>(&data) {
                     // Robust timestamp parsing
                     let expires_at = lease["expires_at"].as_str().unwrap_or("");
                     if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(expires_at) {
                         if ts.with_timezone(&Utc) > Utc::now() {
-                            manifest.insert(name, json!({
-                                "status": "WAKE",
-                                "session_id": lease["session_id"],
-                                "driver": lease["driver_id"],
-                                "last_seen": expires_at
-                            }));
+                            manifest.insert(
+                                name,
+                                json!({
+                                    "status": "WAKE",
+                                    "session_id": lease["session_id"],
+                                    "driver": lease["driver_id"],
+                                    "last_seen": expires_at
+                                }),
+                            );
                             wake_count += 1;
                             continue;
                         }
@@ -254,18 +317,35 @@ impl ShipDiagnostics {
             "manifest": manifest,
             "wake_count": wake_count,
             "timestamp": Utc::now().timestamp()
-        }).to_string();
+        })
+        .to_string();
 
-        let _: () = self.redis.pool.next().publish("koad:telemetry:manifest", &payload).await?;
+        let _: () = self
+            .redis
+            .pool
+            .next()
+            .publish("koad:telemetry:manifest", &payload)
+            .await?;
         // Persistent key for status --json
-        let _: () = self.redis.pool.next().hset("koad:state", ("crew_manifest", payload)).await?;
+        let _: () = self
+            .redis
+            .pool
+            .next()
+            .hset("koad:state", ("crew_manifest", payload))
+            .await?;
         Ok(())
     }
 
     async fn prune_orphaned_sessions(&self) -> anyhow::Result<()> {
-        let all_state: HashMap<String, String> = self.redis.pool.next().hgetall("koad:state").await.unwrap_or_default();
+        let all_state: HashMap<String, String> = self
+            .redis
+            .pool
+            .next()
+            .hgetall("koad:state")
+            .await
+            .unwrap_or_default();
         let mut active_session_ids = Vec::new();
-        
+
         // Find session IDs currently linked to leases
         for (key, val) in &all_state {
             if key.starts_with("koad:kai:") && key.ends_with(":lease") {
@@ -282,7 +362,13 @@ impl ShipDiagnostics {
                 let sid = key.replace("koad:session:", "");
                 if !active_session_ids.contains(&sid) {
                     info!("Autonomic Sentinel: Pruning orphaned session key: {}", key);
-                    let _: () = self.redis.pool.next().hdel("koad:state", &key).await.unwrap_or(());
+                    let _: () = self
+                        .redis
+                        .pool
+                        .next()
+                        .hdel("koad:state", &key)
+                        .await
+                        .unwrap_or(());
                 }
             }
         }
@@ -290,8 +376,10 @@ impl ShipDiagnostics {
     }
 
     async fn _restart_gateway(&self) -> anyhow::Result<()> {
-        let addr = std::env::var("GATEWAY_ADDR").unwrap_or_else(|_| koad_core::constants::DEFAULT_GATEWAY_ADDR.to_string());
-        let home = std::env::var("KOAD_HOME").context("KOAD_HOME not set. Cannot restart gateway.")?;
+        let addr = std::env::var("GATEWAY_ADDR")
+            .unwrap_or_else(|_| koad_core::constants::DEFAULT_GATEWAY_ADDR.to_string());
+        let home =
+            std::env::var("KOAD_HOME").context("KOAD_HOME not set. Cannot restart gateway.")?;
         let bin_path = PathBuf::from(&home).join("bin/kgateway");
         let log_path = PathBuf::from(&home).join("gateway.log");
 

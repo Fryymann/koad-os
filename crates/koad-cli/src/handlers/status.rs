@@ -1,10 +1,10 @@
+use crate::db::KoadDB;
+use crate::utils::find_ghosts;
 use anyhow::Result;
 use koad_core::config::KoadConfig;
 use serde_json::Value;
 use std::collections::HashMap;
 use sysinfo::System;
-use crate::db::KoadDB;
-use crate::utils::find_ghosts;
 
 pub async fn handle_status_command(
     _json: bool,
@@ -12,14 +12,16 @@ pub async fn handle_status_command(
     config: &KoadConfig,
     _db: &KoadDB,
 ) -> Result<()> {
-    println!("
-\x1b[1m--- [TELEMETRY] Neural Link & Grid Integrity ---\x1b[0m");
+    println!("DEBUG: handle_status_command entered");
+    println!(
+        "
+\x1b[1m--- [TELEMETRY] Neural Link & Grid Integrity ---\x1b[0m"
+    );
 
     // 1. Engine Room (Redis Process/Socket)
     print!("{:<30}", "Engine Room (Redis):");
     if config.redis_socket.exists() {
-        match redis::Client::open(format!("redis+unix://{}", config.redis_socket.display()))
-        {
+        match redis::Client::open(format!("redis+unix://{}", config.redis_socket.display())) {
             Ok(client) => {
                 if let Ok(mut con) = client.get_connection() {
                     let _: String = redis::cmd("PING")
@@ -49,11 +51,16 @@ pub async fn handle_status_command(
     print!("{:<30}", "Web Deck (Gateway):");
     let mut sys = System::new_all();
     sys.refresh_all();
-    let is_gateway_running = sys.processes().values().any(|p| p.name().contains("kgateway"));
+    let is_gateway_running = sys
+        .processes()
+        .values()
+        .any(|p| p.name().contains("kgateway"));
     if is_gateway_running {
         println!("\x1b[32m[PASS]\x1b[0m Gateway pulse detected.");
     } else {
-        println!("\x1b[31m[FAIL]\x1b[0m Web Deck is DARK. The Spine is attempting autonomic recovery.");
+        println!(
+            "\x1b[31m[FAIL]\x1b[0m Web Deck is DARK. The Spine is attempting autonomic recovery."
+        );
     }
 
     // 3. Memory Bank (SQLite)
@@ -62,8 +69,7 @@ pub async fn handle_status_command(
     if db_path.exists() {
         match rusqlite::Connection::open(&db_path) {
             Ok(conn) => {
-                let res: rusqlite::Result<i32> =
-                    conn.query_row("SELECT 1", [], |r| r.get(0));
+                let res: rusqlite::Result<i32> = conn.query_row("SELECT 1", [], |r| r.get(0));
                 if res.is_ok() {
                     println!("\x1b[32m[PASS]\x1b[0m Sectors accessible.");
                 } else {
@@ -92,13 +98,21 @@ pub async fn handle_status_command(
 
         // 5. System Stats
         if config.redis_socket.exists() {
-            if let Ok(client) = redis::Client::open(format!("redis+unix://{}", config.redis_socket.display())) {
+            if let Ok(client) =
+                redis::Client::open(format!("redis+unix://{}", config.redis_socket.display()))
+            {
                 if let Ok(mut con) = client.get_connection() {
-                    let res: Option<String> = redis::cmd("HGET").arg("koad:state").arg("system_stats").query(&mut con).unwrap_or(None);
+                    let res: Option<String> = redis::cmd("HGET")
+                        .arg("koad:state")
+                        .arg("system_stats")
+                        .query(&mut con)
+                        .unwrap_or(None);
                     if let Some(s) = res {
                         let v: Value = serde_json::from_str(&s).unwrap_or_default();
-                        println!("
-\x1b[1m--- Resource Allocation ---\x1b[0m");
+                        println!(
+                            "
+\x1b[1m--- Resource Allocation ---\x1b[0m"
+                        );
                         println!("CPU Usage: {:.1}%", v["cpu_usage"].as_f64().unwrap_or(0.0));
                         println!("Memory:    {} MB", v["memory_usage"].as_u64().unwrap_or(0));
                     }
@@ -106,31 +120,39 @@ pub async fn handle_status_command(
             }
         }
 
-        // 6. Crew Manifest
-        if config.redis_socket.exists() {
-            if let Ok(client) = redis::Client::open(format!("redis+unix://{}", config.redis_socket.display())) {
-                if let Ok(mut con) = client.get_connection() {
-                    let manifest_json: Option<String> = redis::cmd("HGET").arg("koad:state").arg("crew_manifest").query(&mut con).unwrap_or(None);
-                    if let Some(m) = manifest_json {
-                        if let Ok(manifest) = serde_json::from_str::<HashMap<String, Value>>(&m) {
-                            println!("
+        // 6. Crew Manifest (via Spine gRPC)
+        println!("  [DEBUG] Connecting to Spine at: {}", config.spine_grpc_addr);
+        if let Ok(mut client) = crate::utils::get_spine_client(config).await {
+            if let Ok(resp) = client.get_system_state(koad_proto::spine::v1::GetSystemStateRequest {}).await {
+                let state = resp.into_inner();
+                println!("
 \x1b[1m--- Crew Manifest (WAKE) ---\x1b[0m");
-                            let mut wake = 0;
-                            for (name, data) in manifest {
-                                if data["status"] == "WAKE" {
-                                    println!("  - {:<10} [{}]", name, data["last_seen"].as_str().unwrap_or(""));
-                                    wake += 1;
-                                }
-                            }
-                            println!("Total Wake Personnel: {}", wake);
+                println!("  Raw identity_json: '{}'", state.identity_json);
+                println!("  Active tasks:      {}", state.active_tasks);
+                
+                if let Ok(sessions) = serde_json::from_str::<Vec<koad_core::session::AgentSession>>(&state.identity_json) {
+                    let mut wake = 0;
+                    for sess in sessions {
+                        if sess.status == "active" {
+                            println!(
+                                "  - {:<10} [{}] (Session: {})",
+                                sess.identity.name,
+                                sess.last_heartbeat.format("%H:%M:%S"),
+                                &sess.session_id[..8]
+                            );
+                            wake += 1;
                         }
                     }
+                    println!("Total Wake Personnel: {}", wake);
+                } else {
+                    println!("  \x1b[33m[WARN]\x1b[0m Identity JSON parsing skipped or failed.");
                 }
             }
         }
     }
 
-    println!("\x1b[1m---------------------------------------------------\x1b[0m
-");
+    println!(
+        "\x1b[1m---------------------------------------------------\x1b[0m"
+    );
     Ok(())
 }

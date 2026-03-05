@@ -1,10 +1,10 @@
 #![allow(dead_code, unused_imports, clippy::type_complexity)]
 
 mod cli;
-mod db;
-mod utils;
 mod config_legacy;
+mod db;
 mod handlers;
+mod utils;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -14,22 +14,22 @@ use std::env;
 use std::path::PathBuf;
 
 use crate::cli::{Cli, Commands, SystemAction};
-use crate::db::KoadDB;
-use crate::utils::{detect_model_tier, feature_gate, pre_flight, PreFlightStatus};
 use crate::config_legacy::KoadLegacyConfig;
+use crate::db::KoadDB;
 use crate::handlers::boot::handle_boot_command;
-use crate::handlers::system::handle_system_action;
-use crate::handlers::intel::handle_intel_action;
-use crate::handlers::fleet::handle_fleet_action;
 use crate::handlers::bridge::handle_bridge_action;
+use crate::handlers::fleet::handle_fleet_action;
+use crate::handlers::intel::handle_intel_action;
 use crate::handlers::status::handle_status_command;
+use crate::handlers::system::handle_system_action;
+use crate::utils::{detect_model_tier, feature_gate, pre_flight, PreFlightStatus};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let config = KoadConfig::load()?;
     let role = cli.role.clone();
-    let is_admin = role == "admin";
+    let _is_admin = role == "admin";
 
     // 1. Legacy Config (Bio/Persona)
     let legacy_config = KoadLegacyConfig::load(&config.home.join("koad.json"))?;
@@ -69,22 +69,44 @@ async fn main() -> Result<()> {
 
     // 5. Pre-Flight
 
-
     // 6. Command Routing
     match cli.command {
-        Commands::Boot { agent, project, task, compact } => {
-            handle_boot_command(agent, project, task, compact, role, &config, &legacy_config).await?;
+        Commands::Boot {
+            agent,
+            project,
+            task,
+            compact,
+        } => {
+            handle_boot_command(agent, project, task, compact, role, &config, &legacy_config)
+                .await?;
         }
-        Commands::System { action } => {
-            match action {
-                SystemAction::Import { source, format, delimiter, route, template, labels, dry_run } => {
-                    crate::handlers::import::handle_import(source, format, delimiter, route, template, labels, dry_run, &config, &db).await?;
-                }
-                _ => {
-                    handle_system_action(action, &config, &db, role, is_admin, &legacy_config.identity.name).await?;
-                }
+        Commands::System { action } => match action {
+            SystemAction::Import {
+                source,
+                format,
+                delimiter,
+                route,
+                template,
+                labels,
+                dry_run,
+            } => {
+                crate::handlers::import::handle_import(
+                    source, format, delimiter, route, template, labels, dry_run, &config, &db,
+                )
+                .await?;
             }
-        }
+            _ => {
+                handle_system_action(
+                    action,
+                    &config,
+                    &db,
+                    role,
+                    is_admin,
+                    &legacy_config.identity.name,
+                )
+                .await?;
+            }
+        },
         Commands::Intel { action } => {
             handle_intel_action(action, &config, &db, &legacy_config.identity.name).await?;
         }
@@ -104,7 +126,12 @@ async fn main() -> Result<()> {
             handle_status_command(json, full, &config, &db).await?;
         }
         Commands::Whoami => {
-            println!("Persona: {} ({})\nBio:     {}", legacy_config.identity.name, legacy_config.identity.role, legacy_config.identity.bio);
+            println!(
+                "Persona: {} ({})\nBio:     {}",
+                legacy_config.identity.name,
+                legacy_config.identity.role,
+                legacy_config.identity.bio
+            );
         }
         Commands::Dash => {
             crate::handlers::status::handle_status_command(false, true, &config, &db).await?;

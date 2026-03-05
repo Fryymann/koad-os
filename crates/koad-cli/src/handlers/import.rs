@@ -1,13 +1,14 @@
-use anyhow::{Context, Result};
-use koad_core::config::KoadConfig;
 use crate::cli::ImportRoute;
 use crate::handlers::system::spawn_issue;
 use crate::utils::get_spine_client;
-use koad_proto::spine::v1::{HydrationRequest, HotContextChunk};
-use std::path::PathBuf;
-use sha2::{Sha256, Digest};
+use anyhow::{Context, Result};
 use chrono::Utc;
+use koad_core::config::KoadConfig;
+use koad_proto::spine::v1::{HotContextChunk, HydrationRequest};
+use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_import(
     source: PathBuf,
     format: String,
@@ -19,7 +20,10 @@ pub async fn handle_import(
     config: &KoadConfig,
     db: &crate::db::KoadDB,
 ) -> Result<()> {
-    println!(">>> [IMPORT] Energizing Ingestion Pipeline: {}...", source.display());
+    println!(
+        ">>> [IMPORT] Energizing Ingestion Pipeline: {}...",
+        source.display()
+    );
 
     let content = std::fs::read_to_string(&source)
         .with_context(|| format!("Failed to read source file: {:?}", source))?;
@@ -43,13 +47,20 @@ pub async fn handle_import(
     // For hydration, we need the active session ID.
     // In a real scenario, this would be fetched from the local environment/boot state.
     // For now, we'll use a placeholder or look it up.
-    let session_id = std::env::var("KOAD_SESSION_ID").unwrap_or_else(|_| "admin-session".to_string());
+    let session_id =
+        std::env::var("KOAD_SESSION_ID").unwrap_or_else(|_| "admin-session".to_string());
 
     for (i, (title, body)) in chunks.into_iter().enumerate() {
         if dry_run {
             println!("\n--- [DRY RUN] Payload {} ---", i + 1);
             println!("TITLE: {}", title);
-            println!("BODY Snippet: {}...", body.chars().take(100).collect::<String>().replace("\n", " "));
+            println!(
+                "BODY Snippet: {}...",
+                body.chars()
+                    .take(100)
+                    .collect::<String>()
+                    .replace("\n", " ")
+            );
             continue;
         }
 
@@ -57,7 +68,18 @@ pub async fn handle_import(
             ImportRoute::GithubIssues => {
                 let tmpl = template.as_deref().unwrap_or("feature");
                 println!("[SYNC] Spawning Issue: {}...", title);
-                spawn_issue(config, db, tmpl, &title, "standard", None, None, labels.clone(), Some(body)).await?;
+                spawn_issue(
+                    config,
+                    db,
+                    tmpl,
+                    &title,
+                    "standard",
+                    None,
+                    None,
+                    labels.clone(),
+                    Some(body),
+                )
+                .await?;
             }
             ImportRoute::Hydration => {
                 let mut hasher = Sha256::new();
@@ -82,7 +104,10 @@ pub async fn handle_import(
                     if !response.success {
                         println!("  \x1b[31m[ERROR]\x1b[0m {}", response.error);
                     } else {
-                        println!("  \x1b[32m[OK]\x1b[0m Size: {} chars", response.current_context_size);
+                        println!(
+                            "  \x1b[32m[OK]\x1b[0m Size: {} chars",
+                            response.current_context_size
+                        );
                     }
                 }
             }
@@ -104,7 +129,7 @@ fn parse_markdown_chunks(content: &str, delimiter: &str) -> Result<Vec<(String, 
         .multi_line(true)
         .build()
         .context("Invalid delimiter regex")?;
-    
+
     let mut results = Vec::new();
 
     // Find all delimiter matches and their end positions
@@ -122,7 +147,9 @@ fn parse_markdown_chunks(content: &str, delimiter: &str) -> Result<Vec<(String, 
         };
 
         let chunk = &content[start..end].trim();
-        if chunk.is_empty() { continue; }
+        if chunk.is_empty() {
+            continue;
+        }
 
         let mut lines = chunk.lines();
         if let Some(first_line) = lines.next() {

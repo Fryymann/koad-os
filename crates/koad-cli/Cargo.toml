@@ -40,6 +40,7 @@ sha2 = "0.10"
 koad-core = { path = "../koad-core" }
 koad-proto = { path = "../koad-proto" }
 koad-board = { path = "../koad-board" }
+koad-bridge-notion = { path = "../koad-bridge-notion" }
 
 [dev-dependencies]
 assert_cmd = "2.0"

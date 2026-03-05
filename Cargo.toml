@@ -4,10 +4,8 @@ members = [
     "crates/koad-proto",
     "crates/koad-spine",
     "crates/koad-cli",
-    "crates/koad-tui",
-    "crates/koad-gateway",
     "crates/koad-board",
-    "crates/koad-skill-airtable"
+    "crates/koad-bridge-notion"
 ]
 resolver = "2"
 

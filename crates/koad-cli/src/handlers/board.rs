@@ -1,8 +1,8 @@
-use anyhow::Result;
-use koad_board::GitHubClient;
-use koad_board::sync::BoardSyncer;
-use koad_core::config::KoadConfig;
 use crate::cli::BoardAction;
+use anyhow::Result;
+use koad_board::sync::BoardSyncer;
+use koad_board::GitHubClient;
+use koad_core::config::KoadConfig;
 use tracing::{info, warn};
 
 pub async fn handle_board(action: BoardAction, config: &KoadConfig) -> Result<()> {
@@ -24,7 +24,12 @@ pub async fn handle_board(action: BoardAction, config: &KoadConfig) -> Result<()
             let items = client.list_project_items(project_num).await?;
             for item in items {
                 if !active || item.status == "In Progress" || item.status == "Todo" {
-                    info!("[{}] #{} {}", item.status, item.number.unwrap_or(0), item.title);
+                    info!(
+                        "[{}] #{} {}",
+                        item.status,
+                        item.number.unwrap_or(0),
+                        item.title
+                    );
                 }
             }
         }

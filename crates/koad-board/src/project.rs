@@ -150,9 +150,9 @@ impl GitHubClient {
 
         for field in fields {
             if field["name"].as_str() == Some(field_name) {
-                let options = field["options"]
-                    .as_array()
-                    .ok_or_else(|| anyhow::anyhow!("No options found for field '{}'", field_name))?;
+                let options = field["options"].as_array().ok_or_else(|| {
+                    anyhow::anyhow!("No options found for field '{}'", field_name)
+                })?;
                 for option in options {
                     if option["name"].as_str() == Some(option_name) {
                         return option["id"]
@@ -164,7 +164,11 @@ impl GitHubClient {
             }
         }
 
-        anyhow::bail!("Option '{}' not found in field '{}'", option_name, field_name)
+        anyhow::bail!(
+            "Option '{}' not found in field '{}'",
+            option_name,
+            field_name
+        )
     }
 
     pub async fn get_status_field_id(&self, project_id: &str) -> Result<String> {
@@ -176,7 +180,8 @@ impl GitHubClient {
         project_id: &str,
         option_name: &str,
     ) -> Result<String> {
-        self.get_single_select_option_id(project_id, "Status", option_name).await
+        self.get_single_select_option_id(project_id, "Status", option_name)
+            .await
     }
 
     pub async fn list_project_items(&self, project_number: i32) -> Result<Vec<ProjectItem>> {

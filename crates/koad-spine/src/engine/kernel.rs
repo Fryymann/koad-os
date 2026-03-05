@@ -1,4 +1,3 @@
-
 use crate::engine::Engine;
 use crate::rpc::KoadSpine;
 use koad_proto::spine::v1::spine_service_server::SpineServiceServer;
@@ -117,7 +116,9 @@ impl KernelBuilder {
         tokio::spawn(async move {
             println!("Kernel: Autonomic Watchdog ACTIVE.");
             loop {
-                let last_hb = diagnostics.last_heartbeat.load(std::sync::atomic::Ordering::SeqCst);
+                let last_hb = diagnostics
+                    .last_heartbeat
+                    .load(std::sync::atomic::Ordering::SeqCst);
                 let now = chrono::Utc::now().timestamp();
                 let gap = now - last_hb;
 
