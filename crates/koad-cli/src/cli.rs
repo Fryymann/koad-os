@@ -77,6 +77,13 @@ pub enum Commands {
         full: bool,
     },
 
+    /// Perform a comprehensive system health check and self-healing sweep.
+    Doctor {
+        /// Attempt to fix any identified minor issues.
+        #[arg(short, long)]
+        fix: bool,
+    },
+
     /// Manage and sync the GitHub Command Deck (Project Board).
     Board {
         #[command(subcommand)]

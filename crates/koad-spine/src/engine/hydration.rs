@@ -60,6 +60,8 @@ impl KoadHydrationManager {
             chunk_id: chunk_id.clone(),
             content: content.to_string(),
             ttl_seconds,
+            significance_score: 1.0, // Manual hydration is high-signal by default
+            tags: vec!["manual_hydration".to_string()],
             created_at: Utc::now(),
         };
 

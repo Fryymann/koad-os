@@ -1,4 +1,5 @@
 use koad_core::utils::redis::RedisClient;
+use koad_core::intelligence::FactCard;
 use async_trait::async_trait;
 use chrono::Utc;
 use fred::interfaces::HashesInterface;
@@ -44,11 +45,95 @@ impl KoadStorageBridge {
             [],
         )?;
 
+        // Ensure intelligence_bank table exists (L3 Durable Memory)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS intelligence_bank (
+                id TEXT PRIMARY KEY,
+                source_agent TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                content TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                tags TEXT,
+                created_at INTEGER NOT NULL,
+                ttl_seconds INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
         Ok(Self {
             redis,
             sqlite: Arc::new(Mutex::new(conn)),
             drain_interval: Duration::from_secs(30),
         })
+    }
+
+    pub async fn save_fact(&self, fact: FactCard) -> anyhow::Result<()> {
+        let sqlite = self.sqlite.clone();
+        let tags_json = serde_json::to_string(&fact.tags).unwrap_or_default();
+        let created_at = fact.created_at.timestamp();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = sqlite.blocking_lock();
+            conn.execute(
+                "INSERT OR REPLACE INTO intelligence_bank 
+                 (id, source_agent, session_id, domain, content, confidence, tags, created_at, ttl_seconds) 
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    fact.id.to_string(),
+                    fact.source_agent,
+                    fact.session_id,
+                    fact.domain,
+                    fact.content,
+                    fact.confidence,
+                    tags_json,
+                    created_at,
+                    fact.ttl_seconds
+                ],
+            )
+        })
+        .await??;
+        Ok(())
+    }
+
+    pub async fn query_facts(&self, query: &str, limit: usize) -> anyhow::Result<Vec<FactCard>> {
+        let sqlite = self.sqlite.clone();
+        let query_str = format!("%{}%", query);
+        
+        tokio::task::spawn_blocking(move || {
+            let conn = sqlite.blocking_lock();
+            let mut stmt = conn.prepare(
+                "SELECT id, source_agent, session_id, domain, content, confidence, tags, created_at, ttl_seconds 
+                 FROM intelligence_bank 
+                 WHERE content LIKE ?1 OR domain LIKE ?1 OR tags LIKE ?1 
+                 ORDER BY created_at DESC LIMIT ?2"
+            )?;
+            
+            let fact_iter = stmt.query_map(params![query_str, limit as i64], |row| {
+                let id_str: String = row.get(0)?;
+                let tags_json: String = row.get(6)?;
+                let created_at_ts: i64 = row.get(7)?;
+                
+                Ok(FactCard {
+                    id: uuid::Uuid::parse_str(&id_str).unwrap_or_default(),
+                    source_agent: row.get(1)?,
+                    session_id: row.get(2)?,
+                    domain: row.get(3)?,
+                    content: row.get(4)?,
+                    confidence: row.get(5)?,
+                    tags: serde_json::from_str(&tags_json).unwrap_or_default(),
+                    created_at: chrono::DateTime::from_timestamp(created_at_ts, 0).unwrap_or_default().with_timezone(&Utc),
+                    ttl_seconds: row.get(8)?,
+                })
+            })?;
+            
+            let mut results = Vec::new();
+            for fact in fact_iter {
+                results.push(fact?);
+            }
+            Ok(results)
+        })
+        .await?
     }
 
     /// Starts the background task that "drains" volatile metrics into the database.

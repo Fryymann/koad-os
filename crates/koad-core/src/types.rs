@@ -56,6 +56,10 @@ pub struct HotContextChunk {
     pub content: String,
     /// Time-to-live in seconds (0 = session-persistent).
     pub ttl_seconds: i32,
+    /// Importance for context ranking (0.0 to 1.0).
+    pub significance_score: f32,
+    /// Searchable metadata tags.
+    pub tags: Vec<String>,
     /// Creation timestamp.
     pub created_at: DateTime<Utc>,
 }

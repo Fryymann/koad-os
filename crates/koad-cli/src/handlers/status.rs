@@ -1,7 +1,8 @@
 use crate::db::KoadDB;
-use crate::utils::find_ghosts;
 use anyhow::Result;
 use koad_core::config::KoadConfig;
+use koad_core::constants::{REDIS_KEY_STATE, REDIS_KEY_SYSTEM_STATS};
+use koad_core::health::{HealthRegistry, HealthStatus};
 use koad_core::utils::redis::RedisClient;
 use fred::interfaces::HashesInterface;
 use serde_json::Value;
@@ -29,7 +30,7 @@ pub async fn handle_status_command(
         }
     };
 
-    // 2. Backbone (kspine gRPC Socket)
+    // 2. Backbone (Spine)
     print!("{:<30}", "Backbone (Spine):");
     let spine_socket = config.home.join("kspine.sock");
     if spine_socket.exists() {
@@ -74,22 +75,9 @@ pub async fn handle_status_command(
     }
 
     if full {
-        // 4. Ghost Process Detection
-        let ghosts = find_ghosts(&config.home);
-        if !ghosts.is_empty() {
-            println!(
-                "
-\x1b[33m[WARN] Ghost Processes Detected ({}):\x1b[0m",
-                ghosts.len()
-            );
-            for (pid, info) in ghosts {
-                println!("  - PID {}: {}", pid, info);
-            }
-        }
-
-        // 5. System Stats (Direct from Redis Data Plane)
         if let Some(ref client) = redis_client {
-            let res: Option<String> = client.pool.hget("koad:state", "system_stats").await?;
+            // 5. System Stats (Direct from Redis Data Plane)
+            let res: Option<String> = client.pool.hget(REDIS_KEY_STATE, REDIS_KEY_SYSTEM_STATS).await?;
             if let Some(s) = res {
                 let v: Value = serde_json::from_str(&s).unwrap_or_default();
                 println!(
@@ -98,16 +86,35 @@ pub async fn handle_status_command(
                 );
                 println!("CPU Usage: {:.1}%", v["cpu_usage"].as_f64().unwrap_or(0.0));
                 println!("Memory:    {} MB", v["memory_usage"].as_u64().unwrap_or(0));
+                println!("Latency:   {:.2} ms (Bus)", v["latency_ms"].as_f64().unwrap_or(0.0));
             }
-        }
 
-        // 6. Crew Manifest (Direct from Redis Data Plane - v5.0 CQRS)
-        if let Some(ref client) = redis_client {
+            // 6. Detailed Health Registry (The "Doctor" Report)
+            let health_res: Option<String> = client.pool.hget(REDIS_KEY_STATE, "health_registry").await?;
+            if let Some(h) = health_res {
+                if let Ok(registry) = serde_json::from_str::<HealthRegistry>(&h) {
+                    println!(
+                        "
+\x1b[1m--- Neural Grid Health Report ---\x1b[0m"
+                    );
+                    for check in registry.systems {
+                        let status_str = match check.status {
+                            HealthStatus::Pass => "\x1b[32m[OK]\x1b[0m",
+                            HealthStatus::Warn => "\x1b[33m[WARN]\x1b[0m",
+                            HealthStatus::Fail => "\x1b[31m[FAIL]\x1b[0m",
+                            HealthStatus::Unknown => "\x1b[37m[???]\x1b[0m",
+                        };
+                        println!("{:<10} {:<30} | {}", status_str, check.name, check.message);
+                    }
+                }
+            }
+
+            // 7. Crew Manifest (Direct from Redis Data Plane - v5.0 CQRS)
             println!(
                 "
 \x1b[1m--- Crew Manifest (Data Plane) ---\x1b[0m"
             );
-            let state: std::collections::HashMap<String, String> = client.pool.hgetall("koad:state").await?;
+            let state: std::collections::HashMap<String, String> = client.pool.hgetall(REDIS_KEY_STATE).await?;
             let mut wake = 0;
             
             for (key, val) in state {
@@ -134,10 +141,11 @@ pub async fn handle_status_command(
             }
             println!("Total Wake Personnel: {}", wake);
         } else {
-            println!("\x1b[33m[WARN]\x1b[0m Redis offline. Manifest unavailable.");
+            println!("\x1b[33m[WARN]\x1b[0m Redis offline. Telemetry unavailable.");
         }
     }
 
     println!("\x1b[1m---------------------------------------------------\x1b[0m");
     Ok(())
 }
+

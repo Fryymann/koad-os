@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use sysinfo::{Pid, System};
 
 pub struct PidGuard {
-    path: PathBuf,
+    pub path: PathBuf,
 }
 
 impl PidGuard {
@@ -45,4 +45,26 @@ impl Drop for PidGuard {
             let _ = fs::remove_file(&self.path);
         }
     }
+}
+
+pub fn find_ghosts(home: &Path) -> Vec<(u32, String)> {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let mut ghosts = Vec::new();
+
+    // Check common PID files
+    let pid_files = vec!["redis.pid", "kspine.pid", "kgateway.pid", "koad-asm.pid"];
+    for pf in pid_files {
+        let pid_file = home.join(pf);
+        if pid_file.exists() {
+            if let Ok(pid_str) = fs::read_to_string(&pid_file) {
+                if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                    if sys.process(Pid::from(pid as usize)).is_none() {
+                        ghosts.push((pid, format!("Stale {} file", pf)));
+                    }
+                }
+            }
+        }
+    }
+    ghosts
 }

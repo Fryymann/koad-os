@@ -4,6 +4,8 @@ use fred::interfaces::{
     EventInterface, HashesInterface, PubsubInterface, SetsInterface, StreamsInterface,
 };
 use koad_core::session::AgentSession;
+use koad_core::types::HotContextChunk;
+use koad_core::intelligence::ContextSummary;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -144,12 +146,23 @@ impl AgentSessionManager {
             .await
             .unwrap_or_default();
 
-        let mut hot_context = Vec::new();
+        let mut raw_chunks = Vec::new();
         for (_, val) in hot_context_raw {
             if let Ok(chunk) = serde_json::from_str::<koad_core::types::HotContextChunk>(&val) {
-                hot_context.push(chunk);
+                raw_chunks.push(chunk);
             }
         }
+
+        // --- Intelligence Layer: Ranked L1/L2 Assembly ---
+        let max_budget = self.resolve_token_budget(session);
+        let (hot_context, summary) = self.rank_and_prune_context(raw_chunks, max_budget);
+
+        // --- Intelligence Layer: Shared L3 Memory Bus ---
+        let shared_knowledge = self
+            .storage
+            .query_facts(&session.context.project_name, 5)
+            .await
+            .unwrap_or_default();
 
         let mut package = serde_json::to_value(session)?;
         if let Some(obj) = package.as_object_mut() {
@@ -160,15 +173,96 @@ impl AgentSessionManager {
                 json!(events.into_iter().map(|e| e.1).collect::<Vec<_>>()),
             );
             obj.insert("hot_context".to_string(), json!(hot_context));
+            obj.insert("shared_knowledge".to_string(), json!(shared_knowledge));
+            if let Some(s) = summary {
+                obj.insert("living_summary".to_string(), json!(s));
+            }
         }
 
         Ok(package)
+    }
+
+    fn resolve_token_budget(&self, session: &AgentSession) -> usize {
+        if let Some(custom) = session.metadata.get("max_context_tokens") {
+            if let Ok(val) = custom.parse::<usize>() {
+                return val;
+            }
+        }
+
+        // Default budgets by Rank
+        match session.identity.rank {
+            koad_core::identity::Rank::Admiral => 128_000,
+            koad_core::identity::Rank::Captain => 32_000,
+            koad_core::identity::Rank::Officer => 16_000,
+            koad_core::identity::Rank::Crew => 8_000,
+        }
+    }
+
+    fn rank_and_prune_context(
+        &self,
+        mut chunks: Vec<HotContextChunk>,
+        max_budget: usize,
+    ) -> (Vec<HotContextChunk>, Option<ContextSummary>) {
+        if chunks.is_empty() {
+            return (Vec::new(), None);
+        }
+
+        // 1. Ranking (Significance desc, Time desc)
+        chunks.sort_by(|a, b| {
+            b.significance_score
+                .partial_cmp(&a.significance_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(b.created_at.cmp(&a.created_at))
+        });
+
+        // 2. Budget Enforcement (Approximate 4 chars = 1 token)
+        let mut total_est_tokens = 0;
+        let mut accepted = Vec::new();
+        let mut rejected = Vec::new();
+
+        for chunk in chunks {
+            let chunk_tokens = chunk.content.len() / 4;
+            if total_est_tokens + chunk_tokens <= max_budget {
+                total_est_tokens += chunk_tokens;
+                accepted.push(chunk);
+            } else {
+                rejected.push(chunk);
+            }
+        }
+
+        // 3. Summarization (If we rejected significant chunks)
+        let summary = if !rejected.is_empty() {
+            let high_signal_rejected: Vec<_> = rejected
+                .iter()
+                .filter(|c| c.significance_score > 0.5)
+                .collect();
+            
+            if !high_signal_rejected.is_empty() {
+                Some(ContextSummary {
+                    session_id: "".to_string(), // Filled by caller if needed
+                    summary: format!(
+                        "Note: {} high-signal context chunks were omitted due to budget constraints.",
+                        high_signal_rejected.len()
+                    ),
+                    turn_count: rejected.len(),
+                    last_message_id: "".to_string(),
+                    updated_at: Utc::now(),
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        (accepted, summary)
     }
 
     pub async fn prune_sessions(&self, _timeout_secs: i64) -> anyhow::Result<()> {
         // Spine no longer authoritative for pruning. koad-asm daemon handles this.
         Ok(())
     }
+
 
     pub async fn start_session_monitor(&self) {
         info!("ASM: Session monitor active. Subscribing to 'koad:sessions'...");

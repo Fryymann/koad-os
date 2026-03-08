@@ -2,7 +2,6 @@ use crate::config_legacy::KoadLegacyConfig;
 use crate::utils::{detect_context_tags, detect_model_tier, get_gh_pat_for_path};
 use anyhow::{Context, Result};
 use fred::interfaces::{HashesInterface, KeysInterface, PubsubInterface};
-use fred::prelude::*;
 use koad_core::config::KoadConfig;
 use koad_core::utils::redis::RedisClient;
 use koad_proto::spine::v1::spine_service_client::SpineServiceClient;

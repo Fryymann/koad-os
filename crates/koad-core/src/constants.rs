@@ -31,3 +31,7 @@ pub const REDIS_CHANNEL_SESSIONS: &str = "koad:sessions";
 
 /// Redis Keys
 pub const REDIS_KEY_CONFIG: &str = "koad:config";
+pub const REDIS_KEY_HEALTH_REGISTRY: &str = "koad:health_registry";
+pub const REDIS_KEY_STATE: &str = "koad:state";
+pub const REDIS_KEY_SYSTEM_STATS: &str = "system_stats";
+pub const REDIS_KEY_CREW_MANIFEST: &str = "crew_manifest";

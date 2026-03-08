@@ -46,3 +46,29 @@ Hardened the CommandProcessor to ensure absolute reliability when running as a s
 
 ### Rationale
 A true operating system must provide a stable execution environment regardless of how it is launched. Explicitly managing the PATH eliminates the most common cause of background service failure.
+
+## [2026-03-08] Sprint 5: E2E Diagnostic Suite & Resilience
+
+### Overview
+Implemented a comprehensive end-to-end diagnostic suite to fulfill the [Resilience] milestone for v4.1.1.
+
+### Milestones
+- **Structured Health-Check Registry**:
+    - Implemented `koad_core::health::HealthRegistry` for standardized system reporting.
+    - Integrated registry into `ShipDiagnostics` (Spine) for real-time monitoring of:
+        - **Registry Integrity**: Autonomic state recovery via Redis/SQLite hydration.
+        - **Memory Bank (SQLite)**: Sector accessibility verification.
+        - **Ghost Processes**: Automated stale PID file detection and purging.
+        - **Neural Bus (Redis)**: Latency measurement and connection stability.
+        - **Web Deck (Gateway)**: Autonomic service recovery (restart protocol).
+- **CLI Telemetry Upgrade**:
+    - Enhanced `koad status --full` to display the detailed Health Report.
+    - Added `koad doctor` command as a dedicated diagnostic and self-healing alias.
+    - Integrated Neural Bus latency (ms) into the standard telemetry output.
+- **Resilience & Self-Healing**:
+    - Implemented `autonomic_recovery` in the Spine to handle service failures and stale locks without human intervention.
+    - Centralized ghost process detection in `koad-core` for shared use across the workspace.
+
+### Technical Rationale
+The "Doctor" pattern ensures that the system is not only observable but also self-correcting. By centralizing health logic in the Spine and exposing it via the CLI, we maintain a single source of truth for system integrity while providing the Admiral with deep, actionable telemetry.
+

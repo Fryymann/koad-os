@@ -3,7 +3,6 @@ use koad_core::config::KoadConfig;
 use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
 use std::env;
 use std::path::Path;
-use sysinfo::System;
 use tonic::transport::Channel;
 
 pub enum PreFlightStatus {
@@ -23,26 +22,6 @@ pub fn pre_flight(config: &KoadConfig) -> PreFlightStatus {
         return PreFlightStatus::Critical("Neural Bus (Redis) offline.".to_string());
     }
     PreFlightStatus::Optimal
-}
-
-pub fn find_ghosts(home: &Path) -> Vec<(u32, String)> {
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    let mut ghosts = Vec::new();
-    let pid_file = home.join("redis.pid");
-    if pid_file.exists() {
-        if let Ok(pid_str) = std::fs::read_to_string(pid_file) {
-            if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                if !sys
-                    .processes()
-                    .contains_key(&sysinfo::Pid::from(pid as usize))
-                {
-                    ghosts.push((pid, "Stale Redis PID".to_string()));
-                }
-            }
-        }
-    }
-    ghosts
 }
 
 pub fn detect_context_tags(path: &Path) -> Vec<String> {

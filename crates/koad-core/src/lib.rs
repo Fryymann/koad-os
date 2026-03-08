@@ -3,7 +3,9 @@
 
 pub mod config;
 pub mod constants;
+pub mod health;
 pub mod identity;
+pub mod intelligence;
 pub mod intent;
 pub mod logging;
 pub mod session;

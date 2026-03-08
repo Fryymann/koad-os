@@ -86,33 +86,40 @@ impl SessionManager {
 
     async fn static_prune(pool: &RedisPool) -> Result<()> {
         let all_state: HashMap<String, String> = pool.next().hgetall("koad:state").await?;
-        // ... (rest of logic same as before, moved to static for spawn)
         let mut to_remove = Vec::new();
         let mut to_dark = Vec::new();
 
         for (key, val) in all_state {
             if key.starts_with("koad:session:") {
-                if let Ok(raw_json) = serde_json::from_str::<serde_json::Value>(&val) {
+                let parse_result = serde_json::from_str::<serde_json::Value>(&val).and_then(|raw_json| {
                     let data = if let Some(inner) = raw_json.get("data") {
                         inner
                     } else {
                         &raw_json
                     };
-                    if let Ok(session) = serde_json::from_value::<AgentSession>(data.clone()) {
-                        if session.identity.name == "Koad"
-                            || session.identity.name == "Tyr"
-                            || session.identity.name == "Dood"
-                        {
-                            continue;
-                        }
+                    serde_json::from_value::<AgentSession>(data.clone()).map_err(|e| e.into())
+                });
+
+                match parse_result {
+                    Ok(session) => {
                         let diff = Utc::now().signed_duration_since(session.last_heartbeat);
+                        // Rule 1: Stale Heartbeat (> 5 minutes) -> Purge
                         if diff.num_seconds() > 300 {
+                            info!("ASM Reaper: Purging stale session {} (Heartbeat age: {}s)", session.identity.name, diff.num_seconds());
                             to_remove.push(key.clone());
-                        } else if diff.num_seconds() > 60 && session.status != "dark" {
+                        } 
+                        // Rule 2: Inactive (> 1 minute) -> Mark Dark
+                        else if diff.num_seconds() > 60 && session.status != "dark" {
+                            info!("ASM Reaper: Marking session {} as DARK", session.identity.name);
                             let mut updated = session.clone();
                             updated.status = "dark".to_string();
                             to_dark.push((key.clone(), updated));
                         }
+                    },
+                    Err(e) => {
+                        // Rule 3: Corrupted Entry -> Aggressive Purge
+                        warn!("ASM Reaper: Purging corrupted session entry {}: {}", key, e);
+                        to_remove.push(key.clone());
                     }
                 }
             }
