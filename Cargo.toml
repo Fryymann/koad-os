@@ -5,7 +5,8 @@ members = [
     "crates/koad-spine",
     "crates/koad-cli",
     "crates/koad-board",
-    "crates/koad-bridge-notion"
+    "crates/koad-bridge-notion",
+    "crates/koad-asm"
 ]
 resolver = "2"
 

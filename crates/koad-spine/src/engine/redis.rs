@@ -45,7 +45,7 @@ impl RedisClient {
                 .build()?;
 
             let is_alive = match tokio::time::timeout(Duration::from_millis(1000), async {
-                let _ = test_client.init().await?;
+                test_client.init().await?;
                 test_client.wait_for_connect().await?;
                 let _: () = test_client.ping().await?;
                 Ok::<(), anyhow::Error>(())
@@ -117,6 +117,12 @@ impl RedisClient {
 
         pool.init().await?;
         subscriber.init().await?;
+
+        // 3. Setup event listeners
+        pool.next().on_error(|e| {
+            eprintln!("Redis Pool Error: {:?}", e);
+            Ok(())
+        });
 
         println!("Connected to Redis Pool (8 connections) + Subscriber.");
 

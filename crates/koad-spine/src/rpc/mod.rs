@@ -333,11 +333,15 @@ impl SpineService for KoadSpine {
             .await
             .map_err(|e| Status::permission_denied(e.to_string()))?;
 
-        let rank = match req.agent_role.to_lowercase().as_str() {
-            "admiral" | "admin" => Rank::Admiral,
-            "captain" => Rank::Captain,
-            "officer" | "pm" => Rank::Officer,
-            _ => Rank::Crew,
+        let rank = if req.agent_name.to_lowercase() == "dood" || req.agent_name.to_lowercase() == "ian" {
+            Rank::Admiral
+        } else {
+            match req.agent_role.to_lowercase().as_str() {
+                "admiral" | "dood" => Rank::Admiral,
+                "captain" | "admin" => Rank::Captain,
+                "officer" | "pm" => Rank::Officer,
+                _ => Rank::Crew,
+            }
         };
 
         let identity = koad_core::identity::Identity {
@@ -370,6 +374,26 @@ impl SpineService for KoadSpine {
             .metadata
             .insert("model_name".to_string(), req.model_name.clone());
 
+        // 1. Authoritative Persistence in Redis (Hot State)
+        let payload = serde_json::to_value(&session).map_err(|e| Status::internal(e.to_string()))?;
+        let session_key = format!("koad:session:{}", session_id);
+        
+        let _: () = self.engine.redis.pool.next()
+            .hset("koad:state", (&session_key, payload.to_string()))
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        // 2. Broadcast to Data Plane (koad-asm and watchers)
+        let msg = json!({
+            "type": "SESSION_UPDATE",
+            "data": payload
+        });
+        let _: () = self.engine.redis.pool.next()
+            .publish("koad:sessions", msg.to_string())
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        // 3. Update local cache (Passive)
         self.engine
             .asm
             .create_session(session)
@@ -384,7 +408,7 @@ impl SpineService for KoadSpine {
             .map_err(|e| Status::internal(e.to_string()))?;
 
         let context_key = format!("koad:session:{}:hot_context", session_id);
-        let mut conn = self.engine.redis.pool.next();
+        let conn = self.engine.redis.pool.next();
         let hot_context_raw: std::collections::HashMap<String, String> =
             conn.hgetall(&context_key).await.unwrap_or_default();
 
@@ -429,7 +453,7 @@ impl SpineService for KoadSpine {
             .ok_or_else(|| Status::invalid_argument("Missing chunk"))?;
 
         let context_key = format!("koad:session:{}:hot_context", session_id);
-        let mut conn = self.engine.redis.pool.next();
+        let conn = self.engine.redis.pool.next();
 
         let current_chunks: std::collections::HashMap<String, String> = conn
             .hgetall(&context_key)
@@ -526,7 +550,7 @@ impl SpineService for KoadSpine {
         })
         .to_string();
 
-        let mut conn = self.engine.redis.pool.next();
+        let conn = self.engine.redis.pool.next();
         let _: () = conn
             .publish(koad_core::constants::REDIS_CHANNEL_TELEMETRY, payload)
             .await

@@ -28,3 +28,6 @@ pub const DEFAULT_GATEWAY_PID: &str = "kgateway.pid";
 /// Redis Channels
 pub const REDIS_CHANNEL_TELEMETRY: &str = "koad:telemetry";
 pub const REDIS_CHANNEL_SESSIONS: &str = "koad:sessions";
+
+/// Redis Keys
+pub const REDIS_KEY_CONFIG: &str = "koad:config";

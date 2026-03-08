@@ -4,12 +4,11 @@ use fred::interfaces::{
     EventInterface, HashesInterface, PubsubInterface, SetsInterface, StreamsInterface,
 };
 use koad_core::session::AgentSession;
-use koad_core::storage::StorageBridge;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{info, error};
 
 pub struct AgentSessionManager {
     storage: Arc<KoadStorageBridge>,
@@ -24,111 +23,40 @@ impl AgentSessionManager {
         }
     }
 
+    /// Passive creation: Just updates the local cache. 
+    /// Real creation is handled by the agent directly via Redis/ASM daemon.
     pub async fn create_session(&self, session: AgentSession) -> anyhow::Result<()> {
         let mut sessions = self.sessions.lock().await;
-        let session_id = session.session_id.clone();
-        let agent_name = session.identity.name.clone();
-        let tier = session.identity.tier;
-
-        info!("ASM: Creating session {} for KAI '{}'", session_id, agent_name);
-
-        // 1. Enforce KAI Uniqueness: Prune existing sessions for this identity
-        let mut to_remove = Vec::new();
-        for (old_sid, old_sess) in sessions.iter() {
-            if old_sess.identity.name == agent_name {
-                to_remove.push(old_sid.clone());
-            }
-        }
-
-        for old_sid in to_remove {
-            info!(
-                "ASM: Pruning duplicate session for KAI '{}': {}",
-                agent_name, old_sid
-            );
-            sessions.remove(&old_sid);
-            let _: () = self
-                .storage
-                .redis
-                .pool
-                .hdel("koad:state", format!("koad:session:{}", old_sid))
-                .await?;
-        }
-
-        // 2. Register New Session
-        let payload = serde_json::to_value(&session)?;
-        self.storage
-            .set_state(
-                &format!("koad:session:{}", session_id),
-                payload.clone(),
-                Some(tier),
-            )
-            .await?;
-
-        sessions.insert(session_id.clone(), session);
-        info!("ASM: Session {} inserted into internal map. Total: {}", session_id, sessions.len());
-
-        let msg = json!({
-            "type": "SESSION_UPDATE",
-            "data": payload
-        });
-        let _: () = self
-            .storage
-            .redis
-            .pool
-            .next()
-            .publish("koad:sessions", msg.to_string())
-            .await?;
-
+        info!("ASM (Watcher): Local cache update for KAI '{}'", session.identity.name);
+        sessions.insert(session.session_id.clone(), session);
         Ok(())
     }
 
     pub async fn heartbeat(&self, session_id: &str) -> anyhow::Result<()> {
+        // Spine no longer authoritative for heartbeats. 
+        // Agents should heartbeat directly to Redis/ASM.
+        // We just update local cache if we have it.
         let mut sessions = self.sessions.lock().await;
         if let Some(session) = sessions.get_mut(session_id) {
             session.last_heartbeat = Utc::now();
-            let tier = session.identity.tier;
-
-            let payload = serde_json::to_value(&session)?;
-            self.storage
-                .set_state(
-                    &format!("koad:session:{}", session_id),
-                    payload.clone(),
-                    Some(tier),
-                )
-                .await?;
-
-            let msg = json!({
-                "type": "SESSION_UPDATE",
-                "data": payload
-            });
-            let _: () = self
-                .storage
-                .redis
-                .pool
-                .next()
-                .publish("koad:sessions", msg.to_string())
-                .await?;
-
-            Ok(())
-        } else {
-            anyhow::bail!("Session not found")
         }
+        Ok(())
     }
 
     pub async fn list_active_sessions(&self) -> Vec<AgentSession> {
         let sessions = self.sessions.lock().await;
-        info!("ASM: Listing {} active sessions from internal map.", sessions.len());
         sessions.values().cloned().collect()
     }
 
     pub async fn hydrate_from_db(&self) -> anyhow::Result<()> {
-        info!("ASM: Hydrating active sessions from database...");
+        info!("ASM: Hydrating active sessions from Redis...");
         let mut sessions = self.sessions.lock().await;
 
         if let Ok(all_state) = self
             .storage
             .redis
             .pool
+            .next()
             .hgetall::<std::collections::HashMap<String, String>, _>("koad:state")
             .await
         {
@@ -140,14 +68,8 @@ impl AgentSessionManager {
                         } else {
                             &raw_json
                         };
-                        if data["status"] == "active" {
-                            if let Ok(session) =
-                                serde_json::from_value::<AgentSession>(data.clone())
-                            {
-                                info!(
-                                    "ASM: Restored active session from state: {}",
-                                    session.session_id
-                                );
+                        if let Ok(session) = serde_json::from_value::<AgentSession>(data.clone()) {
+                            if session.status == "active" {
                                 sessions.insert(session.session_id.clone(), session);
                             }
                         }
@@ -155,7 +77,6 @@ impl AgentSessionManager {
                 }
             }
         }
-        info!("ASM: Hydration complete. Sessions in map: {}", sessions.len());
         Ok(())
     }
 
@@ -163,12 +84,13 @@ impl AgentSessionManager {
         let sessions = self.sessions.lock().await;
         let session = sessions
             .get(session_id)
-            .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("Session {} not found in local cache", session_id))?;
 
         let active_task_ids: Vec<String> = self
             .storage
             .redis
             .pool
+            .next()
             .smembers("koad:active_tasks")
             .await?;
         let mut active_tasks = Vec::new();
@@ -177,6 +99,7 @@ impl AgentSessionManager {
                 .storage
                 .redis
                 .pool
+                .next()
                 .hget::<Option<String>, _, _>(format!("koad:task:{}", id), "state")
                 .await?
             {
@@ -188,6 +111,7 @@ impl AgentSessionManager {
             .storage
             .redis
             .pool
+            .next()
             .xrevrange("koad:events:stream", "+", "-", Some(10))
             .await?;
 
@@ -216,75 +140,11 @@ impl AgentSessionManager {
             );
         }
 
-        self.storage
-            .set_state(
-                &format!("koad:session:{}", session_id),
-                package.clone(),
-                Some(session.identity.tier),
-            )
-            .await?;
-
         Ok(package)
     }
 
-    pub async fn prune_sessions(&self, timeout_secs: i64) -> anyhow::Result<()> {
-        let mut sessions = self.sessions.lock().await;
-        let mut to_update = Vec::new();
-        let mut to_remove = Vec::new();
-
-        for (sid, session) in sessions.iter_mut() {
-            // Persistent identities (Captain) never expire
-            if session.identity.name == "Koad" {
-                continue;
-            }
-
-            let diff = Utc::now().signed_duration_since(session.last_heartbeat);
-            if diff.num_seconds() > timeout_secs {
-                // Remove entirely if very old (5 minutes inactivity)
-                if diff.num_seconds() > 300 {
-                    to_remove.push(sid.clone());
-                } else if session.status != "dark" {
-                    // Mark as dark
-                    session.status = "dark".to_string();
-                    to_update.push((sid.clone(), session.clone()));
-                }
-            } else if session.status == "dark" {
-                // Reactivate if heartbeat received
-                session.status = "active".to_string();
-                to_update.push((sid.clone(), session.clone()));
-            }
-        }
-
-        for sid in to_remove {
-            info!("ASM: Pruning abandoned session: {}", sid);
-            sessions.remove(&sid);
-            let _: () = self
-                .storage
-                .redis
-                .pool
-                .hdel("koad:state", format!("koad:session:{}", sid))
-                .await?;
-        }
-
-        for (sid, session) in to_update {
-            let payload = serde_json::to_value(&session)?;
-            self.storage
-                .set_state(
-                    &format!("koad:session:{}", sid),
-                    payload.clone(),
-                    Some(session.identity.tier),
-                )
-                .await?;
-            let msg = json!({ "type": "SESSION_UPDATE", "data": payload });
-            let _: () = self
-                .storage
-                .redis
-                .pool
-                .next()
-                .publish("koad:sessions", msg.to_string())
-                .await?;
-        }
-
+    pub async fn prune_sessions(&self, _timeout_secs: i64) -> anyhow::Result<()> {
+        // Spine no longer authoritative for pruning. koad-asm daemon handles this.
         Ok(())
     }
 
@@ -302,25 +162,31 @@ impl AgentSessionManager {
             .subscribe("koad:sessions")
             .await
         {
-            eprintln!("ASM Error: Failed to subscribe to koad:sessions: {}", e);
+            error!("ASM Watcher Error: Failed to subscribe: {}", e);
             return;
         }
 
         while let Ok(message) = message_stream.recv().await {
             let payload_str = message.value.as_string().unwrap_or_default();
             if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&payload_str) {
-                if msg["type"] == "session_update" || msg["type"] == "SESSION_UPDATE" {
-                    if let Ok(session) = serde_json::from_value::<AgentSession>(msg["data"].clone())
-                    {
-                        let sid = session.session_id.clone();
-                        let mut sessions = self.sessions.lock().await;
-
-                        info!("ASM: Remote update received for session: {}", sid);
-                        sessions.insert(sid.clone(), session);
-
-                        drop(sessions);
-                        let _ = self.hydrate_session(&sid).await;
-                    }
+                let msg_type = msg["type"].as_str().unwrap_or_default().to_uppercase();
+                
+                match msg_type.as_str() {
+                    "SESSION_UPDATE" => {
+                        if let Ok(session) = serde_json::from_value::<AgentSession>(msg["data"].clone()) {
+                            let sid = session.session_id.clone();
+                            let mut sessions = self.sessions.lock().await;
+                            sessions.insert(sid, session);
+                        }
+                    },
+                    "SESSION_PRUNED" => {
+                        if let Some(sid) = msg["session_id"].as_str() {
+                            let mut sessions = self.sessions.lock().await;
+                            sessions.remove(sid);
+                            info!("ASM (Watcher): Session {} purged from cache.", sid);
+                        }
+                    },
+                    _ => {}
                 }
             }
         }

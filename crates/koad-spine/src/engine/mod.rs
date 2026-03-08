@@ -1,4 +1,5 @@
 pub mod asm;
+pub mod config;
 pub mod context_cache;
 pub mod diagnostics;
 pub mod identity;
@@ -13,6 +14,7 @@ mod tests;
 
 use crate::discovery::SkillRegistry;
 use crate::engine::asm::AgentSessionManager;
+use crate::engine::config::ConfigManager;
 use crate::engine::context_cache::KoadContextCache;
 use crate::engine::diagnostics::ShipDiagnostics;
 use crate::engine::identity::KAILeaseManager;
@@ -20,11 +22,14 @@ use crate::engine::kcm::KoadComplianceManager;
 use crate::engine::redis::RedisClient;
 use crate::engine::storage_bridge::KoadStorageBridge;
 
+use koad_core::config::KoadConfig;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub struct Engine {
+    pub config: KoadConfig,
     pub redis: Arc<RedisClient>,
+    pub config_manager: Arc<ConfigManager>,
     pub storage: Arc<KoadStorageBridge>,
     pub diagnostics: Arc<ShipDiagnostics>,
     pub asm: Arc<AgentSessionManager>,
@@ -36,7 +41,13 @@ pub struct Engine {
 
 impl Engine {
     pub async fn new(koad_home: &str, sqlite_path: &str) -> anyhow::Result<Self> {
+        let config_local = KoadConfig::load()?;
         let redis = Arc::new(RedisClient::new(koad_home).await?);
+        let config_manager = Arc::new(ConfigManager::new(redis.clone(), config_local.clone()));
+
+        // Seed the "Hot Config" into Redis
+        config_manager.seed().await?;
+
         let storage = Arc::new(KoadStorageBridge::new(redis.clone(), sqlite_path)?);
         let asm = Arc::new(AgentSessionManager::new(storage.clone()));
         let context_cache = Arc::new(KoadContextCache::new(redis.clone()));
@@ -52,7 +63,9 @@ impl Engine {
         ));
 
         Ok(Self {
+            config: config_local,
             redis: redis.clone(),
+            config_manager,
             storage,
             diagnostics,
             asm,

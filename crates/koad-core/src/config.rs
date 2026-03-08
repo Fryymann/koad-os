@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KoadConfig {
     pub home: PathBuf,
     pub redis_socket: PathBuf,
@@ -10,6 +12,8 @@ pub struct KoadConfig {
     pub spine_grpc_addr: String,
     pub gateway_addr: String,
     pub github_project_number: u32,
+    #[serde(default)]
+    pub extra: HashMap<String, String>,
 }
 
 impl KoadConfig {
@@ -47,7 +51,16 @@ impl KoadConfig {
             spine_grpc_addr,
             gateway_addr,
             github_project_number,
+            extra: HashMap::new(),
         })
+    }
+
+    pub fn to_json(&self) -> Result<String> {
+        serde_json::to_string(self).map_err(|e| anyhow::anyhow!("Failed to serialize config: {}", e))
+    }
+
+    pub fn from_json(json: &str) -> Result<Self> {
+        serde_json::from_str(json).map_err(|e| anyhow::anyhow!("Failed to deserialize config: {}", e))
     }
 
     pub fn resolve_gh_token(&self) -> Result<String> {
@@ -74,5 +87,23 @@ impl KoadConfig {
 
     pub fn get_log_path(&self, service: &str) -> PathBuf {
         self.home.join(format!("{}.log", service))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_serialization() {
+        let mut config = KoadConfig::load().unwrap();
+        config.extra.insert("test_key".to_string(), "test_value".to_string());
+        
+        let json = config.to_json().unwrap();
+        let deserialized = KoadConfig::from_json(&json).unwrap();
+        
+        assert_eq!(config.home, deserialized.home);
+        assert_eq!(config.github_project_number, deserialized.github_project_number);
+        assert_eq!(config.extra.get("test_key"), Some(&"test_value".to_string()));
     }
 }

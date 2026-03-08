@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
+use std::process::{Child, Command};
 
 use tokio::sync::watch;
 
@@ -13,12 +14,19 @@ use tokio::sync::watch;
 pub struct Kernel {
     pub engine: Arc<Engine>,
     shutdown_tx: watch::Sender<bool>,
+    asm_process: Option<Child>,
 }
 
 impl Kernel {
-    pub async fn shutdown(self) {
+    pub async fn shutdown(mut self) {
         println!("Kernel: Initiating graceful shutdown signal...");
         let _ = self.shutdown_tx.send(true);
+
+        if let Some(mut child) = self.asm_process.take() {
+            println!("Kernel: Stopping koad-asm daemon...");
+            let _ = child.kill();
+        }
+
         // Wait a moment for background tasks to notice
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         println!("Kernel: Engine Room shutdown complete.");
@@ -72,6 +80,25 @@ impl KernelBuilder {
         let engine =
             Arc::new(Engine::new(&home_dir.to_string_lossy(), &db_path.to_string_lossy()).await?);
 
+        // 2. Launch Standalone ASM Daemon
+        let mut asm_process = None;
+        let asm_bin = home_dir.join("bin/koad-asm");
+        if asm_bin.exists() {
+            let abs_asm_bin = asm_bin.canonicalize().unwrap_or(asm_bin);
+            println!("Kernel: Spawning ASM daemon from {}...", abs_asm_bin.display());
+            match Command::new(&abs_asm_bin)
+                .env("KOAD_HOME", &home_dir)
+                .spawn() {
+                    Ok(child) => {
+                        println!("Kernel: ASM daemon spawned successfully (PID: {}).", child.id());
+                        asm_process = Some(child);
+                    },
+                    Err(e) => eprintln!("Kernel Error: Failed to spawn koad-asm ({}): {}", abs_asm_bin.display(), e),
+                }
+        } else {
+            eprintln!("Kernel Warning: koad-asm binary not found at {}. ASM features will be limited.", asm_bin.display());
+        }
+
         // 3. Launch Core Background Loops
         let storage_drain = engine.storage.clone();
         let mut rx_drain = shutdown_rx.clone();
@@ -87,27 +114,7 @@ impl KernelBuilder {
         tokio::spawn(async move {
             tokio::select! {
                 _ = asm.start_session_monitor() => {},
-                _ = rx_asm.changed() => { println!("Kernel: ASM monitor stopping."); }
-            }
-        });
-
-        // 4. Session Reaper (Cleanup Dark Agents)
-        let reaper_asm = engine.asm.clone();
-        let mut rx_reaper = shutdown_rx.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        if let Err(e) = reaper_asm.prune_sessions(30).await {
-                            eprintln!("Kernel Error: Session reaper failed: {}", e);
-                        }
-                    },
-                    _ = rx_reaper.changed() => {
-                        println!("Kernel: Session reaper stopping.");
-                        break;
-                    }
-                }
+                _ = rx_asm.changed() => { println!("Kernel: ASM watcher stopping."); }
             }
         });
 
@@ -215,6 +222,7 @@ impl KernelBuilder {
         Ok(Kernel {
             engine,
             shutdown_tx,
+            asm_process,
         })
     }
 }
