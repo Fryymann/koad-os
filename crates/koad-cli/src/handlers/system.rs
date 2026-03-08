@@ -1,4 +1,4 @@
-use crate::cli::SystemAction;
+use crate::cli::{ConfigAction, SystemAction};
 use crate::db::KoadDB;
 use crate::utils::{feature_gate, get_gdrive_token_for_path, get_gh_pat_for_path};
 use anyhow::{Context, Result};
@@ -6,6 +6,7 @@ use chrono::Local;
 use koad_core::config::KoadConfig;
 use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
 use koad_proto::spine::v1::*;
+use redis::Commands;
 use rusqlite::params;
 use serde_json::Value;
 use std::env;
@@ -115,21 +116,61 @@ pub async fn handle_system_action(
         SystemAction::Init { force: _ } => {
             feature_gate("koad init", Some(25));
         }
-        SystemAction::Config { json } => {
-            if json {
-                let v = serde_json::json!({
-                    "home": config.home,
-                    "redis_socket": config.redis_socket,
-                    "spine_socket": config.spine_socket,
-                    "spine_grpc_addr": config.spine_grpc_addr,
-                    "gateway_addr": config.gateway_addr,
-                    "db_path": config.get_db_path()
-                });
-                println!("{}", v);
-            } else {
-                println!("{:#?}", config);
+        SystemAction::Config { action, json } => match action {
+            Some(ConfigAction::Set { key, value }) => {
+                let client =
+                    redis::Client::open(format!("redis+unix://{}", config.redis_socket.display()))?;
+                let mut conn = client.get_connection()?;
+                let mut hot_config = config.clone();
+
+                match key.as_str() {
+                    "github_project_number" => {
+                        if let Ok(num) = value.parse::<u32>() {
+                            hot_config.github_project_number = num;
+                        } else {
+                            anyhow::bail!("Invalid number: {}", value);
+                        }
+                    }
+                    "gateway_addr" => hot_config.gateway_addr = value.clone(),
+                    "spine_grpc_addr" => hot_config.spine_grpc_addr = value.clone(),
+                    _ => {
+                        hot_config.extra.insert(key.clone(), value.clone());
+                    }
+                }
+
+                let json = hot_config.to_json()?;
+                let _: () = conn.set(koad_core::constants::REDIS_KEY_CONFIG, json)?;
+                println!(
+                    "\x1b[32m[OK]\x1b[0m Config '{}' set to '{}' in Redis.",
+                    key, value
+                );
             }
-        }
+            Some(ConfigAction::Get { key }) => match key.as_str() {
+                "github_project_number" => println!("{}", config.github_project_number),
+                "gateway_addr" => println!("{}", config.gateway_addr),
+                "spine_grpc_addr" => println!("{}", config.spine_grpc_addr),
+                _ => {
+                    if let Some(v) = config.extra.get(&key) {
+                        println!("{}", v);
+                    } else {
+                        println!("Key '{}' not found.", key);
+                    }
+                }
+            },
+            Some(ConfigAction::List) => {
+                println!("--- Dynamic Configuration ---");
+                for (k, v) in &config.extra {
+                    println!("{}: {}", k, v);
+                }
+            }
+            None => {
+                if json {
+                    println!("{}", config.to_json()?);
+                } else {
+                    println!("{:#?}", config);
+                }
+            }
+        },
         SystemAction::Refresh { restart } => {
             if !is_admin {
                 anyhow::bail!("Admin only.");
@@ -139,17 +180,55 @@ pub async fn handle_system_action(
 \x1b[1m--- KoadOS Core Refresh (Hard Reset) ---\x1b[0m"
             );
             let home = config.home.clone();
-            println!(">>> [1/3] Energizing Forge (cargo build --release)...");
+            println!(">>> [1/3] Energizing Forge (cargo build)...");
             let build_status = Command::new("cargo")
                 .arg("build")
-                .arg("--release")
                 .current_dir(&home)
                 .status()?;
             if !build_status.success() {
                 anyhow::bail!("Forge failure.");
             }
+
+            println!(">>> [2/3] Verifying Core Links (bin/ alignment)...");
+            let bin_dir = home.join("bin");
+            let target_dir = home.join("target/debug");
+
+            let links = [
+                ("koad", "koad"),
+                ("kspine", "koad-spine"),
+                ("koad-asm", "koad-asm"),
+                ("koad-cli", "koad"),
+            ];
+
+            for (link_name, target_name) in links {
+                let link_path = bin_dir.join(link_name);
+                let target_path = target_dir.join(target_name);
+
+                if link_path.exists() {
+                    let _ = std::fs::remove_file(&link_path);
+                }
+
+                #[cfg(unix)]
+                {
+                    if let Err(e) = std::os::unix::fs::symlink(&target_path, &link_path) {
+                        warn!(
+                            "  [FAIL] Failed to link {} -> {}: {}",
+                            link_name, target_name, e
+                        );
+                    } else {
+                        println!("  [OK] {} linked to {}", link_name, target_name);
+                    }
+                }
+            }
+
             if restart {
                 println!(">>> [3/3] Rebooting Core Systems...");
+                let _ = Command::new("pkill").arg("-9").arg("kspine").status();
+                let _ = Command::new("pkill").arg("-9").arg("koad-asm").status();
+                // Spine handles autonomic restart of ASM when started
+                let spine_bin = bin_dir.join("kspine");
+                let _ = Command::new(spine_bin).env("KOAD_HOME", &home).spawn();
+                println!("  [OK] Core systems energized.");
             }
         }
         SystemAction::Save { full } => {
@@ -376,6 +455,47 @@ pub async fn handle_system_action(
         }
         SystemAction::Import { .. } => {
             // Handled in main.rs dispatcher
+        }
+        SystemAction::Lock { sector, ttl } => {
+            let client =
+                redis::Client::open(format!("redis+unix://{}", config.redis_socket.display()))?;
+            let mut conn = client.get_connection()?;
+            let key = format!("koad:lock:{}", sector);
+
+            let res: Option<String> = redis::cmd("SET")
+                .arg(&key)
+                .arg(&agent_name)
+                .arg("NX")
+                .arg("EX")
+                .arg(ttl)
+                .query(&mut conn)?;
+
+            if res.is_some() {
+                println!("\x1b[32m[OK]\x1b[0m Sector '{}' locked by '{}'.", sector, agent_name);
+            } else {
+                let owner: String = conn.get(&key).unwrap_or_else(|_| "unknown".to_string());
+                anyhow::bail!("LOCK_DENIED: Sector '{}' is already held by '{}'.", sector, owner);
+            }
+        }
+        SystemAction::Unlock { sector } => {
+            let client =
+                redis::Client::open(format!("redis+unix://{}", config.redis_socket.display()))?;
+            let mut conn = client.get_connection()?;
+            let key = format!("koad:lock:{}", sector);
+
+            let owner: Option<String> = conn.get(&key)?;
+            match owner {
+                Some(o) if o == agent_name => {
+                    let _: () = conn.del(&key)?;
+                    println!("\x1b[32m[OK]\x1b[0m Sector '{}' released.", sector);
+                }
+                Some(o) => {
+                    anyhow::bail!("UNLOCK_DENIED: You do not own the lock for '{}' (Held by '{}').", sector, o);
+                }
+                None => {
+                    println!("\x1b[33m[WARN]\x1b[0m Sector '{}' was not locked.", sector);
+                }
+            }
         }
     }
     Ok(())

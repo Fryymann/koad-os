@@ -11,7 +11,7 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    /// Set the session authorization tier (admin, pm, officer, crew).
+    /// Set the session authorization tier (admiral, captain, officer, crew).
     /// If omitted, KoadOS will attempt to auto-resolve based on the agent name.
     #[arg(short, long, default_value = "admin")]
     pub role: String,
@@ -110,6 +110,9 @@ pub enum SystemAction {
 
     /// Inspect or modify the global system configuration.
     Config {
+        #[command(subcommand)]
+        action: Option<ConfigAction>,
+
         /// Output configuration as JSON.
         #[arg(short, long)]
         json: bool,
@@ -202,6 +205,31 @@ pub enum SystemAction {
         #[arg(long)]
         dry_run: bool,
     },
+
+    /// Acquire a distributed lock on a specific system sector.
+    Lock {
+        /// The sector or resource name to lock.
+        sector: String,
+        /// TTL in seconds for the lock. [default: 300]
+        #[arg(short, long, default_value_t = 300)]
+        ttl: u64,
+    },
+
+    /// Release a distributed lock on a specific system sector.
+    Unlock {
+        /// The sector or resource name to unlock.
+        sector: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ConfigAction {
+    /// Set a dynamic configuration value in Redis (Hot Config).
+    Set { key: String, value: String },
+    /// Get a specific configuration value.
+    Get { key: String },
+    /// List all extra configuration keys.
+    List,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug)]

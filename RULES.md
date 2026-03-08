@@ -137,7 +137,24 @@ Triggered automatically at **Canon Step 7** following a clean KSRP exit. The age
     - All agents MUST prioritize existing non-AI tools (e.g., `rg`, `bat`, `koad system patch`) before invoking expensive LLM turns for trivial discovery or formatting.
     - Intelligence is a precious resource reserved for **Thinking, Planning, and Building**.
 
-## **VI. Failure & Recovery Protocol**
+## **VI. Swarm Orchestration & Coordination** (Issue #122)
+
+1. **Sector Locking**: 
+    - When multiple agents are active, an agent MUST acquire a "Sector Lock" before performing operations that mutate shared resources.
+2. **Resource Sectors**:
+    - `config`: Any change to `KoadConfig` or global constants.
+    - `deps`: Any change to `Cargo.toml`, `package.json`, or `requirements.txt`.
+    - `state`: Direct manual edits to `koad.db` or Redis hot state.
+    - `file:<path>`: Mutating a specific file.
+3. **Lock Lifecycle**:
+    - Locks are acquired via `koad system lock <sector>`.
+    - Locks have a default TTL of 300s. Agents performing long-running tasks MUST heartbeat or re-acquire.
+    - Agents MUST release locks immediately upon completion via `koad system unlock <sector>`.
+4. **Conflict Resolution**:
+    - If a lock is held by another agent, the requesting agent MUST WAIT or pivot to a different task.
+    - **Dood Authority**: The human Admin ('Dood') can override any lock by manually deleting the Redis key `koad:lock:<sector>`.
+
+## **VII. Failure & Recovery Protocol**
 
 This section governs what happens when the Canon's happy path breaks down.
 
