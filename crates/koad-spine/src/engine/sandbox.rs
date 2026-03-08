@@ -11,8 +11,8 @@ impl Sandbox {
     pub fn evaluate(identity: &str, command: &str) -> PolicyResult {
         let role = identity.to_lowercase();
 
-        // Admin has root access, bypasses all checks.
-        if role == "admin" || role == "admiral" || role == "dood" {
+        // Admin/Captain has root access, bypasses all checks.
+        if role == "admin" || role == "admiral" || role == "dood" || role == "captain" {
             return PolicyResult::Allowed;
         }
 
@@ -40,10 +40,18 @@ impl Sandbox {
 
         // 1. SLE Isolation Mandate (The "Chain of Trust" Guardrail)
         // Officers managing the SCE (Skylinks Cloud Ecosystem) MUST NOT use production commands.
-        let production_triggers = ["--project skylinks-prod", "--live", "stripe listen", "gcloud functions deploy"];
-        
+        let production_triggers = [
+            "--project skylinks-prod",
+            "--live",
+            "stripe listen",
+            "gcloud functions deploy",
+        ];
+
         for trigger in production_triggers.iter() {
-            if cmd_lower.contains(trigger) && !cmd_lower.contains("--test") && !cmd_lower.contains("--sandbox") {
+            if cmd_lower.contains(trigger)
+                && !cmd_lower.contains("--test")
+                && !cmd_lower.contains("--sandbox")
+            {
                 return PolicyResult::Denied(format!(
                     "SLE_ISOLATION_MANDATE: Attempt to execute production command '{}' without --test or --sandbox flag.",
                     trigger

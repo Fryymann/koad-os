@@ -2,8 +2,9 @@ use crate::db::KoadDB;
 use crate::utils::find_ghosts;
 use anyhow::Result;
 use koad_core::config::KoadConfig;
+use koad_core::utils::redis::RedisClient;
+use fred::interfaces::HashesInterface;
 use serde_json::Value;
-use std::collections::HashMap;
 use sysinfo::System;
 
 pub async fn handle_status_command(
@@ -12,31 +13,21 @@ pub async fn handle_status_command(
     config: &KoadConfig,
     _db: &KoadDB,
 ) -> Result<()> {
-    println!("DEBUG: handle_status_command entered");
-    println!(
-        "
-\x1b[1m--- [TELEMETRY] Neural Link & Grid Integrity ---\x1b[0m"
-    );
+    println!("
+\x1b[1m--- [TELEMETRY] Neural Link & Grid Integrity ---\x1b[0m");
 
     // 1. Engine Room (Redis Process/Socket)
     print!("{:<30}", "Engine Room (Redis):");
-    if config.redis_socket.exists() {
-        match redis::Client::open(format!("redis+unix://{}", config.redis_socket.display())) {
-            Ok(client) => {
-                if let Ok(mut con) = client.get_connection() {
-                    let _: String = redis::cmd("PING")
-                        .query(&mut con)
-                        .unwrap_or_else(|_| "FAIL".into());
-                    println!("\x1b[32m[PASS]\x1b[0m Hot-stream energized.");
-                } else {
-                    println!("\x1b[31m[FAIL]\x1b[0m Ghost Socket Detected (Connection Refused).");
-                }
-            }
-            Err(_) => println!("\x1b[31m[FAIL]\x1b[0m Client initialization failed."),
+    let redis_client = match RedisClient::new(&config.home.to_string_lossy(), false).await {
+        Ok(client) => {
+            println!("\x1b[32m[PASS]\x1b[0m Hot-stream energized.");
+            Some(client)
         }
-    } else {
-        println!("\x1b[31m[FAIL]\x1b[0m Neural Bus (koad.sock) missing.");
-    }
+        Err(_) => {
+            println!("\x1b[31m[FAIL]\x1b[0m Neural Bus (koad.sock) missing or unresponsive.");
+            None
+        }
+    };
 
     // 2. Backbone (kspine gRPC Socket)
     print!("{:<30}", "Backbone (Spine):");
@@ -96,63 +87,57 @@ pub async fn handle_status_command(
             }
         }
 
-        // 5. System Stats
-        if config.redis_socket.exists() {
-            if let Ok(client) =
-                redis::Client::open(format!("redis+unix://{}", config.redis_socket.display()))
-            {
-                if let Ok(mut con) = client.get_connection() {
-                    let res: Option<String> = redis::cmd("HGET")
-                        .arg("koad:state")
-                        .arg("system_stats")
-                        .query(&mut con)
-                        .unwrap_or(None);
-                    if let Some(s) = res {
-                        let v: Value = serde_json::from_str(&s).unwrap_or_default();
-                        println!(
-                            "
+        // 5. System Stats (Direct from Redis Data Plane)
+        if let Some(ref client) = redis_client {
+            let res: Option<String> = client.pool.hget("koad:state", "system_stats").await?;
+            if let Some(s) = res {
+                let v: Value = serde_json::from_str(&s).unwrap_or_default();
+                println!(
+                    "
 \x1b[1m--- Resource Allocation ---\x1b[0m"
-                        );
-                        println!("CPU Usage: {:.1}%", v["cpu_usage"].as_f64().unwrap_or(0.0));
-                        println!("Memory:    {} MB", v["memory_usage"].as_u64().unwrap_or(0));
-                    }
-                }
+                );
+                println!("CPU Usage: {:.1}%", v["cpu_usage"].as_f64().unwrap_or(0.0));
+                println!("Memory:    {} MB", v["memory_usage"].as_u64().unwrap_or(0));
             }
         }
 
-        // 6. Crew Manifest (via Spine gRPC)
-        println!("  [DEBUG] Connecting to Spine at: {}", config.spine_grpc_addr);
-        if let Ok(mut client) = crate::utils::get_spine_client(config).await {
-            if let Ok(resp) = client.get_system_state(koad_proto::spine::v1::GetSystemStateRequest {}).await {
-                let state = resp.into_inner();
-                println!("
-\x1b[1m--- Crew Manifest (WAKE) ---\x1b[0m");
-                println!("  Raw identity_json: '{}'", state.identity_json);
-                println!("  Active tasks:      {}", state.active_tasks);
-                
-                if let Ok(sessions) = serde_json::from_str::<Vec<koad_core::session::AgentSession>>(&state.identity_json) {
-                    let mut wake = 0;
-                    for sess in sessions {
-                        if sess.status == "active" {
-                            println!(
-                                "  - {:<10} [{}] (Session: {})",
-                                sess.identity.name,
-                                sess.last_heartbeat.format("%H:%M:%S"),
-                                &sess.session_id[..8]
-                            );
-                            wake += 1;
+        // 6. Crew Manifest (Direct from Redis Data Plane - v5.0 CQRS)
+        if let Some(ref client) = redis_client {
+            println!(
+                "
+\x1b[1m--- Crew Manifest (Data Plane) ---\x1b[0m"
+            );
+            let state: std::collections::HashMap<String, String> = client.pool.hgetall("koad:state").await?;
+            let mut wake = 0;
+            
+            for (key, val) in state {
+                if key.starts_with("koad:session:") {
+                    if let Ok(raw_json) = serde_json::from_str::<serde_json::Value>(&val) {
+                        let data = if let Some(inner) = raw_json.get("data") {
+                            inner
+                        } else {
+                            &raw_json
+                        };
+                        if let Ok(sess) = serde_json::from_value::<koad_core::session::AgentSession>(data.clone()) {
+                            if sess.status == "active" {
+                                println!(
+                                    "  - {:<10} [{}] (Session: {})",
+                                    sess.identity.name,
+                                    sess.last_heartbeat.format("%H:%M:%S"),
+                                    &sess.session_id[..8]
+                                );
+                                wake += 1;
+                            }
                         }
                     }
-                    println!("Total Wake Personnel: {}", wake);
-                } else {
-                    println!("  \x1b[33m[WARN]\x1b[0m Identity JSON parsing skipped or failed.");
                 }
             }
+            println!("Total Wake Personnel: {}", wake);
+        } else {
+            println!("\x1b[33m[WARN]\x1b[0m Redis offline. Manifest unavailable.");
         }
     }
 
-    println!(
-        "\x1b[1m---------------------------------------------------\x1b[0m"
-    );
+    println!("\x1b[1m---------------------------------------------------\x1b[0m");
     Ok(())
 }

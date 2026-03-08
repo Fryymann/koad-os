@@ -37,6 +37,7 @@ mod tests {
             name: "Dood".to_string(),
             rank: Rank::Admiral,
             permissions: vec!["all".to_string()],
+            tier: 1,
         };
         let serialized = serde_json::to_string(&identity).unwrap();
         let deserialized: Identity = serde_json::from_str(&serialized).unwrap();

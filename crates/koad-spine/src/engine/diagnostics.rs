@@ -1,4 +1,4 @@
-use crate::engine::redis::RedisClient;
+use koad_core::utils::redis::RedisClient;
 use crate::engine::storage_bridge::KoadStorageBridge;
 use anyhow::Context;
 use chrono::Utc;
@@ -177,7 +177,7 @@ impl ShipDiagnostics {
     async fn run_integrity_scan(&self) -> anyhow::Result<()> {
         let sys_arc = self.sys.clone();
         let scan_result = tokio::task::spawn_blocking(move || {
-            if let Some(mut sys) = sys_arc.try_lock().ok() {
+            if let Ok(mut sys) = sys_arc.try_lock() {
                 sys.refresh_cpu_usage();
                 sys.refresh_memory();
                 Ok((

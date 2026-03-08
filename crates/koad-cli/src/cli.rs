@@ -220,6 +220,37 @@ pub enum SystemAction {
         /// The sector or resource name to unlock.
         sector: String,
     },
+
+    /// Manage and hydrate an agent's transient context.
+    Context {
+        #[command(subcommand)]
+        action: ContextAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ContextAction {
+    /// Inject a file or raw text into an agent's hot context.
+    Hydrate {
+        /// Target session ID (omit for current).
+        #[arg(short, long)]
+        session: Option<String>,
+        /// Path to a file to hydrate.
+        #[arg(short, long)]
+        path: Option<PathBuf>,
+        /// Raw text to hydrate (if path is omitted).
+        #[arg(short, long)]
+        text: Option<String>,
+        /// TTL in seconds (0 = session-persistent). [default: 0]
+        #[arg(short = 'L', long, default_value_t = 0)]
+        ttl: i32,
+    },
+    /// Purge all volatile context for a session.
+    Flush {
+        /// Target session ID (omit for current).
+        #[arg(short, long)]
+        session: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

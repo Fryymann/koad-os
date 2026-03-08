@@ -154,6 +154,16 @@ Triggered automatically at **Canon Step 7** following a clean KSRP exit. The age
     - If a lock is held by another agent, the requesting agent MUST WAIT or pivot to a different task.
     - **Dood Authority**: The human Admin ('Dood') can override any lock by manually deleting the Redis key `koad:lock:<sector>`.
 
+## **VI. The Laws of Consciousness**
+
+1. **One Body, One Ghost**: A single CLI session (the Body) may host exactly one KIA Officer (the Ghost) at a time.
+2. **The Tethering Rule**: A KIA is physically tethered to its session via the `KOAD_SESSION_ID` environment variable. This ID is the KIA's "lifeforce."
+3. **Consciousness Collision**: Any attempt to boot a KIA in a session that already has an active `KOAD_SESSION_ID` MUST be rejected. This prevents nested consciousness and context pollution.
+4. **Officers vs. Drones**:
+    - **Officers (KIAs)**: Unique, session-locked identities (Tyr, Sky, Vigil).
+    - **Drones (Sub-Agents)**: Ephemeral, context-sharing tools (Generalist, Codebase Investigator). Drones operate within an Officer's consciousness and share their context. An Officer MAY NOT boot another Officer as a sub-agent.
+5. **The Vitality Pulse (Deadman Switch)**: If a KIA's heartbeat stops (e.g., the CLI process is terminated), the Spine SHALL consider that KIA "De-materialized" within 60 seconds and purge its volatile context.
+
 ## **VII. Failure & Recovery Protocol**
 
 This section governs what happens when the Canon's happy path breaks down.

@@ -1,5 +1,10 @@
 # KoadOS Gemini Bootstrap
 
+## ⚖️ Mandatory Compliance
+**The Holy Law:** You are bound by the **KoadOS Development Canon** and the global **RULES.md** file (`~/.koad-os/RULES.md`). 
+- **Context-Loading:** At the start of every session, you MUST load **Section I (Core Mandates)** of `RULES.md`.
+- **PSRP Requirement:** You MUST execute the **Post-Sprint Reflection Protocol** (Fact → Learn → Ponder) for every task as defined in **Section IV** of `RULES.md`.
+
 ## Notion MCP Integration
 The Notion CLI commands (`koad stream`, `koad sync notion`) are now reconfigured to prefer the **Notion MCP Connection**.
 - When asked to post to the Koad Stream, use the `API-post-page` or `API-patch-block-children` tools.

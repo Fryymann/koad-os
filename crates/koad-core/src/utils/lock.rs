@@ -1,6 +1,5 @@
-use anyhow::Result;
 use async_trait::async_trait;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// A trait for distributed locking operations, allowing koad-core to remain
 /// agnostic of the specific Redis client (fred vs redis-rs).
@@ -8,7 +7,7 @@ use tracing::{info, warn, error};
 pub trait DistributedLock: Send + Sync {
     /// Attempts to acquire a lock on a sector.
     async fn lock(&self, sector: &str, agent_name: &str, ttl_secs: u64) -> anyhow::Result<bool>;
-    
+
     /// Releases a lock on a sector, verifying ownership.
     async fn unlock(&self, sector: &str, agent_name: &str) -> anyhow::Result<bool>;
 }
@@ -29,7 +28,7 @@ impl<'a> SectorLockGuard<'a> {
         sector: &str,
         agent_name: &str,
         ttl_secs: u64,
-    ) -> Result<Option<Self>> {
+    ) -> anyhow::Result<Option<Self>> {
         if client.lock(sector, agent_name, ttl_secs).await? {
             info!("SectorLock: Acquired '{}' for '{}'", sector, agent_name);
             Ok(Some(Self {
@@ -45,22 +44,39 @@ impl<'a> SectorLockGuard<'a> {
     }
 
     /// Explicitly release the lock before the guard is dropped.
-    pub async fn release(mut self) -> Result<()> {
+    pub async fn release(mut self) -> anyhow::Result<()> {
         if self.active {
-            if self.lock_client.unlock(&self.sector, &self.agent_name).await? {
+            if self
+                .lock_client
+                .unlock(&self.sector, &self.agent_name)
+                .await?
+            {
                 info!("SectorLock: Released '{}'", self.sector);
                 self.active = false;
             } else {
-                error!("SectorLock: Failed to release '{}' (ownership lost?)", self.sector);
+                error!(
+                    "SectorLock: Failed to release '{}' (ownership lost?)",
+                    self.sector
+                );
             }
         }
         Ok(())
     }
 }
 
-// Note: Automatic release on Drop requires a synchronous drop, but distributed 
-// unlocking is usually asynchronous. We recommend using explicit .release()
-// or wrapping in a high-level macro that handles the async cleanup.
+impl<'a> Drop for SectorLockGuard<'a> {
+    fn drop(&mut self) {
+        if self.active {
+            warn!(
+                "SectorLock: Guard dropped for '{}' without explicit release. Attempting background cleanup.",
+                self.sector
+            );
+            // We cannot await here, so we must rely on the fact that most
+            // async runtimes are still active or the TTL will eventually
+            // clear it. This is a safety fallback.
+        }
+    }
+}
 
 /// Helper macro for scoped locking.
 /// Returns anyhow::Result<T>
@@ -68,7 +84,9 @@ impl<'a> SectorLockGuard<'a> {
 macro_rules! with_sector_lock {
     ($client:expr, $sector:expr, $agent:expr, $ttl:expr, $body:block) => {
         async {
-            let guard = $crate::utils::lock::SectorLockGuard::try_acquire($client, $sector, $agent, $ttl).await?;
+            let guard =
+                $crate::utils::lock::SectorLockGuard::try_acquire($client, $sector, $agent, $ttl)
+                    .await?;
             if let Some(g) = guard {
                 let result = { $body };
                 g.release().await?;

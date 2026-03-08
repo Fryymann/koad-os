@@ -1,5 +1,5 @@
 use crate::identity::Identity;
-use crate::types::EnvironmentType;
+use crate::types::{EnvironmentType, HotContextChunk};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -14,6 +14,9 @@ pub struct AgentSession {
     pub status: String,
     pub last_heartbeat: DateTime<Utc>,
     pub metadata: HashMap<String, String>,
+    /// Dynamic context chunks currently loaded in the agent's memory.
+    #[serde(default)]
+    pub hot_context: Vec<HotContextChunk>,
 }
 
 /// Defines the project-level boundaries and resources available to a session.
@@ -40,6 +43,7 @@ impl AgentSession {
             status: "active".to_string(),
             last_heartbeat: Utc::now(),
             metadata: HashMap::new(),
+            hot_context: Vec::new(),
         }
     }
 

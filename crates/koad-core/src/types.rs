@@ -47,6 +47,19 @@ pub struct LogEntry {
     pub level: String,
 }
 
+/// A chunk of transient context injected into an agent's memory.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HotContextChunk {
+    /// Content hash or unique label to prevent duplicates.
+    pub chunk_id: String,
+    /// The actual context content.
+    pub content: String,
+    /// Time-to-live in seconds (0 = session-persistent).
+    pub ttl_seconds: i32,
+    /// Creation timestamp.
+    pub created_at: DateTime<Utc>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

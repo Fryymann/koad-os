@@ -231,8 +231,11 @@ impl SpineService for KoadSpine {
     ) -> Result<Response<GetSystemStateResponse>, Status> {
         info!("Kernel: GetSystemState request received.");
         let sessions = self.engine.asm.list_active_sessions().await;
-        info!("Kernel: GetSystemState found {} active sessions.", sessions.len());
-        
+        info!(
+            "Kernel: GetSystemState found {} active sessions.",
+            sessions.len()
+        );
+
         let sessions_json = if sessions.is_empty() {
             "[]".to_string()
         } else {
@@ -333,16 +336,17 @@ impl SpineService for KoadSpine {
             .await
             .map_err(|e| Status::permission_denied(e.to_string()))?;
 
-        let rank = if req.agent_name.to_lowercase() == "dood" || req.agent_name.to_lowercase() == "ian" {
-            Rank::Admiral
-        } else {
-            match req.agent_role.to_lowercase().as_str() {
-                "admiral" | "dood" => Rank::Admiral,
-                "captain" | "admin" => Rank::Captain,
-                "officer" | "pm" => Rank::Officer,
-                _ => Rank::Crew,
-            }
-        };
+        let rank =
+            if req.agent_name.to_lowercase() == "dood" || req.agent_name.to_lowercase() == "ian" {
+                Rank::Admiral
+            } else {
+                match req.agent_role.to_lowercase().as_str() {
+                    "admiral" | "dood" => Rank::Admiral,
+                    "captain" | "admin" => Rank::Captain,
+                    "officer" | "pm" => Rank::Officer,
+                    _ => Rank::Crew,
+                }
+            };
 
         let identity = koad_core::identity::Identity {
             name: req.agent_name.clone(),
@@ -375,10 +379,15 @@ impl SpineService for KoadSpine {
             .insert("model_name".to_string(), req.model_name.clone());
 
         // 1. Authoritative Persistence in Redis (Hot State)
-        let payload = serde_json::to_value(&session).map_err(|e| Status::internal(e.to_string()))?;
+        let payload =
+            serde_json::to_value(&session).map_err(|e| Status::internal(e.to_string()))?;
         let session_key = format!("koad:session:{}", session_id);
-        
-        let _: () = self.engine.redis.pool.next()
+
+        let _: () = self
+            .engine
+            .redis
+            .pool
+            .next()
             .hset("koad:state", (&session_key, payload.to_string()))
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -388,7 +397,11 @@ impl SpineService for KoadSpine {
             "type": "SESSION_UPDATE",
             "data": payload
         });
-        let _: () = self.engine.redis.pool.next()
+        let _: () = self
+            .engine
+            .redis
+            .pool
+            .next()
             .publish("koad:sessions", msg.to_string())
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -452,52 +465,23 @@ impl SpineService for KoadSpine {
             .chunk
             .ok_or_else(|| Status::invalid_argument("Missing chunk"))?;
 
-        let context_key = format!("koad:session:{}:hot_context", session_id);
-        let conn = self.engine.redis.pool.next();
-
-        let current_chunks: std::collections::HashMap<String, String> = conn
-            .hgetall(&context_key)
+        match self
+            .engine
+            .hydration
+            .hydrate(&session_id, &chunk.content, chunk.ttl_seconds)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
-
-        let mut current_size: usize = 0;
-        for val in current_chunks.values() {
-            current_size += val.len();
-        }
-
-        if current_size + chunk.content.len() > 50000 {
-            return Ok(Response::new(HydrationResponse {
-                success: false,
-                error: "Context Governor: character limit (50k) exceeded.".to_string(),
-                current_context_size: current_size as i32,
-            }));
-        }
-
-        if current_chunks.contains_key(&chunk.chunk_id) {
-            return Ok(Response::new(HydrationResponse {
+        {
+            Ok(new_chunk) => Ok(Response::new(HydrationResponse {
                 success: true,
-                error: "Chunk already exists. Skipping.".to_string(),
-                current_context_size: current_size as i32,
-            }));
+                error: "".to_string(),
+                current_context_size: new_chunk.content.len() as i32, // Simplified for now
+            })),
+            Err(e) => Ok(Response::new(HydrationResponse {
+                success: false,
+                error: format!("Hydration Failed: {}", e),
+                current_context_size: 0,
+            })),
         }
-
-        let payload = json!({
-            "chunk_id": chunk.chunk_id,
-            "content": chunk.content,
-            "ttl_seconds": chunk.ttl_seconds,
-        })
-        .to_string();
-
-        let _: () = conn
-            .hset(&context_key, (&chunk.chunk_id, payload))
-            .await
-            .map_err(|e| Status::internal(e.to_string()))?;
-
-        Ok(Response::new(HydrationResponse {
-            success: true,
-            error: "".to_string(),
-            current_context_size: (current_size + chunk.content.len()) as i32,
-        }))
     }
 
     async fn drain_all(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {

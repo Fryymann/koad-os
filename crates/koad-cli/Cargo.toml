@@ -32,11 +32,11 @@ tungstenite = "0.24.0"
 url = "2.5"
 ctrlc = "3.4"
 sysinfo = "0.30"
-redis = { version = "0.24", features = ["tokio-comp"] }
 tracing.workspace = true
 regex = "1.10"
 csv = "1.3"
 sha2 = "0.10"
+fred = { workspace = true, features = ["unix-sockets", "subscriber-client", "i-scripts", "i-pubsub"] }
 # Internal
 koad-core = { path = "../koad-core" }
 koad-proto = { path = "../koad-proto" }

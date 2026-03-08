@@ -2,10 +2,10 @@ pub mod asm;
 pub mod config;
 pub mod context_cache;
 pub mod diagnostics;
+pub mod hydration;
 pub mod identity;
 pub mod kcm;
 pub mod kernel;
-pub mod redis;
 pub mod router;
 pub mod sandbox;
 pub mod storage_bridge;
@@ -19,7 +19,7 @@ use crate::engine::context_cache::KoadContextCache;
 use crate::engine::diagnostics::ShipDiagnostics;
 use crate::engine::identity::KAILeaseManager;
 use crate::engine::kcm::KoadComplianceManager;
-use crate::engine::redis::RedisClient;
+use koad_core::utils::redis::RedisClient;
 use crate::engine::storage_bridge::KoadStorageBridge;
 
 use koad_core::config::KoadConfig;
@@ -34,6 +34,7 @@ pub struct Engine {
     pub diagnostics: Arc<ShipDiagnostics>,
     pub asm: Arc<AgentSessionManager>,
     pub context_cache: Arc<KoadContextCache>,
+    pub hydration: Arc<hydration::KoadHydrationManager>,
     pub identity: Arc<KAILeaseManager>,
     pub kcm: Arc<KoadComplianceManager>,
     pub skill_registry: Arc<Mutex<SkillRegistry>>,
@@ -42,7 +43,8 @@ pub struct Engine {
 impl Engine {
     pub async fn new(koad_home: &str, sqlite_path: &str) -> anyhow::Result<Self> {
         let config_local = KoadConfig::load()?;
-        let redis = Arc::new(RedisClient::new(koad_home).await?);
+        let redis_ptr = Arc::new(RedisClient::new(koad_home, true).await?);
+        let redis = redis_ptr.clone();
         let config_manager = Arc::new(ConfigManager::new(redis.clone(), config_local.clone()));
 
         // Seed the "Hot Config" into Redis
@@ -51,6 +53,7 @@ impl Engine {
         let storage = Arc::new(KoadStorageBridge::new(redis.clone(), sqlite_path)?);
         let asm = Arc::new(AgentSessionManager::new(storage.clone()));
         let context_cache = Arc::new(KoadContextCache::new(redis.clone()));
+        let hydration = Arc::new(hydration::KoadHydrationManager::new(Arc::new(redis_ptr)));
         let identity = Arc::new(KAILeaseManager::new(storage.clone()));
         let kcm = Arc::new(KoadComplianceManager::new(storage.clone()));
         let skill_registry = Arc::new(Mutex::new(SkillRegistry::new()));
@@ -70,6 +73,7 @@ impl Engine {
             diagnostics,
             asm,
             context_cache,
+            hydration,
             identity,
             kcm,
             skill_registry,

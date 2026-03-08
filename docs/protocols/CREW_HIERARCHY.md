@@ -70,6 +70,6 @@ The **Koados Citadel** serves as the central mothership station. The Admiral (Ia
 *   **Commerce:** Stripe, Square, Lightspeed.
 *   **Industry Specific:** Select Pi, Golf Now, WordPress.
 
-The SLE station is mapped to the local `~/data/skylinks/` environment, serving as the central hub where Sky monitors and builds software for the Skylinks company. While she operates with domain-specific authority, she remains directly wired to the Koados Citadel, utilizing its core protocols and reporting to the Captain (Koad).
+The SLE station is mapped to the local `~/data/skylinks/` environment, serving as the central hub where Sky monitors and builds software for the Skylinks company. While she operates with domain-specific authority, she remains directly wired to the Koados Citadel, utilizing its core protocols and reporting to the Captain (Tyr).
 
-This phase of **parallel construction** ensures that while Sky stands up the Skylinks domain, Koad continues to harden the Citadel's core infrastructure to support a multi-station crew.
+This phase of **parallel construction** ensures that while Sky stands up the Skylinks domain, Tyr continues to harden the Citadel's core infrastructure to support a multi-station crew.

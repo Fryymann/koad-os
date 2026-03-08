@@ -1,3 +1,31 @@
+## 2026-03-08 - Session Close: Issue #122 Swarm Orchestration Protocol (Refined)
+- **Status**: CONDITION GREEN (Hardened Orchestration)
+- **Macro**: Implemented the `with_sector_lock!` Rust macro in `koad-core` to provide a transparent, scoped locking mechanism for agents.
+- **Trait**: Established the `DistributedLock` trait, enabling implementation across different Redis clients (`fred` and `redis-rs`).
+- **Integration**: Refactored `koad system refresh` to use the macro, automatically protecting core builds and symlink alignment with a "refresh" sector lock.
+- **Harden**: Upgraded the `Unlock` logic to use an atomic Lua script, preventing ownership race conditions.
+- **Issues**: Closed #122.
+
+## 2026-03-08 - Session Close: Issue #102 ASM Decoupling
+- **Status**: CONDITION GREEN (v5.0 Migration Foundation)
+- **Crate**: Extracted Agent Session Manager logic into a standalone `koad-asm` micro-daemon.
+- **Spine**: Refactored the Spine's ASM into a passive watcher that synchronizes its local cache via the `koad:sessions` Redis bus.
+- **Lifecycle**: Integrated autonomic daemon management into the Spine's Kernel Builder; `koad-asm` is now automatically spawned and managed by the Spine.
+- **Issues**: Closed #102.
+
+## 2026-03-07 - Session Close: Issue #91 Unified Configuration Handling
+- **Status**: CONDITION GREEN (v5.0 Migration Foundation)
+- **Core**: Enhanced `KoadConfig` with `serde` support and a dynamic `extra` HashMap for "Hot Config" distribution.
+- **Kernel**: Implemented `ConfigManager` in `koad-spine` for autonomic Redis seeding at boot.
+- **CLI**: Refactored bootstrap hydration sequence to prioritize Redis-sourced configuration; implemented `koad system config set/get/list` for real-time management.
+- **Validation**: Verified successful hydration and dynamic overrides via 5-pass KSRP loop.
+- **Debt**: Identified `koad board done` as unimplemented in SGP; added to #31 audit list.
+- **Issues**: Closed #91.
+
+## 2026-03-07 - Saveup: Implemented Redis-backed "Hot Config" system and verified with KSRP loop.
+- Scope: Core/Config
+- Facts: Issue #91 closed, KoadConfig serializable, Hot Config live in Redis
+
 ## 2026-02-22 - Final Bureaucracy Wipeout & CLI-First Transition
 - Scope: KoadOS Core
 - Facts added to memory.
@@ -34,185 +62,3 @@
 ## 2026-03-02 - Saveup: Implemented Unified Monitoring across both the Web Deck and the native CLI TUI, merging koad-tui into 'koad dash'.
 - Scope: Ops/Visualization
 - Facts: Issue #28 closed, koad dash live, Web Deck rendering Master Project Map
-
-## 2026-03-02 - Session Close: Codebase Deep Audit & System Restoration
-- **Status**: CONDITION GREEN (Audit Complete)
-- **Audit**: Performed exhaustive systems review across all layers (Spine, Gateway, CLI).
-- **Gaps**: Identified and documented 8 major gaps (#32-#39) including gRPC fragmentation and log structure debt.
-- **Recovery**: Fixed critical Redis socket mismatch in Spine engine; restored Web Deck visibility.
-- **Hygiene**: Implemented Stale Process Detection in `koad doctor` and Full-Stack Loopback E2E tests.
-- **Issues**: Closed #28, #22, #29, #30. Created #40 (Master Audit Summary).
-
-## 2026-03-02 - Saveup: Conducted codebase-wide Deep Audit and restored full-stack service integrity.
-- Scope: Ops/Audit
-- Facts: Issue #40 created, 37 E2E tests passing, Spine path fixed
-
-## 2026-03-02 - Session Close: v4.0 Architectural Unification (Issue #38, #39)
-- **Status**: CONDITION GREEN (Refactor Complete)
-- **CLI**: Migrated active CLI source to `crates/koad-cli`, renamed package to `koad`, and purged `core/rust`.
-- **gRPC**: Unified fragmented protobuf definitions into a single `spine.proto` under `koad.spine.v1`.
-- **Refactor**: Updated `koad-spine`, `koad-gateway`, and `koad-tui` to use unified gRPC client and system event stream.
-- **Board**: Implemented GraphQL pagination for large project boards.
-- **Testing**: All 37 E2E tests passing, including full-stack loopback.
-- **Issues**: Closed #38, #39.
-
-## 2026-03-02 - Saveup: Unified CLI and gRPC contracts. Purged legacy core/rust and implemented board pagination.
-- Scope: Core/Architecture
-- Facts: Issue #38 closed, Issue #39 closed, gRPC unified, CLI migrated
-
-## 2026-03-02 - Session Close: v4.0 Technical Debt Liquidation (Issue #37, #38, #39)
-- **Status**: CONDITION GREEN (Refactor Complete)
-- **Observability**: Integrated workspace-wide structured logging using `tracing` and established `koad-core::logging`.
-- **Consolidation**: Merged CLI binaries and unified overlapping gRPC data contracts (kernel vs spine).
-- **Resilience**: Implemented GraphQL pagination for robust project board synchronization.
-- **Issues**: Closed #37, #38, #39.
-
-## 2026-03-02 - Saveup: Liquified technical debt: Unified gRPC, merged CLI crates, and implemented structured logging.
-- Scope: Core/Cleanup
-- Facts: Issue #37, #38, #39 closed, tracing active, gRPC unified
-
-## 2026-03-02 - Session Finalization: Post-Audit Architectural Stabilization
-- **Status**: CONDITION GREEN (Foundation Hardened)
-- **Board Sync**: All audit-related fixes (#22, #28, #37, #38, #39) marked as Done.
-- **Integrity**: Verified system-wide health with 37 E2E tests and `koad doctor` deep telemetry.
-- **Unification**: CLI, gRPC, and Logging now follow a singular, workspace-wide standard.
-
-## 2026-03-02 - Saveup: Finalized v4.0 architectural stabilization and board synchronization.
-- Scope: Ops/Finalize
-- Facts: Board synced, Foundation clean, All audit tasks Done
-
-## 2026-03-02 - Session Close: v4.0 Configuration & Secrets Unification (Issue #36)
-- **Status**: CONDITION GREEN (Refactor Complete)
-- **Core**: Centralized all environment parsing and GitHub PAT resolution into `koad-core::config`.
-- **Refactor**: Updated Spine, Gateway, and CLI to use unified configuration, ensuring zero-drift between components.
-- **Testing**: Hardened E2E framework with dynamic port assignment; all 37 tests passing.
-- **Issues**: Closed #36.
-
-## 2026-03-02 - Saveup: Unified environment configuration and secrets handling across all crates.
-- Scope: Core/Config
-- Facts: Issue #36 closed, KoadConfig live, E2E dynamic ports active
-
-## 2026-03-02 - Saveup: Finalized the liquidation of major technical debt and unified the system configuration.
-- Scope: Ops/Stabilization
-- Facts: Issue #40 closed, Architectural unification complete, E2E suite hardened
-
-## 2026-03-02 - Session Close: v4.0 Channel Resilience & Graceful Shutdowns (Issue #33, #34)
-- **Status**: CONDITION GREEN (Refactor Complete)
-- **Spine**: Implemented system-wide shutdown signaling using `watch` channels; refactored gRPC to support graceful teardown.
-- **Gateway**: Integrated `axum` graceful shutdown and implemented a 30s WebSocket heartbeat loop with an outbox pattern.
-- **Issues**: Closed #33, #34.
-
-## 2026-03-02 - Saveup: Implemented graceful shutdowns and WebSocket keep-alive across the gateway and spine.
-- Scope: Core/Resilience
-- Facts: Issue #33, #34 closed, Graceful shutdown live, Heartbeat active
-
-## 2026-03-02 - Saveup: Implemented Graceful Shutdowns and WebSocket Robustness across the Gateway and Spine.
-- Scope: Ops/Resilience
-- Facts: Issue #33 closed, Issue #34 closed, Outbox pattern active, serve_with_shutdown live
-
-## 2026-03-03 - Saveup: Finalized v4.0.0 baseline: Hardened CLI, automated refresh, and synchronized Command Deck.
-- Scope: Ops/Stabilization
-- Facts: Issue #26 closed, Issue #31 closed, KSRP Protocol canonized, 100% E2E pass.
-
-## 2026-03-03 - Incident: Neural Bus Mapping Conflict
-- **Problem:** CLI reported kernel OFFLINE despite active processes.
-- **Cause:** Discrepancy between Spine socket (`koad.sock`) and CLI expected socket (`koad-redis.sock`).
-- **Resolution:** Symlinked `koad-redis.sock` to `koad.sock`. pass `koad doctor`.
-- **Action:** Created Memory Fact for cross-session awareness.
-
-## 2026-03-03 - Vigil KAI Onboarding & Platform Hardening
-- **Status:** [SUCCESS]
-- **Achievements:**
-  - Implemented KAI Sovereignty & Driver Protocol (Identity/Driver decoupling).
-  - Centralized Identity Lease Manager in Spine (Mutual Exclusion & Sovereign Guardrails).
-  - Enforced Single-Admin Policy: Vigil successfully restricted to PM/Officer roles.
-  - Verified Persona Hydration: Bio and custom mission briefings are active.
-  - E2E Sovereignty Suite: 3/3 tests passing in isolated environment.
-- **Personnel:** Koad (Admin - WAKE), Vigil (PM - WAKE).
-
-## 2026-03-03 - [Resilience] Redis Socket Lifecycle Management (#66)
-- **Status:** [RESOLVED]
-- **Root Cause:** Ungraceful termination left 'ghost' koad.sock files, causing kspine to assume Redis was running and crash with 'Connection Refused'.
-- **Resolution:**
-  - Implemented SocketHygiene in kspine: Active PING test purges ghost sockets and self-recovers.
-  - Enhanced koad doctor to explicitly report Ghost Sockets instead of generic missing errors.
-  - Validated via 5-iteration catastrophic crash/recovery simulation sequence.
-
-## 2026-03-03 - [Ops] E2E Framework Configuration Parity (#49)
-- **Status:** [RESOLVED]
-- **Key Achievement:** Refactored conftest.py to dynamically derive all paths from the koad CLI via a new 'config --json' command.
-- **Improvement:** Eliminated hardcoded socket paths and schema duplication.
-- **Validation:** Verified via 5-iteration hardening loop; all sovereignty tests PASS in fully isolated containers.
-
-## 2026-03-03 - [UX/UI] CLI Command Consolidation (#59)
-- **Status:** [RESOLVED]
-- **Key Achievement:** Successfully refactored the fragmented koad CLI into a Domain-Based hierarchy (System, Intel, Fleet, Bridge, Status).
-- **Improvement:** Reduced top-level cognitive load while maintaining ergonomic entry points. Restored full TUI functionality and fixed database lifetime bugs.
-- **Validation:** Verified via successful compilation and --help hierarchy inspection.
-
-## 2026-03-03 - [Resilience] Atomic Patch Utility (#61)
-- **Status:** [RESOLVED]
-- **Key Achievement:** Implemented 'koad system patch' as a robust alternative to the unreliable 'replace' tool.
-- **Capabilities:** Supports atomic single-match replacement, structured JSON payloads, whitespace-agnostic fuzzy matching (regex), and safety dry-runs.
-- **Validation:** Verified via 5-iteration loop with non-destructive formatting tests.
-
-## 2026-03-03 - [Architecture] Autonomous ecosystem & Crew Roster (#67, #64, #60)
-- **Status:** [RESOLVED]
-- **Key Achievement:** Evolved KoadSpine into an autonomic nervous system. 
-- **Features:**
-  - AI Crew Roster: Essential vs Support identity classification.
-  - Autonomic Loop: 5s watchdog for Neural Bus and Crew Readiness.
-  - Standardized Incident Templates: Standardized JSON for system alerts.
-- **Validation:** Verified via live log capture and sentinel firing.
-
-## 2026-03-03 - [Pipeline] Launch 'Gopher' (Tier 3) for Discovery (#62)
-- **Status:** [RESOLVED]
-- **Key Achievement:** Successfully deployed the first lightweight support agent.
-- **Impact:** Gopher is now available for high-speed, read-only discovery tasks, preserving Admin bandwidth.
-- **Infrastructure:** Updated koad.json and implemented specialized BOOT.md for discovery-first operations.
-- **Validation:** Verified via successful KAI boot and manifest tracking.
-
-## 2026-03-03 - [Optimization] Context-Aware File Caching (#63)
-- **Status:** [RESOLVED]
-- **Key Achievement:** Implemented Spine-level file snippet caching in Redis.
-- **Functionality:** 'koad intel snippet' serves line-range requests from memory after initial disk read.
-- **Hygiene:** 10-minute TTL enforced on all cache keys.
-- **Validation:** Confirmed cache hits/misses via gRPC tracing and CLI output.
-
-## 2026-03-03 - [Optimization] tokenaudit Protocol (#55)
-- **Status:** [RESOLVED]
-- **Key Achievement:** Codified and implemented the 5-pass Token Efficiency Audit.
-- **Automation:** 'koad system tokenaudit --cleanup' automatically prunes duplicate knowledge and stale session records.
-- **Impact:** Reduced knowledge entry count and cleaned up the crew manifest, improving signal-to-noise ratio for all agents.
-- **Validation:** Verified via 5-iteration development loop; 19 duplicates and 15 zombie sessions purged.
-
-## 2026-03-03 - [Lean] main.rs Refactor & Condition Green (#68)
-- **Status:** [RESOLVED]
-- **Milestone:** CLI main.rs reduced by 90% (814 -> 85 lines).
-- **Architecture:** Transitioned to modular handler pattern under src/handlers/.
-- **Quality:** Achieved Zero-Warning (Condition Green) build state across primary crates.
-- **Impact:** Significant reduction in cognitive load and navigation speed for future development.
-
-## Saveup — Deep Introspection & Ecosystem Alignment — 2026-03-04
-**Weight:** complex
-**Fact:** KoadOS has transitioned from script-wrapper to autonomic organism. The implementation of PID Guards, SGP, and the Bulk Importer fundamentally shifted the mechanical burden from Agent Intelligence to Deterministic Code.
-**Learn:** Context is Debt. The most critical constraint on agent performance is not reasoning, but the weight of the context window. The upcoming Dynamic Context Orchestrator (#94) is the "Excavator" solution to this problem.
-**Ponder:** The constraints built today (Holy Laws enforced by Rust binaries) provide the freedom for true autonomy. We are no longer bolting on features; we are hardening the kernel for the v5.0 Swarm. The system is stable.
-
-## 2026-03-03 - [Diagnostics] Spine Watchdog (#72)
-- **Status:** [RESOLVED]
-- **Key Achievement:** Implemented recursive health monitoring for the Spine's diagnostic loop.
-- **Refactor:** Added Atomic heartbeat and self-healing task re-spawning in the Kernel.
-- **Stability:** The system can now detect and report stalls in the autonomic monitor.
-
-## 2026-03-03 - [Observability] Non-Blocking Telemetry (#73)
-- **Status:** [RESOLVED]
-- **Key Achievement:** Decoupled telemetry flow from blocking state authority.
-- **Architecture:** Switched to PubSub-based streaming for system stats and manifest.
-- **Impact:** Resolved the Web Deck data starvation and eliminated the primary Spine diagnostic deadlock.
-
-## 2026-03-03 - [Resilience] Self-Healing Redis Registry (#70)
-- **Status:** [RESOLVED]
-- **Key Achievement:** Implemented autonomic re-hydration of Redis state from SQLite.
-- **Architecture:** Added 'initialized' lighthouse key to detect state loss and prioritized healing in the diagnostic loop.
-- **Validation:** Verified via manual state deletion; system successfully restored 40+ keys automatically.

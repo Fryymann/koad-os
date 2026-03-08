@@ -47,11 +47,39 @@ async fn main() -> Result<()> {
     // 4. Database
     let db = KoadDB::new(&config.get_db_path())?;
 
-    // 4.1 Role Resolution (Auto-lookup for non-Koad agents if default is used)
+    // 4.1 Redis Configuration Hydration (Hot Config Override)
+    let mut config = config;
+    if config.redis_socket.exists() {
+        use koad_core::utils::redis::RedisClient;
+        use fred::interfaces::KeysInterface;
+        
+        if let Ok(client) = RedisClient::new(&config.home.to_string_lossy(), false).await {
+            if let Ok(Some(json)) = client.pool.get::<Option<String>, _>(koad_core::constants::REDIS_KEY_CONFIG).await {
+                if let Ok(hot_config) = KoadConfig::from_json(&json) {
+                    // Merge hot config: preserve local paths, take hot settings
+                    let home = config.home.clone();
+                    let redis_socket = config.redis_socket.clone();
+                    let spine_socket = config.spine_socket.clone();
+                    let extra = config.extra.clone();
+
+                    config = hot_config;
+                    config.home = home;
+                    config.redis_socket = redis_socket;
+                    config.spine_socket = spine_socket;
+                    // Merge extra fields
+                    for (k, v) in extra {
+                        config.extra.entry(k).or_insert(v);
+                    }
+                }
+            }
+        }
+    }
+
+    // 4.2 Role Resolution (Auto-lookup for non-Koad agents if default is used)
     let mut role = cli.role.clone();
     if role == "admin" {
         if let Commands::Boot { ref agent, .. } = cli.command {
-            if agent != "Koad" {
+            if agent != "Koad" && agent != "Tyr" {
                 if let Ok(Some(db_role)) = db.get_primary_role(agent) {
                     role = db_role;
                 }
@@ -60,8 +88,7 @@ async fn main() -> Result<()> {
     }
     let is_admin = role == "admin";
 
-    // 4.2 Path-Aware Project Context
-    let mut config = config;
+    // 4.3 Path-Aware Project Context
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     if current_dir.to_string_lossy().contains("skylinks") {
         config.github_project_number = 4;
@@ -127,7 +154,7 @@ async fn main() -> Result<()> {
         }
         Commands::Whoami => {
             println!(
-                "Persona: {} ({})\nBio:     {}",
+                "Identity: {} [{}]\nBio:      {}",
                 legacy_config.identity.name,
                 legacy_config.identity.role,
                 legacy_config.identity.bio

@@ -4,21 +4,24 @@ use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::Duration;
 use tokio::time::sleep;
+use anyhow::Result;
 
 pub struct RedisClient {
     pub pool: RedisPool,
     pub subscriber: fred::clients::RedisClient,
-    pub _process: Option<Child>,
+    pub process: Option<Child>,
 }
 
 impl RedisClient {
-    pub async fn new(koad_home: &str) -> anyhow::Result<Self> {
+    /// Initialize a new Redis client.
+    /// If `manage_process` is true, it will attempt to start a local Redis server if not already running.
+    pub async fn new(koad_home: &str, manage_process: bool) -> Result<Self> {
         let home_path = PathBuf::from(koad_home);
 
         let socket_path = if let Ok(env_socket) = std::env::var("REDIS_SOCKET") {
             PathBuf::from(env_socket)
         } else {
-            home_path.join("koad.sock")
+            home_path.join(crate::constants::DEFAULT_REDIS_SOCK)
         };
 
         let pid_path = home_path.join("redis.pid");
@@ -29,10 +32,6 @@ impl RedisClient {
 
         // Socket Hygiene Check
         if socket_path.exists() {
-            println!(
-                "Testing existing Redis socket at {}...",
-                socket_path.display()
-            );
             let config = RedisConfig {
                 server: ServerConfig::Unix {
                     path: socket_path.clone(),
@@ -60,20 +59,15 @@ impl RedisClient {
             };
 
             if !is_alive {
-                println!("Socket is stale or unresponsive. Purging ghost files...");
-                let _ = std::fs::remove_file(&socket_path);
-                let _ = std::fs::remove_file(&pid_path);
-            } else {
-                println!("Socket is active and responding to PING.");
+                if manage_process {
+                    let _ = std::fs::remove_file(&socket_path);
+                    let _ = std::fs::remove_file(&pid_path);
+                }
             }
         }
 
-        // 1. Start Redis Process ONLY if socket doesn't exist
-        if !socket_path.exists() {
-            println!(
-                "Starting Koad-managed Redis server at {}...",
-                socket_path.display()
-            );
+        // 1. Start Redis Process if managed and socket doesn't exist
+        if manage_process && !socket_path.exists() {
             std::fs::create_dir_all(&data_dir)?;
             process = Some(
                 Command::new("redis-server")
@@ -118,26 +112,17 @@ impl RedisClient {
         pool.init().await?;
         subscriber.init().await?;
 
-        // 3. Setup event listeners
-        pool.next().on_error(|e| {
-            eprintln!("Redis Pool Error: {:?}", e);
-            Ok(())
-        });
-
-        println!("Connected to Redis Pool (8 connections) + Subscriber.");
-
         Ok(Self {
             pool,
             subscriber,
-            _process: process,
+            process,
         })
     }
 }
 
 impl Drop for RedisClient {
     fn drop(&mut self) {
-        if let Some(mut process) = self._process.take() {
-            println!("Stopping Redis server...");
+        if let Some(mut process) = self.process.take() {
             let _ = process.kill();
         }
     }

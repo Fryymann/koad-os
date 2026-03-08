@@ -1,4 +1,4 @@
-use crate::engine::redis::RedisClient;
+use koad_core::utils::redis::RedisClient;
 use fred::interfaces::{HashesInterface, KeysInterface};
 use std::path::PathBuf;
 use std::sync::Arc;

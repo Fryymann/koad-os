@@ -7,7 +7,8 @@ use koad_core::config::KoadConfig;
 use koad_core::utils::lock::DistributedLock;
 use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
 use koad_proto::spine::v1::*;
-use redis::Commands;
+use koad_core::utils::redis::RedisClient;
+use fred::interfaces::{KeysInterface, HashesInterface, LuaInterface};
 use rusqlite::params;
 use serde_json::Value;
 use std::env;
@@ -22,37 +23,33 @@ pub struct RedisLockClient {
 #[async_trait::async_trait]
 impl DistributedLock for RedisLockClient {
     async fn lock(&self, sector: &str, agent_name: &str, ttl_secs: u64) -> Result<bool> {
-        let client = redis::Client::open(format!("redis+unix://{}", self.socket.display()))?;
-        let mut conn = client.get_connection()?;
+        let client = RedisClient::new(&self.socket.parent().unwrap().to_string_lossy(), false).await?;
         let key = format!("koad:lock:{}", sector);
 
-        let res: Option<String> = redis::cmd("SET")
-            .arg(&key)
-            .arg(agent_name)
-            .arg("NX")
-            .arg("EX")
-            .arg(ttl_secs)
-            .query(&mut conn)?;
+        let res: Option<String> = client.pool.set(
+            &key,
+            agent_name,
+            Some(fred::types::Expiration::EX(ttl_secs as i64)),
+            Some(fred::types::SetOptions::NX),
+            false
+        ).await?;
 
-        Ok(res.is_some())
+        Ok(res.is_some() || client.pool.get::<Option<String>, _>(&key).await?.as_deref() == Some(agent_name))
     }
 
     async fn unlock(&self, sector: &str, agent_name: &str) -> Result<bool> {
-        let client = redis::Client::open(format!("redis+unix://{}", self.socket.display()))?;
-        let mut conn = client.get_connection()?;
+        let client = RedisClient::new(&self.socket.parent().unwrap().to_string_lossy(), false).await?;
         let key = format!("koad:lock:{}", sector);
 
-        let script = redis::Script::new(
-            r"
+        let script = r"
             if redis.call('get', KEYS[1]) == ARGV[1] then
                 return redis.call('del', KEYS[1])
             else
                 return 0
             end
-        ",
-        );
+        ";
 
-        let result: i32 = script.key(&key).arg(agent_name).invoke(&mut conn)?;
+        let result: i32 = client.pool.next().eval(script, vec![key], vec![agent_name]).await?;
         Ok(result == 1)
     }
 }
@@ -161,9 +158,7 @@ pub async fn handle_system_action(
         }
         SystemAction::Config { action, json } => match action {
             Some(ConfigAction::Set { key, value }) => {
-                let client =
-                    redis::Client::open(format!("redis+unix://{}", config.redis_socket.display()))?;
-                let mut conn = client.get_connection()?;
+                let client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
                 let mut hot_config = config.clone();
 
                 match key.as_str() {
@@ -182,7 +177,7 @@ pub async fn handle_system_action(
                 }
 
                 let json = hot_config.to_json()?;
-                let _: () = conn.set(koad_core::constants::REDIS_KEY_CONFIG, json)?;
+                let _: () = client.pool.set(koad_core::constants::REDIS_KEY_CONFIG, json, None, None, false).await?;
                 println!(
                     "\x1b[32m[OK]\x1b[0m Config '{}' set to '{}' in Redis.",
                     key, value
@@ -513,20 +508,16 @@ pub async fn handle_system_action(
                 socket: config.redis_socket.clone(),
             };
 
-            if lock_client.lock(&sector, &agent_name, ttl).await? {
+            if lock_client.lock(&sector, agent_name, ttl).await? {
                 println!(
                     "\x1b[32m[OK]\x1b[0m Sector '{}' locked by '{}'.",
                     sector, agent_name
                 );
             } else {
-                let client = redis::Client::open(format!(
-                    "redis+unix://{}",
-                    config.redis_socket.display()
-                ))?;
-                let mut conn = client.get_connection()?;
-                let owner: String = conn
-                    .get(format!("koad:lock:{}", sector))
-                    .unwrap_or_else(|_| "unknown".to_string());
+                let client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
+                let owner: String = client.pool.get::<Option<String>, _>(format!("koad:lock:{}", sector))
+                    .await?
+                    .unwrap_or_else(|| "unknown".to_string());
                 anyhow::bail!(
                     "LOCK_DENIED: Sector '{}' is already held by '{}'.",
                     sector,
@@ -539,15 +530,11 @@ pub async fn handle_system_action(
                 socket: config.redis_socket.clone(),
             };
 
-            if lock_client.unlock(&sector, &agent_name).await? {
+            if lock_client.unlock(&sector, agent_name).await? {
                 println!("\x1b[32m[OK]\x1b[0m Sector '{}' released.", sector);
             } else {
-                let client = redis::Client::open(format!(
-                    "redis+unix://{}",
-                    config.redis_socket.display()
-                ))?;
-                let mut conn = client.get_connection()?;
-                let owner: Option<String> = conn.get(format!("koad:lock:{}", sector))?;
+                let client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
+                let owner: Option<String> = client.pool.get::<Option<String>, _>(format!("koad:lock:{}", sector)).await?;
                 match owner {
                     Some(o) => {
                         anyhow::bail!(
@@ -562,6 +549,81 @@ pub async fn handle_system_action(
                 }
             }
         }
+        SystemAction::Context { action } => {
+            handle_context_action(action, config, agent_name).await?;
+        }
     }
+    Ok(())
+}
+
+pub async fn handle_context_action(
+    action: crate::cli::ContextAction,
+    config: &KoadConfig,
+    agent_name: &str,
+) -> Result<()> {
+    let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
+        .await
+        .context("Failed to connect to Spine gRPC")?;
+
+    match action {
+        crate::cli::ContextAction::Hydrate {
+            session,
+            path,
+            text,
+            ttl,
+        } => {
+            let session_id = if let Some(s) = session {
+                s
+            } else {
+                // Try to resolve session ID from Redis for current agent
+                let client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
+                let key = format!("koad:identity:{}", agent_name);
+                let sid: String = client.pool.hget::<Option<String>, _, _>(&key, "session_id")
+                    .await?
+                    .context("No active session found for current agent. Provide --session.")?;
+                sid
+            };
+
+            let content = if let Some(p) = path {
+                std::fs::read_to_string(p)?
+            } else if let Some(t) = text {
+                t
+            } else {
+                anyhow::bail!("Provide either --path or --text to hydrate.");
+            };
+
+            let mut hasher = sha2::Sha256::new();
+            use sha2::Digest;
+            hasher.update(content.as_bytes());
+            let chunk_id = format!("{:x}", hasher.finalize());
+
+            let req = HydrationRequest {
+                session_id: session_id.clone(),
+                chunk: Some(HotContextChunk {
+                    chunk_id,
+                    content,
+                    ttl_seconds: ttl,
+                    created_at: None,
+                }),
+            };
+
+            let res = client.hydrate_context(req).await?.into_inner();
+            if res.success {
+                println!(
+                    "\x1b[32m[OK]\x1b[0m Context Hydrated for session {}. Current size: {} bytes.",
+                    session_id, res.current_context_size
+                );
+            } else {
+                println!("\x1b[31m[ERROR]\x1b[0m Hydration Failed: {}", res.error);
+            }
+        }
+        crate::cli::ContextAction::Flush { session: _ } => {
+            // Flush implementation to be added to Spine and called here.
+            println!(
+                "\x1b[33m[STUB]\x1b[0m Context Flush logic energized. (Requires Spine refresh)."
+            );
+        }
+    }
+
     Ok(())
 }

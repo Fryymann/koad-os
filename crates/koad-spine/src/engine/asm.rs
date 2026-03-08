@@ -8,7 +8,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{info, error};
+use tracing::{error, info};
 
 pub struct AgentSessionManager {
     storage: Arc<KoadStorageBridge>,
@@ -23,17 +23,20 @@ impl AgentSessionManager {
         }
     }
 
-    /// Passive creation: Just updates the local cache. 
+    /// Passive creation: Just updates the local cache.
     /// Real creation is handled by the agent directly via Redis/ASM daemon.
     pub async fn create_session(&self, session: AgentSession) -> anyhow::Result<()> {
         let mut sessions = self.sessions.lock().await;
-        info!("ASM (Watcher): Local cache update for KAI '{}'", session.identity.name);
+        info!(
+            "ASM (Watcher): Local cache update for KAI '{}'",
+            session.identity.name
+        );
         sessions.insert(session.session_id.clone(), session);
         Ok(())
     }
 
     pub async fn heartbeat(&self, session_id: &str) -> anyhow::Result<()> {
-        // Spine no longer authoritative for heartbeats. 
+        // Spine no longer authoritative for heartbeats.
         // Agents should heartbeat directly to Redis/ASM.
         // We just update local cache if we have it.
         let mut sessions = self.sessions.lock().await;
@@ -130,6 +133,24 @@ impl AgentSessionManager {
             active_tasks.len()
         );
 
+        // Fetch Hot Context Chunks
+        let context_key = format!("koad:context:session:{}", session_id);
+        let hot_context_raw: HashMap<String, String> = self
+            .storage
+            .redis
+            .pool
+            .next()
+            .hgetall(&context_key)
+            .await
+            .unwrap_or_default();
+
+        let mut hot_context = Vec::new();
+        for (_, val) in hot_context_raw {
+            if let Ok(chunk) = serde_json::from_str::<koad_core::types::HotContextChunk>(&val) {
+                hot_context.push(chunk);
+            }
+        }
+
         let mut package = serde_json::to_value(session)?;
         if let Some(obj) = package.as_object_mut() {
             obj.insert("mission_briefing".to_string(), json!(briefing));
@@ -138,6 +159,7 @@ impl AgentSessionManager {
                 "recent_events".to_string(),
                 json!(events.into_iter().map(|e| e.1).collect::<Vec<_>>()),
             );
+            obj.insert("hot_context".to_string(), json!(hot_context));
         }
 
         Ok(package)
@@ -170,22 +192,24 @@ impl AgentSessionManager {
             let payload_str = message.value.as_string().unwrap_or_default();
             if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&payload_str) {
                 let msg_type = msg["type"].as_str().unwrap_or_default().to_uppercase();
-                
+
                 match msg_type.as_str() {
                     "SESSION_UPDATE" => {
-                        if let Ok(session) = serde_json::from_value::<AgentSession>(msg["data"].clone()) {
+                        if let Ok(session) =
+                            serde_json::from_value::<AgentSession>(msg["data"].clone())
+                        {
                             let sid = session.session_id.clone();
                             let mut sessions = self.sessions.lock().await;
                             sessions.insert(sid, session);
                         }
-                    },
+                    }
                     "SESSION_PRUNED" => {
                         if let Some(sid) = msg["session_id"].as_str() {
                             let mut sessions = self.sessions.lock().await;
                             sessions.remove(sid);
                             info!("ASM (Watcher): Session {} purged from cache.", sid);
                         }
-                    },
+                    }
                     _ => {}
                 }
             }

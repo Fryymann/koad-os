@@ -56,11 +56,13 @@ impl KoadConfig {
     }
 
     pub fn to_json(&self) -> Result<String> {
-        serde_json::to_string(self).map_err(|e| anyhow::anyhow!("Failed to serialize config: {}", e))
+        serde_json::to_string(self)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize config: {}", e))
     }
 
     pub fn from_json(json: &str) -> Result<Self> {
-        serde_json::from_str(json).map_err(|e| anyhow::anyhow!("Failed to deserialize config: {}", e))
+        serde_json::from_str(json)
+            .map_err(|e| anyhow::anyhow!("Failed to deserialize config: {}", e))
     }
 
     pub fn resolve_gh_token(&self) -> Result<String> {
@@ -97,13 +99,21 @@ mod tests {
     #[test]
     fn test_config_serialization() {
         let mut config = KoadConfig::load().unwrap();
-        config.extra.insert("test_key".to_string(), "test_value".to_string());
-        
+        config
+            .extra
+            .insert("test_key".to_string(), "test_value".to_string());
+
         let json = config.to_json().unwrap();
         let deserialized = KoadConfig::from_json(&json).unwrap();
-        
+
         assert_eq!(config.home, deserialized.home);
-        assert_eq!(config.github_project_number, deserialized.github_project_number);
-        assert_eq!(config.extra.get("test_key"), Some(&"test_value".to_string()));
+        assert_eq!(
+            config.github_project_number,
+            deserialized.github_project_number
+        );
+        assert_eq!(
+            config.extra.get("test_key"),
+            Some(&"test_value".to_string())
+        );
     }
 }

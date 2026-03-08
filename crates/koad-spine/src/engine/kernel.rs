@@ -2,11 +2,11 @@ use crate::engine::Engine;
 use crate::rpc::KoadSpine;
 use koad_proto::spine::v1::spine_service_server::SpineServiceServer;
 use std::path::PathBuf;
+use std::process::{Child, Command};
 use std::sync::Arc;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
-use std::process::{Child, Command};
 
 use tokio::sync::watch;
 
@@ -83,13 +83,19 @@ impl KernelBuilder {
         // 2. Launch Standalone ASM Daemon
         let mut asm_process = None;
         let asm_bin = home_dir.join("bin/koad-asm");
-        println!("Kernel: Checking for ASM daemon at {}...", asm_bin.display());
+        println!(
+            "Kernel: Checking for ASM daemon at {}...",
+            asm_bin.display()
+        );
         if asm_bin.exists() {
             let abs_asm_bin = asm_bin.canonicalize().unwrap_or(asm_bin);
             let stderr_log = home_dir.join("logs/asm_spawn_error.log");
             let stderr_file = std::fs::File::create(&stderr_log).ok();
 
-            println!("Kernel: Spawning ASM daemon from {}...", abs_asm_bin.display());
+            println!(
+                "Kernel: Spawning ASM daemon from {}...",
+                abs_asm_bin.display()
+            );
             let mut cmd = Command::new(&abs_asm_bin);
             cmd.env("KOAD_HOME", &home_dir);
 
@@ -98,15 +104,39 @@ impl KernelBuilder {
             }
 
             match cmd.spawn() {
-                Ok(child) => {
-                    println!("Kernel: ASM daemon spawned successfully (PID: {}).", child.id());
-                    asm_process = Some(child);
-                },
-                Err(e) => eprintln!("Kernel Error: Failed to spawn koad-asm ({}): {}", abs_asm_bin.display(), e),
+                Ok(mut child) => {
+                    println!(
+                        "Kernel: ASM daemon spawned successfully (PID: {}).",
+                        child.id()
+                    );
+                    // Brief wait to ensure it doesn't immediate-crash
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    match child.try_wait() {
+                        Ok(None) => {
+                            asm_process = Some(child);
+                        }
+                        Ok(Some(status)) => {
+                            eprintln!(
+                                "Kernel Error: ASM daemon exited immediately with status: {}",
+                                status
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("Kernel Error: Failed to poll ASM status: {}", e);
+                        }
+                    }
+                }
+                Err(e) => eprintln!(
+                    "Kernel Error: Failed to spawn koad-asm ({}): {}",
+                    abs_asm_bin.display(),
+                    e
+                ),
             }
-        }
- else {
-            eprintln!("Kernel Warning: koad-asm binary not found at {}. ASM features will be limited.", asm_bin.display());
+        } else {
+            eprintln!(
+                "Kernel Warning: koad-asm binary not found at {}. ASM features will be limited.",
+                asm_bin.display()
+            );
         }
 
         // 3. Launch Core Background Loops

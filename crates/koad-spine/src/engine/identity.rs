@@ -49,8 +49,9 @@ impl KAILeaseManager {
             }
         }
 
-        // 2. Sovereign Guardrail (Koad/Ian/TestKoad)
-        let is_sovereign = kai_name == "Koad" || kai_name == "Ian" || kai_name == "TestKoad";
+        // 2. Sovereign Guardrail (Tyr/Koad/Ian)
+        let is_sovereign =
+            kai_name == "Tyr" || kai_name == "Koad" || kai_name == "Ian" || kai_name == "TestKoad";
         if is_sovereign && model_tier > 1 {
             anyhow::bail!("COGNITIVE_REJECTION: Sovereign KAI '{}' requires Tier 1 Admin driver. (Requested: Tier {})", kai_name, model_tier);
         }

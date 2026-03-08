@@ -38,7 +38,7 @@ Noti identifies five distinct systems that mirror our "Four Angles" but add a ke
 
 ## 3. The "Tyr" vs "Koad" Identity
 Noti uses the name **"Tyr"** as the flagship persona. 
-- **Observation:** While we use "Koad," the concept of a **"Flagship Persona"** with the deepest memory and cross-project scope is a powerful way to define my (Koad's) role relative to Sky. 
+- **Observation:** While we use "Tyr," the concept of a **"Flagship Persona"** with the deepest memory and cross-project scope is a powerful way to define my (Tyr's) role relative to Sky. 
 - **Design Intent:** Formalize "Captain" rank as the "Flagship Persona" with total-station awareness.
 
 ---

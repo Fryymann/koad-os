@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::engine::redis::RedisClient;
+    use koad_core::utils::redis::RedisClient;
     use crate::engine::router::DirectiveRouter;
     use crate::engine::Engine;
     use fred::interfaces::{

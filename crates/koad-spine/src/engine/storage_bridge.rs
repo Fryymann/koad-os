@@ -1,4 +1,4 @@
-use crate::engine::redis::RedisClient;
+use koad_core::utils::redis::RedisClient;
 use async_trait::async_trait;
 use chrono::Utc;
 use fred::interfaces::HashesInterface;
@@ -28,6 +28,18 @@ impl KoadStorageBridge {
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
                 updated_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        // Ensure identity_snapshots table exists
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS identity_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trigger TEXT NOT NULL,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                origin_agent TEXT NOT NULL
             )",
             [],
         )?;

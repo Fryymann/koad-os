@@ -15,3 +15,5 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender.workspace = true
 sysinfo.workspace = true
+fred = { workspace = true, features = ["unix-sockets", "subscriber-client", "i-scripts", "i-pubsub"] }
+tokio.workspace = true
