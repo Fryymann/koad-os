@@ -83,19 +83,29 @@ impl KernelBuilder {
         // 2. Launch Standalone ASM Daemon
         let mut asm_process = None;
         let asm_bin = home_dir.join("bin/koad-asm");
+        println!("Kernel: Checking for ASM daemon at {}...", asm_bin.display());
         if asm_bin.exists() {
             let abs_asm_bin = asm_bin.canonicalize().unwrap_or(asm_bin);
+            let stderr_log = home_dir.join("logs/asm_spawn_error.log");
+            let stderr_file = std::fs::File::create(&stderr_log).ok();
+
             println!("Kernel: Spawning ASM daemon from {}...", abs_asm_bin.display());
-            match Command::new(&abs_asm_bin)
-                .env("KOAD_HOME", &home_dir)
-                .spawn() {
-                    Ok(child) => {
-                        println!("Kernel: ASM daemon spawned successfully (PID: {}).", child.id());
-                        asm_process = Some(child);
-                    },
-                    Err(e) => eprintln!("Kernel Error: Failed to spawn koad-asm ({}): {}", abs_asm_bin.display(), e),
-                }
-        } else {
+            let mut cmd = Command::new(&abs_asm_bin);
+            cmd.env("KOAD_HOME", &home_dir);
+
+            if let Some(file) = stderr_file {
+                cmd.stderr(file);
+            }
+
+            match cmd.spawn() {
+                Ok(child) => {
+                    println!("Kernel: ASM daemon spawned successfully (PID: {}).", child.id());
+                    asm_process = Some(child);
+                },
+                Err(e) => eprintln!("Kernel Error: Failed to spawn koad-asm ({}): {}", abs_asm_bin.display(), e),
+            }
+        }
+ else {
             eprintln!("Kernel Warning: koad-asm binary not found at {}. ASM features will be limited.", asm_bin.display());
         }
 
