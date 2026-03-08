@@ -16,6 +16,7 @@ rusqlite.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 tonic.workspace = true
+async-trait.workspace = true
 prost-types = "0.13"
 
 # Crate Specific

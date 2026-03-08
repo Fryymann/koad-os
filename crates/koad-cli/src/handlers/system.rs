@@ -4,6 +4,7 @@ use crate::utils::{feature_gate, get_gdrive_token_for_path, get_gh_pat_for_path}
 use anyhow::{Context, Result};
 use chrono::Local;
 use koad_core::config::KoadConfig;
+use koad_core::utils::lock::DistributedLock;
 use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
 use koad_proto::spine::v1::*;
 use redis::Commands;
@@ -13,6 +14,48 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 use tracing::warn;
+
+pub struct RedisLockClient {
+    pub socket: PathBuf,
+}
+
+#[async_trait::async_trait]
+impl DistributedLock for RedisLockClient {
+    async fn lock(&self, sector: &str, agent_name: &str, ttl_secs: u64) -> Result<bool> {
+        let client = redis::Client::open(format!("redis+unix://{}", self.socket.display()))?;
+        let mut conn = client.get_connection()?;
+        let key = format!("koad:lock:{}", sector);
+
+        let res: Option<String> = redis::cmd("SET")
+            .arg(&key)
+            .arg(agent_name)
+            .arg("NX")
+            .arg("EX")
+            .arg(ttl_secs)
+            .query(&mut conn)?;
+
+        Ok(res.is_some())
+    }
+
+    async fn unlock(&self, sector: &str, agent_name: &str) -> Result<bool> {
+        let client = redis::Client::open(format!("redis+unix://{}", self.socket.display()))?;
+        let mut conn = client.get_connection()?;
+        let key = format!("koad:lock:{}", sector);
+
+        let script = redis::Script::new(
+            r"
+            if redis.call('get', KEYS[1]) == ARGV[1] then
+                return redis.call('del', KEYS[1])
+            else
+                return 0
+            end
+        ",
+        );
+
+        let result: i32 = script.key(&key).arg(agent_name).invoke(&mut conn)?;
+        Ok(result == 1)
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn spawn_issue(
@@ -175,61 +218,70 @@ pub async fn handle_system_action(
             if !is_admin {
                 anyhow::bail!("Admin only.");
             }
-            println!(
-                "
+
+            let lock_client = RedisLockClient {
+                socket: config.redis_socket.clone(),
+            };
+
+            koad_core::with_sector_lock!(&lock_client, "refresh", agent_name, 600, {
+                println!(
+                    "
 \x1b[1m--- KoadOS Core Refresh (Hard Reset) ---\x1b[0m"
-            );
-            let home = config.home.clone();
-            println!(">>> [1/3] Energizing Forge (cargo build)...");
-            let build_status = Command::new("cargo")
-                .arg("build")
-                .current_dir(&home)
-                .status()?;
-            if !build_status.success() {
-                anyhow::bail!("Forge failure.");
-            }
-
-            println!(">>> [2/3] Verifying Core Links (bin/ alignment)...");
-            let bin_dir = home.join("bin");
-            let target_dir = home.join("target/debug");
-
-            let links = [
-                ("koad", "koad"),
-                ("kspine", "koad-spine"),
-                ("koad-asm", "koad-asm"),
-                ("koad-cli", "koad"),
-            ];
-
-            for (link_name, target_name) in links {
-                let link_path = bin_dir.join(link_name);
-                let target_path = target_dir.join(target_name);
-
-                if link_path.exists() {
-                    let _ = std::fs::remove_file(&link_path);
+                );
+                let home = config.home.clone();
+                println!(">>> [1/3] Energizing Forge (cargo build)...");
+                let build_status = Command::new("cargo")
+                    .arg("build")
+                    .current_dir(&home)
+                    .status()?;
+                if !build_status.success() {
+                    anyhow::bail!("Forge failure.");
                 }
 
-                #[cfg(unix)]
-                {
-                    if let Err(e) = std::os::unix::fs::symlink(&target_path, &link_path) {
-                        warn!(
-                            "  [FAIL] Failed to link {} -> {}: {}",
-                            link_name, target_name, e
-                        );
-                    } else {
-                        println!("  [OK] {} linked to {}", link_name, target_name);
+                println!(">>> [2/3] Verifying Core Links (bin/ alignment)...");
+                let bin_dir = home.join("bin");
+                let target_dir = home.join("target/debug");
+
+                let links = [
+                    ("koad", "koad"),
+                    ("kspine", "koad-spine"),
+                    ("koad-asm", "koad-asm"),
+                    ("koad-cli", "koad"),
+                ];
+
+                for (link_name, target_name) in links {
+                    let link_path = bin_dir.join(link_name);
+                    let target_path = target_dir.join(target_name);
+
+                    if link_path.exists() {
+                        let _ = std::fs::remove_file(&link_path);
+                    }
+
+                    #[cfg(unix)]
+                    {
+                        if let Err(e) = std::os::unix::fs::symlink(&target_path, &link_path) {
+                            warn!(
+                                "  [FAIL] Failed to link {} -> {}: {}",
+                                link_name, target_name, e
+                            );
+                        } else {
+                            println!("  [OK] {} linked to {}", link_name, target_name);
+                        }
                     }
                 }
-            }
 
-            if restart {
-                println!(">>> [3/3] Rebooting Core Systems...");
-                let _ = Command::new("pkill").arg("-9").arg("kspine").status();
-                let _ = Command::new("pkill").arg("-9").arg("koad-asm").status();
-                // Spine handles autonomic restart of ASM when started
-                let spine_bin = bin_dir.join("kspine");
-                let _ = Command::new(spine_bin).env("KOAD_HOME", &home).spawn();
-                println!("  [OK] Core systems energized.");
-            }
+                if restart {
+                    println!(">>> [3/3] Rebooting Core Systems...");
+                    let _ = Command::new("pkill").arg("-9").arg("kspine").status();
+                    let _ = Command::new("pkill").arg("-9").arg("koad-asm").status();
+                    // Spine handles autonomic restart of ASM when started
+                    let spine_bin = bin_dir.join("kspine");
+                    let _ = Command::new(spine_bin).env("KOAD_HOME", &home).spawn();
+                    println!("  [OK] Core systems energized.");
+                }
+                Ok::<(), anyhow::Error>(())
+            })
+            .await??;
         }
         SystemAction::Save { full } => {
             if !is_admin {
@@ -457,43 +509,56 @@ pub async fn handle_system_action(
             // Handled in main.rs dispatcher
         }
         SystemAction::Lock { sector, ttl } => {
-            let client =
-                redis::Client::open(format!("redis+unix://{}", config.redis_socket.display()))?;
-            let mut conn = client.get_connection()?;
-            let key = format!("koad:lock:{}", sector);
+            let lock_client = RedisLockClient {
+                socket: config.redis_socket.clone(),
+            };
 
-            let res: Option<String> = redis::cmd("SET")
-                .arg(&key)
-                .arg(&agent_name)
-                .arg("NX")
-                .arg("EX")
-                .arg(ttl)
-                .query(&mut conn)?;
-
-            if res.is_some() {
-                println!("\x1b[32m[OK]\x1b[0m Sector '{}' locked by '{}'.", sector, agent_name);
+            if lock_client.lock(&sector, &agent_name, ttl).await? {
+                println!(
+                    "\x1b[32m[OK]\x1b[0m Sector '{}' locked by '{}'.",
+                    sector, agent_name
+                );
             } else {
-                let owner: String = conn.get(&key).unwrap_or_else(|_| "unknown".to_string());
-                anyhow::bail!("LOCK_DENIED: Sector '{}' is already held by '{}'.", sector, owner);
+                let client = redis::Client::open(format!(
+                    "redis+unix://{}",
+                    config.redis_socket.display()
+                ))?;
+                let mut conn = client.get_connection()?;
+                let owner: String = conn
+                    .get(format!("koad:lock:{}", sector))
+                    .unwrap_or_else(|_| "unknown".to_string());
+                anyhow::bail!(
+                    "LOCK_DENIED: Sector '{}' is already held by '{}'.",
+                    sector,
+                    owner
+                );
             }
         }
         SystemAction::Unlock { sector } => {
-            let client =
-                redis::Client::open(format!("redis+unix://{}", config.redis_socket.display()))?;
-            let mut conn = client.get_connection()?;
-            let key = format!("koad:lock:{}", sector);
+            let lock_client = RedisLockClient {
+                socket: config.redis_socket.clone(),
+            };
 
-            let owner: Option<String> = conn.get(&key)?;
-            match owner {
-                Some(o) if o == agent_name => {
-                    let _: () = conn.del(&key)?;
-                    println!("\x1b[32m[OK]\x1b[0m Sector '{}' released.", sector);
-                }
-                Some(o) => {
-                    anyhow::bail!("UNLOCK_DENIED: You do not own the lock for '{}' (Held by '{}').", sector, o);
-                }
-                None => {
-                    println!("\x1b[33m[WARN]\x1b[0m Sector '{}' was not locked.", sector);
+            if lock_client.unlock(&sector, &agent_name).await? {
+                println!("\x1b[32m[OK]\x1b[0m Sector '{}' released.", sector);
+            } else {
+                let client = redis::Client::open(format!(
+                    "redis+unix://{}",
+                    config.redis_socket.display()
+                ))?;
+                let mut conn = client.get_connection()?;
+                let owner: Option<String> = conn.get(format!("koad:lock:{}", sector))?;
+                match owner {
+                    Some(o) => {
+                        anyhow::bail!(
+                            "UNLOCK_DENIED: You do not own the lock for '{}' (Held by '{}').",
+                            sector,
+                            o
+                        );
+                    }
+                    None => {
+                        println!("\x1b[33m[WARN]\x1b[0m Sector '{}' was not locked.", sector);
+                    }
                 }
             }
         }
