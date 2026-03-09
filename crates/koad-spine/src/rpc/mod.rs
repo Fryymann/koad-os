@@ -367,7 +367,7 @@ impl SpineService for KoadSpine {
         let mut session = koad_core::session::AgentSession::new(
             session_id.clone(),
             identity.clone(),
-            environment,
+            environment.clone(),
             context.clone(),
         );
 
@@ -377,6 +377,12 @@ impl SpineService for KoadSpine {
         session
             .metadata
             .insert("model_name".to_string(), req.model_name.clone());
+        session
+            .metadata
+            .insert("driver_id".to_string(), req.driver_id.clone());
+
+        // 0. Body Enforcement: Pre-empt previous sessions for this driver/env
+        let _ = self.engine.asm.prune_body_ghosts(&req.driver_id, environment, &session_id).await;
 
         // 1. Authoritative Persistence in Redis (Hot State)
         let payload =

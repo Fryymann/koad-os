@@ -44,12 +44,7 @@ async fn main() -> anyhow::Result<()> {
         info!("Koad-Spine: Shutdown signal received. Commencing graceful teardown...");
     };
 
-    tokio::select! {
-        _ = shutdown_signal => {},
-        _ = tokio::time::sleep(std::time::Duration::from_secs(3600)) => {
-            error!("Koad-Spine: Safety limit reached (1 hour). Forced shutdown.");
-        },
-    }
+    shutdown_signal.await;
 
     info!("Koad-Spine: Server stopping. Cleaning up...");
     kernel.shutdown().await;

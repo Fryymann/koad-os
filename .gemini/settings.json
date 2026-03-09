@@ -1,0 +1,13 @@
+{
+  "model": {
+    "name": "auto"
+  },
+  "tools": {
+    "allowed": [
+      "run_shell_command(cargo build)",
+      "run_shell_command(cargo check)",
+      "run_shell_command(cargo clippy)",
+      "run_shell_command(cargo test)"
+    ]
+  }
+}

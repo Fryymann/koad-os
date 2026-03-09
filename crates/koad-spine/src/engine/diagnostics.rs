@@ -431,54 +431,70 @@ impl ShipDiagnostics {
 
     async fn update_crew_manifest(&self) -> anyhow::Result<()> {
         let sqlite = self.storage.sqlite.clone();
-        let identities: Vec<String> = tokio::task::spawn_blocking(move || {
-            let conn = sqlite.blocking_lock();
-            let mut stmt = conn.prepare("SELECT name FROM identities")?;
-            let rows = stmt.query_map([], |row: &rusqlite::Row| row.get::<_, String>(0))?;
-            let mut names = Vec::new();
-            for r in rows {
-                names.push(r?);
+        let mut db_identities: HashMap<String, String> = HashMap::new();
+        
+        let _ = tokio::task::spawn_blocking({
+            let sqlite_clone = sqlite.clone();
+            move || -> anyhow::Result<()> {
+                let conn = sqlite_clone.blocking_lock();
+                // We ignore errors here so a missing table doesn't crash the loop
+                if let Ok(mut stmt) = conn.prepare("SELECT name, role FROM identities") {
+                    if let Ok(rows) = stmt.query_map([], |row: &rusqlite::Row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    }) {
+                        for r in rows {
+                            if let Ok((name, role)) = r {
+                                db_identities.insert(name, role);
+                            }
+                        }
+                    }
+                }
+                Ok(())
             }
-            Ok::<Vec<String>, anyhow::Error>(names)
-        })
-        .await
-        .unwrap_or_else(|_| Ok(Vec::new()))?;
+        }).await;
+
+        let all_state: HashMap<String, String> = self
+            .redis
+            .pool
+            .next()
+            .hgetall("koad:state")
+            .await
+            .unwrap_or_default();
 
         let mut wake_count = 0;
         let mut manifest = HashMap::new();
 
-        for name in identities {
-            let key = format!("koad:kai:{}:lease", name);
-            let lease_data: Option<String> = self
-                .redis
-                .pool
-                .next()
-                .hget("koad:state", &key)
-                .await
-                .unwrap_or(None);
-
-            if let Some(data) = lease_data {
-                if let Ok(lease) = serde_json::from_str::<serde_json::Value>(&data) {
-                    // Robust timestamp parsing
+        // 1. Process all active leases first to ensure no one is dropped
+        for (key, val) in &all_state {
+            if key.starts_with("koad:kai:") && key.ends_with(":lease") {
+                let name = key.replace("koad:kai:", "").replace(":lease", "");
+                if let Ok(lease) = serde_json::from_str::<serde_json::Value>(val) {
                     let expires_at = lease["expires_at"].as_str().unwrap_or("");
                     if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(expires_at) {
                         if ts.with_timezone(&Utc) > Utc::now() {
+                            let role = db_identities.get(&name).cloned().unwrap_or_else(|| "Unknown".to_string());
                             manifest.insert(
-                                name,
+                                name.clone(),
                                 json!({
                                     "status": "WAKE",
+                                    "role": role,
                                     "session_id": lease["session_id"],
                                     "driver": lease["driver_id"],
                                     "last_seen": expires_at
                                 }),
                             );
                             wake_count += 1;
-                            continue;
                         }
                     }
                 }
             }
-            manifest.insert(name, json!({ "status": "DARK" }));
+        }
+
+        // 2. Add offline agents from DB that don't have active leases
+        for (name, role) in db_identities {
+            if !manifest.contains_key(&name) {
+                manifest.insert(name, json!({ "status": "DARK", "role": role }));
+            }
         }
 
         let payload = json!({

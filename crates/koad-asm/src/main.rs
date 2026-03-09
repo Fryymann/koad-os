@@ -8,7 +8,7 @@ use koad_core::session::AgentSession;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::sleep;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 struct SessionManager {
     pool: RedisPool,
@@ -88,6 +88,21 @@ impl SessionManager {
         let all_state: HashMap<String, String> = pool.next().hgetall("koad:state").await?;
         let mut to_remove = Vec::new();
         let mut to_dark = Vec::new();
+        let mut leases_to_remove = Vec::new();
+
+        let now = Utc::now();
+
+        // Map identity -> session_id from current leases
+        let mut active_leases = HashMap::new();
+        for (key, val) in &all_state {
+            if key.starts_with("koad:kai:") && key.ends_with(":lease") {
+                if let Ok(lease) = serde_json::from_str::<serde_json::Value>(val) {
+                    if let (Some(name), Some(sid)) = (lease["identity_name"].as_str(), lease["session_id"].as_str()) {
+                        active_leases.insert(name.to_string(), sid.to_string());
+                    }
+                }
+            }
+        }
 
         for (key, val) in all_state {
             if key.starts_with("koad:session:") {
@@ -102,10 +117,20 @@ impl SessionManager {
 
                 match parse_result {
                     Ok(session) => {
-                        let diff = Utc::now().signed_duration_since(session.last_heartbeat);
+                        let diff = now.signed_duration_since(session.last_heartbeat);
+                        
+                        // Rule 0: Ghost Enforcement (Lease Synchronization)
+                        if let Some(active_sid) = active_leases.get(&session.identity.name) {
+                            if active_sid != &session.session_id {
+                                info!("ASM Reaper: Purging ghost session {} (Newer lease exists for {})", session.session_id, session.identity.name);
+                                to_remove.push(key.clone());
+                                continue;
+                            }
+                        }
+
                         // Rule 1: Stale Heartbeat (> 5 minutes) -> Purge
                         if diff.num_seconds() > 300 {
-                            info!("ASM Reaper: Purging stale session {} (Heartbeat age: {}s)", session.identity.name, diff.num_seconds());
+                            info!("ASM Reaper: Queuing purge for stale session {} (Age: {}s)", session.identity.name, diff.num_seconds());
                             to_remove.push(key.clone());
                         } 
                         // Rule 2: Inactive (> 1 minute) -> Mark Dark
@@ -118,14 +143,29 @@ impl SessionManager {
                     },
                     Err(e) => {
                         // Rule 3: Corrupted Entry -> Aggressive Purge
-                        warn!("ASM Reaper: Purging corrupted session entry {}: {}", key, e);
+                        warn!("ASM Reaper: Queuing purge for corrupted session entry {}: {}", key, e);
                         to_remove.push(key.clone());
                     }
+                }
+            } else if key.starts_with("koad:kai:") && key.ends_with(":lease") {
+                if let Ok(lease) = serde_json::from_str::<serde_json::Value>(&val) {
+                    if let Some(expires_str) = lease["expires_at"].as_str() {
+                        if let Ok(expires_at) = chrono::DateTime::parse_from_rfc3339(expires_str) {
+                            if expires_at.with_timezone(&Utc) < now {
+                                info!("ASM Reaper: Queuing purge for expired lease: {}", key);
+                                leases_to_remove.push(key.clone());
+                            }
+                        }
+                    }
+                } else {
+                    warn!("ASM Reaper: Queuing purge for corrupted lease entry: {}", key);
+                    leases_to_remove.push(key.clone());
                 }
             }
         }
 
         for key in to_remove {
+            info!("ASM Reaper: Purging session key {}", key);
             let _: () = pool.next().hdel("koad:state", &key).await?;
             let sid = key.replace("koad:session:", "");
             let msg = serde_json::json!({ "type": "SESSION_PRUNED", "session_id": sid });
@@ -133,6 +173,11 @@ impl SessionManager {
                 .next()
                 .publish("koad:sessions", msg.to_string())
                 .await?;
+        }
+
+        for key in leases_to_remove {
+            info!("ASM Reaper: Purging lease key {}", key);
+            let _: () = pool.next().hdel("koad:state", &key).await?;
         }
 
         for (key, session) in to_dark {

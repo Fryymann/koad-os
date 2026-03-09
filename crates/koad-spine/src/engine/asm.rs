@@ -258,6 +258,48 @@ impl AgentSessionManager {
         (accepted, summary)
     }
 
+    pub async fn prune_body_ghosts(
+        &self,
+        driver_id: &str,
+        environment: koad_core::types::EnvironmentType,
+        new_session_id: &str,
+    ) -> anyhow::Result<()> {
+        let mut sessions = self.sessions.lock().await;
+        let mut ghosts = Vec::new();
+
+        for sess in sessions.values() {
+            // Find sessions from same driver/env that aren't the new one
+            if sess.session_id != new_session_id
+                && sess.metadata.get("driver_id").map(|d| d.as_str()).unwrap_or("") == driver_id
+                && sess.environment == environment
+            {
+                ghosts.push(sess.session_id.clone());
+            }
+        }
+
+        for sid in ghosts {
+            if let Some(sess) = sessions.get_mut(&sid) {
+                info!("ASM (Body Enforcement): Pre-empting ghost session {} for driver {}", sid, driver_id);
+                sess.status = "dark".to_string();
+                
+                // Authoritative update in Redis
+                let payload = serde_json::to_value(&sess)?;
+                let session_key = format!("koad:session:{}", sid);
+                let _: () = self.storage.redis.pool.next()
+                    .hset("koad:state", (&session_key, payload.to_string()))
+                    .await?;
+
+                // Broadcast to data plane
+                let msg = json!({ "type": "SESSION_UPDATE", "data": payload });
+                let _: () = self.storage.redis.pool.next()
+                    .publish("koad:sessions", msg.to_string())
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn prune_sessions(&self, _timeout_secs: i64) -> anyhow::Result<()> {
         // Spine no longer authoritative for pruning. koad-asm daemon handles this.
         Ok(())
