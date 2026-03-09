@@ -258,6 +258,20 @@ pub enum ContextAction {
         #[arg(short, long)]
         session: Option<String>,
     },
+    /// List available context quicksaves.
+    List {
+        /// Filter by agent name.
+        #[arg(short, long)]
+        agent: Option<String>,
+    },
+    /// Restore a session's hot context from a quicksave.
+    Restore {
+        /// Snapshot ID.
+        id: String,
+        /// Target session ID (omit for current).
+        #[arg(short, long)]
+        session: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

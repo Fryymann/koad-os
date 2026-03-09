@@ -550,22 +550,23 @@ pub async fn handle_system_action(
             }
         }
         SystemAction::Context { action } => {
-            handle_context_action(action, config, agent_name).await?;
+            handle_context_action(action, config, db, agent_name).await?;
         }
-    }
-    Ok(())
-}
+        }
+        Ok(())
+        }
 
-pub async fn handle_context_action(
-    action: crate::cli::ContextAction,
-    config: &KoadConfig,
-    agent_name: &str,
-) -> Result<()> {
-    let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
+        pub async fn handle_context_action(
+        action: crate::cli::ContextAction,
+        config: &KoadConfig,
+        db: &KoadDB,
+        agent_name: &str,
+        ) -> Result<()> {
+        let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
         .await
         .context("Failed to connect to Spine gRPC")?;
 
-    match action {
+        match action {
         crate::cli::ContextAction::Hydrate {
             session,
             path,
@@ -614,7 +615,8 @@ pub async fn handle_context_action(
                     session_id, res.current_context_size
                 );
             } else {
-                println!("\x1b[31m[ERROR]\x1b[0m Hydration Failed: {}", res.error);
+                println!(
+                    "\x1b[31m[ERROR]\x1b[0m Hydration Failed: {}", res.error);
             }
         }
         crate::cli::ContextAction::Flush { session: _ } => {
@@ -623,7 +625,82 @@ pub async fn handle_context_action(
                 "\x1b[33m[STUB]\x1b[0m Context Flush logic energized. (Requires Spine refresh)."
             );
         }
-    }
+        crate::cli::ContextAction::List { agent } => {
+            let conn = db.get_conn()?;
+            let target_agent = agent.unwrap_or_else(|| agent_name.to_string());
 
-    Ok(())
-}
+            let mut stmt = conn.prepare("SELECT id, session_id, created_at FROM context_snapshots WHERE agent_name = ?1 ORDER BY created_at DESC")?;
+            let snapshot_iter = stmt.query_map(params![target_agent], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            })?;
+
+            println!("\n\x1b[1m--- Cognitive Quicksaves for {} ---\x1b[0m", target_agent);
+            println!("{:<38} | {:<15} | {:<20}", "Snapshot ID", "Session ID", "Created At");
+            println!("{}", "-".repeat(80));
+
+            let mut count = 0;
+            for snap in snapshot_iter {
+                let (id, sid, ts) = snap?;
+                let dt = chrono::DateTime::from_timestamp(ts, 0).unwrap_or_default();
+                println!("{:<38} | {:<15} | {:<20}", id, &sid[..8], dt.to_rfc3339());
+                count += 1;
+            }
+
+            if count == 0 {
+                println!("No snapshots found for agent '{}'.", target_agent);
+            }
+            println!("");
+        }
+        crate::cli::ContextAction::Restore { id, session } => {
+            let conn = db.get_conn()?;
+
+            // 1. Fetch snapshot from DB
+            let snapshot_json: String = conn.query_row(
+                "SELECT snapshot_json FROM context_snapshots WHERE id = ?1 OR id LIKE ?2",
+                params![id, format!("{}%", id)],
+                |row| row.get(0)
+            ).context("Snapshot not found.")?;
+
+            let data: serde_json::Value = serde_json::from_str(&snapshot_json)?;
+            let hot_context = data["hot_context"].as_object().context("Malformed snapshot: missing hot_context")?;
+
+            // 2. Resolve target session
+            let target_session_id = if let Some(s) = session {
+                s
+            } else {
+                let client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
+                let key = format!("koad:identity:{}", agent_name);
+                let sid: String = client.pool.hget::<Option<String>, _, _>(&key, "session_id")
+                    .await?
+                    .context("No active session found. Provide --session ID.")?;
+                sid
+            };
+
+            println!(">>> Restoring {} context chunks to session {}...", hot_context.len(), target_session_id);
+
+            // 3. Hydrate chunks via gRPC
+            let mut success_count = 0;
+            for (chunk_id, chunk_val) in hot_context {
+                if let Ok(chunk_data) = serde_json::from_str::<serde_json::Value>(chunk_val.as_str().unwrap_or("")) {
+                    let req = HydrationRequest {
+                        session_id: target_session_id.clone(),
+                        chunk: Some(HotContextChunk {
+                            chunk_id: chunk_id.clone(),
+                            content: chunk_data["content"].as_str().unwrap_or_default().to_string(),
+                            ttl_seconds: chunk_data["ttl_seconds"].as_i64().unwrap_or(0) as i32,
+                            created_at: None,
+                        }),
+                    };
+
+                    if let Ok(_) = client.hydrate_context(req).await {
+                        success_count += 1;
+                    }
+                }
+            }
+
+            println!("\x1b[32m[OK]\x1b[0m Successfully restored {}/{} context chunks.", success_count, hot_context.len());
+        }
+        }
+
+        Ok(())
+        }

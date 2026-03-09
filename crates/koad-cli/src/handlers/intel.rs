@@ -6,6 +6,7 @@ use koad_core::config::KoadConfig;
 use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
 use koad_proto::spine::v1::*;
 use rusqlite::params;
+use std::env;
 
 pub async fn handle_intel_action(
     action: IntelAction,
@@ -45,18 +46,35 @@ pub async fn handle_intel_action(
                 crate::cli::MemoryCategory::Fact { text, tags } => ("fact", text, tags),
                 crate::cli::MemoryCategory::Learning { text, tags } => ("learning", text, tags),
             };
-            db.remember(cat_str, &text, tags, model_tier, agent_name)?;
-            println!("Memory updated.");
+            
+            let session_id = env::var("KOAD_SESSION_ID").context("KOAD_SESSION_ID not set. Please boot an agent first.")?;
+            let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
+                .await
+                .context("Failed to connect to Spine gRPC")?;
+
+            client.commit_knowledge(CommitKnowledgeRequest {
+                session_id,
+                category: cat_str.to_string(),
+                content: text,
+                tags: tags.unwrap_or_default(),
+            }).await.context("Commit failed")?;
+
+            println!("Memory updated via Spine.");
         }
         IntelAction::Ponder { text, tags } => {
-            db.remember(
-                "pondering",
-                &text,
-                Some(format!("persona-journal,{}", tags.unwrap_or_default())),
-                model_tier,
-                agent_name,
-            )?;
-            println!("Reflection recorded.");
+            let session_id = env::var("KOAD_SESSION_ID").context("KOAD_SESSION_ID not set. Please boot an agent first.")?;
+            let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
+                .await
+                .context("Failed to connect to Spine gRPC")?;
+
+            client.commit_knowledge(CommitKnowledgeRequest {
+                session_id,
+                category: "pondering".to_string(),
+                content: text,
+                tags: format!("persona-journal,{}", tags.unwrap_or_default()),
+            }).await.context("Commit failed")?;
+
+            println!("Reflection recorded via Spine.");
         }
         IntelAction::Guide { topic: _ } => {
             feature_gate("koad guide", None);

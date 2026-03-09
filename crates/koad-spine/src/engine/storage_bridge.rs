@@ -33,6 +33,19 @@ impl KoadStorageBridge {
             [],
         )?;
 
+        // Ensure knowledge table exists (Legacy/CLI Durable Memory)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS knowledge (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT,
+                content TEXT,
+                tags TEXT,
+                origin_agent TEXT,
+                timestamp TEXT
+            )",
+            [],
+        )?;
+
         // Ensure identity_snapshots table exists
         conn.execute(
             "CREATE TABLE IF NOT EXISTS identity_snapshots (
@@ -57,6 +70,18 @@ impl KoadStorageBridge {
                 tags TEXT,
                 created_at INTEGER NOT NULL,
                 ttl_seconds INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        // Ensure context_snapshots table exists (Rolling Quicksaves)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS context_snapshots (
+                id TEXT PRIMARY KEY,
+                agent_name TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL
             )",
             [],
         )?;
@@ -91,6 +116,72 @@ impl KoadStorageBridge {
                     fact.ttl_seconds
                 ],
             )
+        })
+        .await??;
+        Ok(())
+    }
+
+    pub async fn save_knowledge(
+        &self,
+        category: &str,
+        content: &str,
+        tags: Option<String>,
+        agent: &str,
+    ) -> anyhow::Result<()> {
+        let sqlite = self.sqlite.clone();
+        let cat = category.to_string();
+        let text = content.to_string();
+        let t = tags;
+        let origin = agent.to_string();
+        let now = Utc::now().to_rfc3339();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = sqlite.blocking_lock();
+            conn.execute(
+                "INSERT INTO knowledge (category, content, tags, timestamp, origin_agent) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![cat, text, t, now, origin],
+            )
+        })
+        .await??;
+        Ok(())
+    }
+
+    pub async fn save_context_snapshot(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        snapshot_json: String,
+    ) -> anyhow::Result<()> {
+        let sqlite = self.sqlite.clone();
+        let name = agent_name.to_string();
+        let sid = session_id.to_string();
+        let now = Utc::now().timestamp();
+        let id = uuid::Uuid::new_v4().to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let mut conn = sqlite.blocking_lock();
+            let tx = conn.transaction()?;
+
+            // 1. Insert new snapshot
+            tx.execute(
+                "INSERT INTO context_snapshots (id, agent_name, session_id, snapshot_json, created_at) 
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, name, sid, snapshot_json, now],
+            )?;
+
+            // 2. Enforce retention (Keep last 2 per agent)
+            tx.execute(
+                "DELETE FROM context_snapshots 
+                 WHERE agent_name = ?1 AND id NOT IN (
+                    SELECT id FROM context_snapshots 
+                    WHERE agent_name = ?1 
+                    ORDER BY created_at DESC LIMIT 2
+                 )",
+                params![name],
+            )?;
+
+            tx.commit()?;
+            Ok::<(), anyhow::Error>(())
         })
         .await??;
         Ok(())

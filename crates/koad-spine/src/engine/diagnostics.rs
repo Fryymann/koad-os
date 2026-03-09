@@ -105,6 +105,11 @@ impl ShipDiagnostics {
             // 5.1 Context Curation (Intelligence L2 -> L3)
             let _ = self.curate_intelligence().await;
 
+            // 5.2 Cognitive Quicksave (Every 5 minutes)
+            if iteration % 60 == 0 {
+                let _ = self.perform_cognitive_quicksave().await;
+            }
+
             // 6. Long-cycle Pruning (Every 1 minute)
             if iteration % 12 == 0 {
                 let _ = self.prune_orphaned_sessions().await;
@@ -431,27 +436,26 @@ impl ShipDiagnostics {
 
     async fn update_crew_manifest(&self) -> anyhow::Result<()> {
         let sqlite = self.storage.sqlite.clone();
-        let mut db_identities: HashMap<String, String> = HashMap::new();
         
-        let _ = tokio::task::spawn_blocking({
+        let db_identities: HashMap<String, String> = tokio::task::spawn_blocking({
             let sqlite_clone = sqlite.clone();
-            move || -> anyhow::Result<()> {
+            move || -> HashMap<String, String> {
+                let mut identities = HashMap::new();
                 let conn = sqlite_clone.blocking_lock();
-                // We ignore errors here so a missing table doesn't crash the loop
                 if let Ok(mut stmt) = conn.prepare("SELECT name, role FROM identities") {
                     if let Ok(rows) = stmt.query_map([], |row: &rusqlite::Row| {
                         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
                     }) {
                         for r in rows {
                             if let Ok((name, role)) = r {
-                                db_identities.insert(name, role);
+                                identities.insert(name, role);
                             }
                         }
                     }
                 }
-                Ok(())
+                identities
             }
-        }).await;
+        }).await.unwrap_or_default();
 
         let all_state: HashMap<String, String> = self
             .redis
@@ -614,21 +618,95 @@ impl ShipDiagnostics {
             }
         }
 
-        for (key, _) in all_state {
+        for (key, val) in all_state {
             if key.starts_with("koad:session:") {
                 let sid = key.replace("koad:session:", "");
+                
+                // Only prune if the session has no active lease
                 if !active_session_ids.contains(&sid) {
-                    info!("Autonomic Sentinel: Pruning orphaned session key: {}", key);
-                    let _: () = self
-                        .redis
-                        .pool
-                        .next()
-                        .hdel("koad:state", &key)
-                        .await
-                        .unwrap_or(());
+                    // Grace period: Check if the session object itself is old enough to prune
+                    if let Ok(raw_json) = serde_json::from_str::<serde_json::Value>(&val) {
+                        let created_at = raw_json["created_at"].as_i64().unwrap_or(0);
+                        let now = Utc::now().timestamp();
+                        
+                        if now - created_at > 30 {
+                            info!("Autonomic Sentinel: Pruning orphaned session key: {}", key);
+                            let _: () = self
+                                .redis
+                                .pool
+                                .next()
+                                .hdel("koad:state", &key)
+                                .await
+                                .unwrap_or(());
+                        }
+                    } else {
+                        // If we can't parse it, it's likely corrupt sludge; prune it.
+                        let _: () = self.redis.pool.next().hdel("koad:state", &key).await.unwrap_or(());
+                    }
                 }
             }
         }
+        Ok(())
+    }
+
+    async fn perform_cognitive_quicksave(&self) -> anyhow::Result<()> {
+        info!("Autonomic Sentinel: Commencing periodic cognitive quicksave...");
+        
+        let all_state: HashMap<String, String> = self
+            .redis
+            .pool
+            .next()
+            .hgetall("koad:state")
+            .await
+            .unwrap_or_default();
+
+        let mut active_sessions = Vec::new();
+        for (key, val) in all_state {
+            if key.starts_with("koad:session:") {
+                if let Ok(raw_json) = serde_json::from_str::<serde_json::Value>(&val) {
+                    let data = if let Some(inner) = raw_json.get("data") {
+                        inner
+                    } else {
+                        &raw_json
+                    };
+                    if let Ok(sess) = serde_json::from_value::<koad_core::session::AgentSession>(data.clone()) {
+                        if sess.status == "active" {
+                            active_sessions.push(sess);
+                        }
+                    }
+                }
+            }
+        }
+
+        for sess in active_sessions {
+            let context_key = format!("koad:session:{}:hot_context", sess.session_id);
+            let hot_context: HashMap<String, String> = self
+                .redis
+                .pool
+                .next()
+                .hgetall(&context_key)
+                .await
+                .unwrap_or_default();
+
+            if hot_context.is_empty() {
+                continue;
+            }
+
+            let snapshot = json!({
+                "session": sess,
+                "hot_context": hot_context,
+                "timestamp": Utc::now().timestamp()
+            });
+
+            if let Ok(json_str) = serde_json::to_string(&snapshot) {
+                if let Err(e) = self.storage.save_context_snapshot(&sess.identity.name, &sess.session_id, json_str).await {
+                    error!("Autonomic Sentinel: Failed to save context snapshot for {}: {}", sess.identity.name, e);
+                } else {
+                    info!("Autonomic Sentinel: Periodic quicksave complete for {}.", sess.identity.name);
+                }
+            }
+        }
+
         Ok(())
     }
 

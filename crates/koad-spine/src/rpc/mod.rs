@@ -490,6 +490,33 @@ impl SpineService for KoadSpine {
         }
     }
 
+    async fn commit_knowledge(
+        &self,
+        request: Request<CommitKnowledgeRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        let req = request.into_inner();
+        
+        // 1. Resolve agent identity from session
+        let session = self.engine.asm.get_session(&req.session_id).await
+            .map_err(|e| Status::internal(format!("ASM Error: {}", e)))?
+            .ok_or_else(|| Status::unauthenticated("Invalid or expired session ID"))?;
+
+        // 2. Commit to durable memory bank
+        let tags = if req.tags.is_empty() { None } else { Some(req.tags) };
+        
+        self.engine.storage.save_knowledge(
+            &req.category,
+            &req.content,
+            tags,
+            &session.identity.name
+        ).await
+        .map_err(|e| Status::internal(format!("Storage Error: {}", e)))?;
+
+        info!("CommitKnowledge: Successfully recorded '{}' for agent '{}'", req.category, session.identity.name);
+
+        Ok(Response::new(Empty {}))
+    }
+
     async fn drain_all(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
         info!("Kernel: Triggering full state drain to durable memory...");
         self.engine

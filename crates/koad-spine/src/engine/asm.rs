@@ -53,6 +53,11 @@ impl AgentSessionManager {
         sessions.values().cloned().collect()
     }
 
+    pub async fn get_session(&self, session_id: &str) -> anyhow::Result<Option<AgentSession>> {
+        let sessions = self.sessions.lock().await;
+        Ok(sessions.get(session_id).cloned())
+    }
+
     pub async fn hydrate_from_db(&self) -> anyhow::Result<()> {
         info!("ASM: Hydrating active sessions from Redis...");
         let mut sessions = self.sessions.lock().await;
