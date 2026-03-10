@@ -15,6 +15,9 @@ pub struct KAILease {
     pub model_tier: i32,
     pub expires_at: DateTime<Utc>,
     pub is_sovereign: bool,
+    /// Populated from schema v3.2.1+. Defaults to empty string for leases
+    /// created before body_id was introduced (safe for heartbeat renewal).
+    #[serde(default)]
     pub body_id: String,
 }
 
