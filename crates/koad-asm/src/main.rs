@@ -5,6 +5,8 @@ use fred::prelude::*;
 use koad_core::config::KoadConfig;
 use koad_core::logging::init_logging;
 use koad_core::session::AgentSession;
+use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
+use koad_proto::spine::v1::Empty;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -13,6 +15,7 @@ use tracing::{error, info, warn};
 struct SessionManager {
     pool: RedisPool,
     subscriber: fred::clients::RedisClient,
+    config: KoadConfig,
 }
 
 impl SessionManager {
@@ -29,7 +32,7 @@ impl SessionManager {
         subscriber.connect();
         subscriber.wait_for_connect().await?;
 
-        Ok(Self { pool, subscriber })
+        Ok(Self { pool, subscriber, config })
     }
 
     async fn run(&self) -> Result<()> {
@@ -43,10 +46,11 @@ impl SessionManager {
         info!("ASM: Subscription successful. Real-time update listener ACTIVE.");
 
         let reaper_pool = self.pool.clone();
+        let reaper_config = self.config.clone();
         tokio::spawn(async move {
             info!("ASM: Prune task spawned.");
             loop {
-                if let Err(e) = SessionManager::static_prune(&reaper_pool).await {
+                if let Err(e) = SessionManager::static_prune(&reaper_pool, &reaper_config).await {
                     error!("ASM: Prune cycle failed: {}", e);
                 }
                 sleep(Duration::from_secs(30)).await;
@@ -84,11 +88,12 @@ impl SessionManager {
         Ok(())
     }
 
-    async fn static_prune(pool: &RedisPool) -> Result<()> {
+    async fn static_prune(pool: &RedisPool, config: &KoadConfig) -> Result<()> {
         let all_state: HashMap<String, String> = pool.next().hgetall("koad:state").await?;
         let mut to_remove = Vec::new();
         let mut to_dark = Vec::new();
         let mut leases_to_remove = Vec::new();
+        let mut deadman_triggered = false;
 
         let now = Utc::now();
 
@@ -128,12 +133,18 @@ impl SessionManager {
                             }
                         }
 
-                        // Rule 1: Stale Heartbeat (> 5 minutes) -> Purge
+                        // Rule 1: Deadman Switch (Tier 1 Flatline)
+                        if session.identity.tier == 1 && diff.num_seconds() > 45 && session.status == "active" {
+                            warn!("ASM ALERT: Tier 1 Agent '{}' Flatline Detected (Age: {}s)!", session.identity.name, diff.num_seconds());
+                            deadman_triggered = true;
+                        }
+
+                        // Rule 2: Stale Heartbeat (> 5 minutes) -> Purge
                         if diff.num_seconds() > 300 {
                             info!("ASM Reaper: Queuing purge for stale session {} (Age: {}s)", session.identity.name, diff.num_seconds());
                             to_remove.push(key.clone());
                         } 
-                        // Rule 2: Inactive (> 1 minute) -> Mark Dark
+                        // Rule 3: Inactive (> 1 minute) -> Mark Dark
                         else if diff.num_seconds() > 60 && session.status != "dark" {
                             info!("ASM Reaper: Marking session {} as DARK", session.identity.name);
                             let mut updated = session.clone();
@@ -142,7 +153,7 @@ impl SessionManager {
                         }
                     },
                     Err(e) => {
-                        // Rule 3: Corrupted Entry -> Aggressive Purge
+                        // Rule 4: Corrupted Entry -> Aggressive Purge
                         warn!("ASM Reaper: Queuing purge for corrupted session entry {}: {}", key, e);
                         to_remove.push(key.clone());
                     }
@@ -161,6 +172,20 @@ impl SessionManager {
                     warn!("ASM Reaper: Queuing purge for corrupted lease entry: {}", key);
                     leases_to_remove.push(key.clone());
                 }
+            }
+        }
+
+        if deadman_triggered {
+            warn!("ASM: Executing Autonomic Emergency Save...");
+            match SpineServiceClient::connect(config.spine_grpc_addr.clone()).await {
+                Ok(mut client) => {
+                    if let Err(e) = client.drain_all(tonic::Request::new(Empty {})).await {
+                        error!("ASM: Emergency Save FAILED: {}", e);
+                    } else {
+                        info!("ASM: Emergency Save SUCCESSFUL. State persisted.");
+                    }
+                },
+                Err(e) => error!("ASM: Failed to connect to Spine for emergency save: {}", e),
             }
         }
 

@@ -552,8 +552,47 @@ pub async fn handle_system_action(
         SystemAction::Context { action } => {
             handle_context_action(action, config, db, agent_name).await?;
         }
+        SystemAction::Heartbeat { daemon, session } => {
+            handle_heartbeat(daemon, session, config).await?;
+        }
         }
         Ok(())
+        }
+
+        pub async fn handle_heartbeat(
+            daemon: bool,
+            session: Option<String>,
+            config: &KoadConfig,
+        ) -> Result<()> {
+            let session_id = session
+                .or_else(|| env::var("KOAD_SESSION_ID").ok())
+                .context("No session ID provided or found in environment (KOAD_SESSION_ID).")?;
+
+            let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
+                .await
+                .context("Failed to connect to Spine gRPC")?;
+
+            if daemon {
+                // Heartbeat Daemon: Subconscious Neural Pulse
+                loop {
+                    let mut req = tonic::Request::new(Empty {});
+                    req.metadata_mut().insert("x-session-id", session_id.parse()?);
+
+                    if let Err(e) = client.heartbeat(req).await {
+                        warn!("Heartbeat failure for session {}: {}. Attempting re-connection...", session_id, e);
+                        if let Ok(c) = SpineServiceClient::connect(config.spine_grpc_addr.clone()).await {
+                            client = c;
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                }
+            } else {
+                let mut req = tonic::Request::new(Empty {});
+                req.metadata_mut().insert("x-session-id", session_id.parse()?);
+                client.heartbeat(req).await?;
+                println!("\x1b[32m[OK]\x1b[0m Heartbeat transmitted for session {}.", session_id);
+            }
+            Ok(())
         }
 
         pub async fn handle_context_action(

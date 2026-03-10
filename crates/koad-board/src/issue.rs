@@ -43,4 +43,27 @@ impl GitHubClient {
         let path = format!("issues?state={}", state);
         self.get_rest(&path).await
     }
+
+    pub async fn close_issue(&self, number: i32) -> Result<()> {
+        let url = format!(
+            "{}/repos/{}/{}/issues/{}",
+            koad_core::constants::GITHUB_API_BASE,
+            self.owner,
+            self.repo,
+            number
+        );
+        let payload = serde_json::json!({
+            "state": "closed",
+        });
+
+        let response = self.client.patch(&url).json(&payload).send().await?;
+
+        if !response.status().is_success() {
+            let err = response.text().await?;
+            anyhow::bail!("Failed to close issue #{}: {}", number, err);
+        }
+
+        println!("Issue #{} closed on GitHub.", number);
+        Ok(())
+    }
 }

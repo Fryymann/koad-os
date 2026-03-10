@@ -91,7 +91,13 @@ async fn main() -> Result<()> {
     // 4.3 Path-Aware Project Context
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     if current_dir.to_string_lossy().contains("skylinks") {
-        config.github_project_number = 4;
+        env::set_var("GITHUB_OWNER", "Skylinks-Golf");
+        // Only override GITHUB_REPO if we are actually inside an app directory
+        if let Some(repo_name) = current_dir.file_name() {
+             if current_dir.to_string_lossy().contains("/apps/") {
+                 env::set_var("GITHUB_REPO", repo_name);
+             }
+        }
     }
 
     // 5. Pre-Flight

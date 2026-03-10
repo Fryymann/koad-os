@@ -8,6 +8,7 @@ use koad_core::types::HotContextChunk;
 use koad_core::intelligence::ContextSummary;
 use serde_json::json;
 use std::collections::HashMap;
+use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info};
@@ -132,12 +133,23 @@ impl AgentSessionManager {
             .unwrap_or_else(|| "General Purpose Agent".to_string());
 
         let briefing = format!(
-            "Welcome, Agent {}. Persona: {}. Role: {:?}. Current Project: {}. System Status: CONDITION GREEN. You have {} active tasks.",
+            "Welcome, Agent {}. Persona: {}. Role: {:?}. Current Project: {}. System Status: CONDITION GREEN. You have {} active tasks.
+
+### Mission Context (Deterministic)
+- GitHub Organization: {}
+- GitHub Project: #{}
+- GitHub Repository: {}
+- Authorization: {}
+",
             session.identity.name,
             bio,
             session.identity.rank,
             session.context.project_name,
-            active_tasks.len()
+            active_tasks.len(),
+            env::var("GITHUB_OWNER").unwrap_or_else(|_| koad_core::constants::DEFAULT_GITHUB_OWNER.to_string()),
+            env::var("GITHUB_PROJECT_NUMBER").unwrap_or_else(|_| "2".to_string()),
+            env::var("GITHUB_REPO").unwrap_or_else(|_| koad_core::constants::DEFAULT_GITHUB_REPO.to_string()),
+            env::var("GITHUB_PAT").map(|p| format!("{}...", &p[..12])).unwrap_or_else(|_| "NOT_FOUND".to_string())
         );
 
         // Fetch Hot Context Chunks

@@ -33,6 +33,13 @@ pub async fn handle_board(action: BoardAction, config: &KoadConfig) -> Result<()
                 }
             }
         }
+        BoardAction::Done { id } => {
+            // 1. Move on Project Board
+            client.update_item_status(project_num, id, "Done").await?;
+            // 2. Close on GitHub
+            client.close_issue(id).await?;
+            info!("[OK] Issue #{} marked as Done and closed.", id);
+        }
         _ => {
             warn!("Subcommand not yet fully implemented for SGP.");
         }

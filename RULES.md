@@ -199,4 +199,15 @@ If Ian explicitly abandons a task (`Abort`, `Cancel`, `Kill`), the agent must:
 
 ---
 
-*Status: CONDITION GREEN. Baseline Established 2026-03-03.*
+## **VIII. Credential Sovereignty**
+
+1. **Organization Isolation**: 
+    - Projects under `~/data/skylinks/` MUST use the `Skylinks-Golf` GitHub account and PATs.
+    - Personal projects (including KoadOS core) MUST use the `Fryymann` GitHub account and PATs.
+2. **Agent Verification**: 
+    - On boot, an agent MUST verify that the active GitHub token matches their assigned jurisdiction.
+    - Agent Sky (SLE Chief) MUST NOT operate if the active token belongs to `Fryymann`.
+3. **Automated Enforcement**: 
+    - The `koad board` command MUST detect the current directory and fail if the active credential does not match the repository owner's organization.
+
+*Status: CONDITION GREEN. Baseline Established 2026-03-03. Credential Sovereignty Added 2026-03-09.*

@@ -36,6 +36,7 @@ Codex lane example:
 - **gemini/harvest.py**: Context harvester and session logger.
 - **gemini/search.py**: Surgical knowledge retrieval with token-limits.
 - **gemini/detective.py**: High-speed project mapping and entry-point discovery.
+- **global/stripe_ops.py**: SLE/SCE integration for Stripe CLI (listen, trigger, logs).
 
 ## Guidelines
 - **Simplicity**: Favor single-file scripts when possible.

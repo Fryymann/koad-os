@@ -15,7 +15,17 @@ pub struct ProjectItem {
 
 impl GitHubClient {
     pub async fn get_project_id(&self, number: i32) -> Result<String> {
-        let query = r#"
+        let org_query = r#"
+            query($owner: String!, $number: Int!) {
+              organization(login: $owner) {
+                projectV2(number: $number) {
+                  id
+                }
+              }
+            }
+        "#;
+
+        let user_query = r#"
             query($owner: String!, $number: Int!) {
               user(login: $owner) {
                 projectV2(number: $number) {
@@ -30,11 +40,19 @@ impl GitHubClient {
             "number": number,
         });
 
-        let data: serde_json::Value = self.graphql(query, variables).await?;
+        // Try organization first
+        if let Ok(data) = self.graphql::<serde_json::Value>(org_query, variables.clone()).await {
+             if let Some(id) = data["organization"]["projectV2"]["id"].as_str() {
+                 return Ok(id.to_string());
+             }
+        }
+
+        // Then try user
+        let data: serde_json::Value = self.graphql(user_query, variables).await?;
         data["user"]["projectV2"]["id"]
             .as_str()
             .map(|s| s.to_string())
-            .ok_or_else(|| anyhow::anyhow!("Project not found"))
+            .ok_or_else(|| anyhow::anyhow!("Project #{} not found for owner {}", number, self.owner))
     }
 
     pub async fn update_item_field(
@@ -190,7 +208,51 @@ impl GitHubClient {
         let mut cursor: Option<String> = None;
 
         while has_next_page {
-            let query = r#"
+            let org_query = r#"
+                query($owner: String!, $number: Int!, $after: String) {
+                  organization(login: $owner) {
+                    projectV2(number: $number) {
+                      items(first: 100, after: $after) {
+                        pageInfo {
+                          hasNextPage
+                          endCursor
+                        }
+                        nodes {
+                          id
+                          content {
+                            ... on Issue {
+                              title
+                              number
+                            }
+                          }
+                          fieldValues(first: 20) {
+                            nodes {
+                              ... on ProjectV2ItemFieldSingleSelectValue {
+                                name
+                                field {
+                                  ... on ProjectV2FieldCommon {
+                                    name
+                                  }
+                                }
+                              }
+                              ... on ProjectV2ItemFieldDateValue {
+                                date
+                                field {
+                                  ... on ProjectV2FieldCommon {
+                                    name
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+            "#;
+
+            let user_query = r#"
                 query($owner: String!, $number: Int!, $after: String) {
                   user(login: $owner) {
                     projectV2(number: $number) {
@@ -240,8 +302,21 @@ impl GitHubClient {
                 "after": cursor
             });
 
-            let data: serde_json::Value = self.graphql(query, variables).await?;
-            let items_data = &data["user"]["projectV2"]["items"];
+            // Try organization first
+            let mut items_data: serde_json::Value = serde_json::Value::Null;
+            if let Ok(data) = self.graphql::<serde_json::Value>(org_query, variables.clone()).await {
+                 items_data = data["organization"]["projectV2"]["items"].clone();
+            }
+
+            // Then try user if organization didn't work
+            if items_data.is_null() {
+                let data: serde_json::Value = self.graphql(user_query, variables).await?;
+                items_data = data["user"]["projectV2"]["items"].clone();
+            }
+
+            if items_data.is_null() {
+                anyhow::bail!("Project #{} not found for owner {}", project_number, self.owner);
+            }
 
             if let Some(nodes) = items_data["nodes"].as_array() {
                 for node in nodes {

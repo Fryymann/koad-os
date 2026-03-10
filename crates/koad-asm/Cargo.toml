@@ -5,6 +5,8 @@ edition.workspace = true
 
 [dependencies]
 koad-core = { path = "../koad-core" }
+koad-proto = { path = "../koad-proto" }
+tonic.workspace = true
 fred.workspace = true
 tokio.workspace = true
 serde.workspace = true

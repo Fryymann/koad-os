@@ -22,12 +22,23 @@ cd ~/.koad-os
 ./koad-setup.sh --partner "YourName" --persona "Koad" --role "Captain" --langs "Rust,Python,Node.js"
 ```
 
+## 📂 Project Structure (Workspace)
+
+The **KoadOS** workspace is composed of modular Rust crates, each responsible for a specific subsystem:
+
+- **[koad-core](crates/koad-core/README.md)**: The shared hull; foundational types, traits, and utilities.
+- **[koad-proto](crates/koad-proto/README.md)**: Communication protocols; gRPC and Tonic-generated service definitions.
+- **[koad-spine](crates/koad-spine/README.md)**: The central engine; state management, orchestration, and the gRPC server.
+- **[koad-cli](crates/koad-cli/README.md)**: The primary command-line interface (`koad`).
+- **[koad-asm](crates/koad-asm/README.md)**: The Agent Session Manager; heartbeat monitoring and session isolation.
+- **[koad-board](crates/koad-board/README.md)**: GitHub Project Board and Command Deck integration.
+- **[koad-bridge-notion](crates/koad-bridge-notion/README.md)**: High-performance native Notion bridge.
+
 ## 📖 Documentation
 
+- **[Strategic Concept](docs/CONCEPT.md)**: The Vision, The Citadel, and The Philosophy.
+- **[Architecture](docs/ARCHITECTURE.md)**: Deep dive into the Spine, Memory, and the Neural Grid.
 - **[Crew Hierarchy](docs/protocols/CREW_HIERARCHY.md)**: Ranks, Roles, and the SLE/SCE station definitions.
-- **[Onboarding](docs/ONBOARDING.md)**: Your first 15 minutes.
-- **[Developer Guide](docs/DEVELOPMENT.md)**: How to write skills and contribute to the core.
-- **[Architecture](docs/ARCHITECTURE.md)**: Deep dive into the Spine, Memory, and Drivers.
 - **[Technical Spec](SPEC.md)**: Full CLI reference and database schema.
 
 ## 🤝 Contributing

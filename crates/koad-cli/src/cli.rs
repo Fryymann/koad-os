@@ -228,6 +228,16 @@ pub enum SystemAction {
         sector: String,
     },
 
+    /// Maintain an active neural link session via periodic heartbeats.
+    Heartbeat {
+        /// Run as a background daemon process.
+        #[arg(short, long)]
+        daemon: bool,
+        /// Target session ID (omit to use environment).
+        #[arg(short, long)]
+        session: Option<String>,
+    },
+
     /// Manage and hydrate an agent's transient context.
     Context {
         #[command(subcommand)]

@@ -629,7 +629,7 @@ impl ShipDiagnostics {
                         let created_at = raw_json["created_at"].as_i64().unwrap_or(0);
                         let now = Utc::now().timestamp();
                         
-                        if now - created_at > 30 {
+                        if now - created_at > 300 {
                             info!("Autonomic Sentinel: Pruning orphaned session key: {}", key);
                             let _: () = self
                                 .redis

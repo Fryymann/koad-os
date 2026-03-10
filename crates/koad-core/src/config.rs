@@ -66,10 +66,11 @@ impl KoadConfig {
     }
 
     pub fn resolve_gh_token(&self) -> Result<String> {
-        env::var("GITHUB_ADMIN_PAT")
+        env::var("GITHUB_PAT")
+            .or_else(|_| env::var("GITHUB_ADMIN_PAT"))
             .or_else(|_| env::var("GITHUB_PERSONAL_PAT"))
             .context(
-                "No GitHub PAT found in environment (tried GITHUB_ADMIN_PAT, GITHUB_PERSONAL_PAT)",
+                "No GitHub PAT found in environment (tried GITHUB_PAT, GITHUB_ADMIN_PAT, GITHUB_PERSONAL_PAT)",
             )
     }
 

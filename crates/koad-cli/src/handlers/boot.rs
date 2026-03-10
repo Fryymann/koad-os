@@ -100,6 +100,19 @@ pub async fn handle_boot_command(
     let session_id = package.session_id;
     let mission_briefing = package.intelligence.map(|i| i.mission_briefing);
 
+    // --- [Autonomic Nervous System: Heartbeat Daemon] ---
+    if let Ok(bin_path) = env::current_exe() {
+        let _ = std::process::Command::new(bin_path)
+            .arg("system")
+            .arg("heartbeat")
+            .arg("--daemon")
+            .arg("--session")
+            .arg(&session_id)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+
     // Extract true rank from identity_json
     let identity: koad_core::identity::Identity = serde_json::from_str(&package.identity_json)
         .context("Failed to deserialize identity from Spine")?;
