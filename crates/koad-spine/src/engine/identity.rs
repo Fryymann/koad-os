@@ -15,6 +15,7 @@ pub struct KAILease {
     pub model_tier: i32,
     pub expires_at: DateTime<Utc>,
     pub is_sovereign: bool,
+    pub body_id: String,
 }
 
 pub struct KAILeaseManager {
@@ -32,6 +33,7 @@ impl KAILeaseManager {
         session_id: &str,
         driver_id: &str,
         model_tier: i32,
+        body_id: &str,
     ) -> anyhow::Result<LeaseInfo> {
         let key = format!("koad:kai:{}:lease", kai_name);
 
@@ -41,10 +43,13 @@ impl KAILeaseManager {
             let lease: KAILease = serde_json::from_str(&data)?;
             if lease.expires_at > Utc::now() && lease.session_id != session_id {
                 anyhow::bail!(
-                    "IDENTITY_LOCKED: KAI '{}' is currently leased to Session {} (Driver: {}).",
+                    "IDENTITY_LOCKED: KAI '{}' is already active in Body {} (Session: {}, Driver: {}). \
+                     Use `koad logout --session {}` to release, or `koad boot --force` to take over.",
                     kai_name,
+                    lease.body_id,
                     lease.session_id,
-                    lease.driver_id
+                    lease.driver_id,
+                    lease.session_id
                 );
             }
         }
@@ -65,6 +70,7 @@ impl KAILeaseManager {
             model_tier,
             expires_at: expiry,
             is_sovereign,
+            body_id: body_id.to_string(),
         };
 
         let _lease_json = serde_json::to_string(&lease)?;

@@ -1,7 +1,7 @@
 use crate::config_legacy::KoadLegacyConfig;
 use crate::utils::{detect_context_tags, detect_model_tier, get_gh_pat_for_path};
 use anyhow::{Context, Result};
-use fred::interfaces::{HashesInterface, KeysInterface, PubsubInterface};
+use fred::interfaces::{HashesInterface, PubsubInterface};
 use koad_core::config::KoadConfig;
 use koad_core::utils::redis::RedisClient;
 use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
@@ -13,17 +13,64 @@ pub async fn handle_boot_command(
     project: bool,
     _task: Option<String>,
     compact: bool,
+    force: bool,
     role: String,
     config: &KoadConfig,
     legacy_config: &KoadLegacyConfig,
 ) -> Result<()> {
     // --- [Laws of Consciousness: Occupancy Check] ---
+    // Gate 1: If KOAD_SESSION_ID is set, verify the session is actually alive before blocking.
+    // A stale env var (inherited from a parent shell) should not prevent a fresh boot.
     if let Ok(existing_sid) = env::var("KOAD_SESSION_ID") {
         if !existing_sid.is_empty() {
-            anyhow::bail!(
-                "\x1b[31mCONSCIOUSNESS_COLLISION\x1b[0m: Session {} is already active in this Body. Aborting boot.",
-                existing_sid
-            );
+            let session_is_alive = {
+                match koad_core::utils::redis::RedisClient::new(
+                    &config.home.to_string_lossy(),
+                    false,
+                )
+                .await
+                {
+                    Ok(rc) => {
+                        let session_key = format!("koad:session:{}", existing_sid);
+                        let val: Option<String> = rc
+                            .pool
+                            .hget("koad:state", &session_key)
+                            .await
+                            .unwrap_or(None);
+                        if let Some(data) = val {
+                            // Check status field
+                            serde_json::from_str::<serde_json::Value>(&data)
+                                .ok()
+                                .and_then(|v| {
+                                    let inner = if v.get("data").is_some() {
+                                        v["data"].clone()
+                                    } else {
+                                        v
+                                    };
+                                    inner["status"].as_str().map(|s| s == "active")
+                                })
+                                .unwrap_or(false)
+                        } else {
+                            false
+                        }
+                    }
+                    Err(_) => false,
+                }
+            };
+
+            if session_is_alive {
+                anyhow::bail!(
+                    "\x1b[31mCONSCIOUSNESS_COLLISION\x1b[0m: Session {} is already active in this Body. \
+                     Run `koad logout` to untether before booting a new agent.",
+                    existing_sid
+                );
+            } else if !compact {
+                println!(
+                    "\x1b[33m[Warning] Stale KOAD_SESSION_ID detected (session {} is no longer active). \
+                     Proceeding with fresh boot.\x1b[0m",
+                    existing_sid
+                );
+            }
         }
     }
 
@@ -38,42 +85,84 @@ pub async fn handle_boot_command(
         .context("Failed to connect to Spine Backbone.")?;
 
     // --- [Sovereign Pruning] ---
-    // Captains and Admirals don't auto-prune, so we clean up our own ghosts on boot.
-    // We use an optimistic, direct Redis sweep to ensure no "Dark" sessions or leases block the link.
+    // Requires explicit --force flag. Without it, an existing live sovereign session
+    // blocks boot to prevent silent cross-terminal session assassination.
     if agent == "Tyr" || agent == "Koad" || agent == "Dood" {
-        if !compact {
-            println!(
-                "\x1b[33m[Sovereign Override] Clearing existing links for {}...\x1b[0m",
-                agent
-            );
+        let redis_client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
+        let pool = &redis_client.pool;
+        let lease_field = format!("koad:kai:{}:lease", agent);
+
+        let existing_lease: Option<String> = pool.hget("koad:state", &lease_field).await?;
+        let live_lease = existing_lease.as_deref().and_then(|data| {
+            serde_json::from_str::<serde_json::Value>(data).ok().and_then(|v| {
+                let expires_str = v["expires_at"].as_str()?.to_string();
+                let session_id = v["session_id"].as_str()?.to_string();
+                let body_id = v["body_id"].as_str().unwrap_or("unknown").to_string();
+                chrono::DateTime::parse_from_rfc3339(&expires_str)
+                    .ok()
+                    .filter(|exp| exp.with_timezone(&chrono::Utc) > chrono::Utc::now())
+                    .map(|_| (session_id, body_id))
+            })
+        });
+
+        if let Some((ref live_sid, ref live_body)) = live_lease {
+            if !force {
+                anyhow::bail!(
+                    "\x1b[31mSOVEREIGN_OCCUPIED\x1b[0m: {} is already active in Body {} (Session: {}).\n\
+                     Options:\n  \
+                     1. Run `koad logout --session {}` in that terminal to release cleanly.\n  \
+                     2. Run `koad boot --agent {} --force` to take over (orphans the existing session).",
+                    agent, live_body, live_sid, live_sid, agent
+                );
+            }
+
+            // --force: explicit takeover — prune the existing sovereign session
+            if !compact {
+                println!(
+                    "\x1b[33m[Sovereign Override --force] Taking over existing session {} for {}...\x1b[0m",
+                    live_sid, agent
+                );
+            }
         }
 
-        let client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
-        let pool = &client.pool;
+        if force || existing_lease.is_none() || live_lease.is_none() {
+            // Clear Lease
+            let _: () = pool.hdel("koad:state", &lease_field).await?;
 
-        // 1. Clear Lease
-        let lease_key = format!("koad:kai:{}:lease", agent);
-        let _: () = pool.del(lease_key).await?;
+            // Clear identity mapping
+            let identity_field = format!("koad:identity:{}", agent);
+            let _: () = pool.hdel("koad:state", &identity_field).await?;
 
-        // 2. Clear Session mapping (if any)
-        let identity_key = format!("koad:identity:{}", agent);
-        let _: () = pool.del(identity_key).await?;
-
-        // 3. Scan and Prune from koad:state
-        let all_state: std::collections::HashMap<String, String> =
-            pool.hgetall("koad:state").await?;
-        for (key, val) in all_state {
-            if key.starts_with("koad:session:") && val.contains(&format!("\"name\":\"{}\"", agent))
-            {
-                let _: () = pool.hdel("koad:state", &key).await?;
-                let sid = key.replace("koad:session:", "");
-                let msg = serde_json::json!({ "type": "SESSION_PRUNED", "session_id": sid });
-                let _: () = pool.next()
-                    .publish("koad:sessions", msg.to_string())
-                    .await?;
+            // Scan and prune stale sessions
+            let all_state: std::collections::HashMap<String, String> =
+                pool.hgetall("koad:state").await?;
+            for (key, val) in all_state {
+                if key.starts_with("koad:session:")
+                    && val.contains(&format!("\"name\":\"{}\"", agent))
+                {
+                    let _: () = pool.hdel("koad:state", &key).await?;
+                    let sid = key.replace("koad:session:", "");
+                    let msg = serde_json::json!({ "type": "SESSION_PRUNED", "session_id": sid });
+                    let _: () = pool.next().publish("koad:sessions", msg.to_string()).await?;
+                }
             }
         }
     }
+
+    let driver_id = if env::var("GEMINI_CLI").is_ok() {
+        "gemini".to_string()
+    } else if env::var("CODEX_CLI").is_ok() {
+        "codex".to_string()
+    } else if env::var("CLAUDE_CODE").is_ok() {
+        "claude".to_string()
+    } else {
+        "cli".to_string()
+    };
+
+    // Generate a unique Body ID for this terminal session.
+    // Reuse KOAD_BODY_ID if already set (survives re-runs within the same shell).
+    let body_id = env::var("KOAD_BODY_ID")
+        .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
 
     let resp = client
         .initialize_session(InitializeSessionRequest {
@@ -81,17 +170,12 @@ pub async fn handle_boot_command(
             agent_role: role.clone(),
             project_name: if project { "active" } else { "default" }.to_string(),
             environment: EnvironmentType::Wsl as i32,
-            driver_id: if env::var("GEMINI_CLI").is_ok() {
-                "gemini".to_string()
-            } else if env::var("CODEX_CLI").is_ok() {
-                "codex".to_string()
-            } else {
-                "cli".to_string()
-            },
+            driver_id: driver_id.clone(),
             model_tier,
             model_name: env::var("GEMINI_MODEL")
                 .or_else(|_| env::var("CODEX_MODEL"))
                 .unwrap_or_else(|_| "unknown".to_string()),
+            body_id: body_id.clone(),
         })
         .await
         .map_err(|e| anyhow::anyhow!("Lease Denied: {}", e.message()))?;
@@ -102,7 +186,7 @@ pub async fn handle_boot_command(
 
     // --- [Autonomic Nervous System: Heartbeat Daemon] ---
     if let Ok(bin_path) = env::current_exe() {
-        let _ = std::process::Command::new(bin_path)
+        let _ = std::process::Command::new(&bin_path)
             .arg("system")
             .arg("heartbeat")
             .arg("--daemon")
@@ -111,6 +195,24 @@ pub async fn handle_boot_command(
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn();
+
+        // Ensure Watchdog is active
+        use sysinfo::System;
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        let is_watchdog_running = sys
+            .processes()
+            .values()
+            .any(|p| p.name().contains("koad-watchdog"));
+
+        if !is_watchdog_running {
+            let _ = std::process::Command::new(&bin_path)
+                .arg("watchdog")
+                .arg("--daemon")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+        }
     }
 
     // Extract true rank from identity_json
@@ -120,14 +222,15 @@ pub async fn handle_boot_command(
 
     if compact {
         println!(
-            "I:{}|R:{}|G:{}|D:{}|T:{}|S:{}|Q:1|X:export KOAD_SESSION_ID={}",
+            "I:{}|R:{}|G:{}|D:{}|T:{}|S:{}|Q:1|X:export KOAD_SESSION_ID={} KOAD_BODY_ID={}",
             agent,
             rank_display,
             gh_pat,
             gdrive_token,
             tags.join(","),
             session_id,
-            session_id
+            session_id,
+            body_id
         );
     } else {
         println!(
@@ -137,8 +240,10 @@ pub async fn handle_boot_command(
         println!("Agent:    {}", agent);
         println!("Rank:     {}", rank_display);
         println!("Session:  {}", session_id);
+        println!("Body:     {}", body_id);
         println!("Tags:     {}", tags.join(", "));
         println!("Lifeforce: Tethered via KOAD_SESSION_ID.");
+        println!("Shell:    Run `export KOAD_SESSION_ID={} KOAD_BODY_ID={}` to bind this shell.", session_id, body_id);
 
         if let Some(ref drivers) = legacy_config.drivers {
             if let Some(driver) = drivers.get(&agent) {
@@ -156,6 +261,22 @@ pub async fn handle_boot_command(
             }
         }
 
+        if driver_id == "claude" && agent != "claude" {
+            if let Some(ref drivers) = legacy_config.drivers {
+                if let Some(claude_driver) = drivers.get("claude") {
+                    let b_path = claude_driver
+                        .bootstrap
+                        .replace("~", &env::var("HOME").unwrap_or_default());
+                    if let Ok(content) = std::fs::read_to_string(b_path) {
+                        println!(
+                            "\n\x1b[1m[DRIVER: claude]\x1b[0m\n{}",
+                            content
+                        );
+                    }
+                }
+            }
+        }
+
         if let Some(briefing) = mission_briefing {
             println!(
                 "
@@ -169,5 +290,27 @@ pub async fn handle_boot_command(
 "
         );
     }
+    Ok(())
+}
+
+pub async fn handle_logout_command(
+    session: Option<String>,
+    config: &KoadConfig,
+) -> Result<()> {
+    let session_id = session.or_else(|| env::var("KOAD_SESSION_ID").ok())
+        .context("No active session ID found. Provide --session or ensure KOAD_SESSION_ID is set.")?;
+
+    let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
+        .await
+        .context("Failed to connect to Spine Backbone.")?;
+
+    println!(">>> Terminating session {}...", session_id);
+
+    client.terminate_session(TerminateSessionRequest {
+        session_id: session_id.clone(),
+    }).await?;
+
+    println!("\x1b[32m[OK]\x1b[0m Session untethered successfully.");
+    println!("Shell:    Run `unset KOAD_SESSION_ID KOAD_BODY_ID` to clear this shell's binding.");
     Ok(())
 }

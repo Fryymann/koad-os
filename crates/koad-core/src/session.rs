@@ -14,6 +14,9 @@ pub struct AgentSession {
     pub status: String,
     pub last_heartbeat: DateTime<Utc>,
     pub metadata: HashMap<String, String>,
+    /// Unique terminal/body identifier — one UUID per shell session, generated at boot.
+    #[serde(default)]
+    pub body_id: String,
     /// Dynamic context chunks currently loaded in the agent's memory.
     #[serde(default)]
     pub hot_context: Vec<HotContextChunk>,
@@ -34,6 +37,7 @@ impl AgentSession {
         identity: Identity,
         environment: EnvironmentType,
         context: ProjectContext,
+        body_id: String,
     ) -> Self {
         Self {
             session_id,
@@ -43,6 +47,7 @@ impl AgentSession {
             status: "active".to_string(),
             last_heartbeat: Utc::now(),
             metadata: HashMap::new(),
+            body_id,
             hot_context: Vec::new(),
         }
     }

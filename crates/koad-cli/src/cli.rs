@@ -40,6 +40,11 @@ pub enum Commands {
         /// Output session metadata in a compact, pipe-friendly format.
         #[arg(short, long)]
         compact: bool,
+
+        /// Force boot: take over an existing session for the same agent (Sovereign agents only).
+        /// Use when a prior session is orphaned and cannot be cleanly logged out.
+        #[arg(long)]
+        force: bool,
     },
 
     /// Core system management, orchestration, and recovery.
@@ -64,6 +69,12 @@ pub enum Commands {
     Bridge {
         #[command(subcommand)]
         action: BridgeAction,
+    },
+
+    /// Asynchronous agent-to-agent messaging (A2A-S).
+    Signal {
+        #[command(subcommand)]
+        action: SignalAction,
     },
 
     /// Display real-time system telemetry and grid integrity.
@@ -101,6 +112,23 @@ pub enum Commands {
 
     /// Launch the terminal-native monitoring dashboard (TUI).
     Dash,
+
+    /// Start or manage the Autonomic Watchdog.
+    Watchdog {
+        /// Run the watchdog as a background daemon.
+        #[arg(short, long)]
+        daemon: bool,
+    },
+
+    /// Perform a deep audit of the agent's internal cognitive layers.
+    Cognitive,
+
+    /// Gracefully logout and untether the current session.
+    Logout {
+        /// Explicit session ID to terminate.
+        #[arg(short, long)]
+        session: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -542,5 +570,36 @@ pub enum MindAction {
         /// Detailed technical breakdown.
         #[arg(short, long)]
         detail: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SignalAction {
+    /// Send a signal to another agent.
+    Send {
+        /// Target agent name.
+        target: String,
+        /// Message content.
+        #[arg(short, long)]
+        message: String,
+        /// Priority (low, standard, high, critical).
+        #[arg(short, long, default_value = "standard")]
+        priority: String,
+    },
+    /// List pending signals for the current agent.
+    List {
+        /// Show all signals including read and archived.
+        #[arg(short, long)]
+        all: bool,
+    },
+    /// Read a specific signal.
+    Read {
+        /// Signal ID.
+        id: String,
+    },
+    /// Archive a signal.
+    Archive {
+        /// Signal ID.
+        id: String,
     },
 }

@@ -40,6 +40,7 @@ async fn main() -> Result<()> {
         _ => legacy_config.identity.name.clone(),
     };
 
+
     // 3. Logging
     let log_dir = Some(config.home.join("logs"));
     let _guard = init_logging(&agent_name, log_dir);
@@ -109,8 +110,9 @@ async fn main() -> Result<()> {
             project,
             task,
             compact,
+            force,
         } => {
-            handle_boot_command(agent, project, task, compact, role, &config, &legacy_config)
+            handle_boot_command(agent, project, task, compact, force, role, &config, &legacy_config)
                 .await?;
         }
         Commands::System { action } => match action {
@@ -149,6 +151,9 @@ async fn main() -> Result<()> {
         Commands::Bridge { action } => {
             handle_bridge_action(action, &config, &db).await?;
         }
+        Commands::Signal { action } => {
+            crate::handlers::signal::handle_signal_action(action, &config, &legacy_config.identity.name).await?;
+        }
         Commands::Board { action } => {
             crate::handlers::board::handle_board(action, &config).await?;
         }
@@ -174,8 +179,33 @@ async fn main() -> Result<()> {
                 legacy_config.identity.bio
             );
         }
+        Commands::Cognitive => {
+            crate::handlers::cognitive::handle_cognitive_check(&config, &db, &legacy_config.identity.name).await?;
+        }
+        Commands::Logout { session } => {
+            crate::handlers::boot::handle_logout_command(session, &config).await?;
+        }
         Commands::Dash => {
             crate::handlers::status::handle_status_command(false, true, &config, &db).await?;
+        }
+        Commands::Watchdog { daemon } => {
+            let home = config.home.clone();
+            let bin_path = home.join("bin/koad-watchdog");
+            if !bin_path.exists() {
+                anyhow::bail!("Watchdog binary not found at {:?}", bin_path);
+            }
+
+            if daemon {
+                println!(">>> Launching Autonomic Watchdog daemon...");
+                let _ = std::process::Command::new("nohup")
+                    .arg(bin_path)
+                    .env("KOAD_HOME", &home)
+                    .spawn()?;
+            } else {
+                let mut cmd = std::process::Command::new(bin_path);
+                cmd.env("KOAD_HOME", &home);
+                cmd.status()?;
+            }
         }
     }
 

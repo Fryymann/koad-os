@@ -329,10 +329,16 @@ impl SpineService for KoadSpine {
         let req = request.into_inner();
         let session_id = uuid::Uuid::new_v4().to_string();
 
+        let body_id = if req.body_id.is_empty() {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            req.body_id.clone()
+        };
+
         let lease = self
             .engine
             .identity
-            .acquire_lease(&req.agent_name, &session_id, &req.driver_id, req.model_tier)
+            .acquire_lease(&req.agent_name, &session_id, &req.driver_id, req.model_tier, &body_id)
             .await
             .map_err(|e| Status::permission_denied(e.to_string()))?;
 
@@ -369,6 +375,7 @@ impl SpineService for KoadSpine {
             identity.clone(),
             environment.clone(),
             context.clone(),
+            body_id.clone(),
         );
 
         if let Ok(Some(bio)) = self.engine.storage.get_identity_bio(&req.agent_name).await {
@@ -380,9 +387,12 @@ impl SpineService for KoadSpine {
         session
             .metadata
             .insert("driver_id".to_string(), req.driver_id.clone());
+        session
+            .metadata
+            .insert("body_id".to_string(), body_id.clone());
 
-        // 0. Body Enforcement: Pre-empt previous sessions for this driver/env
-        let _ = self.engine.asm.prune_body_ghosts(&req.driver_id, environment, &session_id).await;
+        // 0. Body Enforcement: Pre-empt previous sessions for this agent on the same driver/env
+        let _ = self.engine.asm.prune_body_ghosts(&req.agent_name, &req.driver_id, environment, &session_id).await;
 
         // 1. Authoritative Persistence in Redis (Hot State)
         let payload =
@@ -437,11 +447,37 @@ impl SpineService for KoadSpine {
                 hot_context.push(HotContextChunk {
                     chunk_id: v["chunk_id"].as_str().unwrap_or_default().to_string(),
                     content: v["content"].as_str().unwrap_or_default().to_string(),
+                    file_path: v["file_path"].as_str().unwrap_or_default().to_string(),
                     ttl_seconds: v["ttl_seconds"].as_i64().unwrap_or(0) as i32,
                     created_at: None,
                 });
             }
         }
+
+        // Fetch Pending Signals
+        let core_signals = self.engine.signal.get_signals(&req.agent_name).await.unwrap_or_default();
+        let pending_signals = core_signals.into_iter()
+            .filter(|s| s.status == koad_core::signal::SignalStatus::Pending)
+            .map(|s| {
+                GhostSignal {
+                    id: s.id,
+                    source_agent: s.source_agent,
+                    target_agent: s.target_agent,
+                    message: s.message,
+                    priority: match s.priority {
+                        koad_core::signal::SignalPriority::Low => SignalPriority::Low as i32,
+                        koad_core::signal::SignalPriority::Standard => SignalPriority::Standard as i32,
+                        koad_core::signal::SignalPriority::High => SignalPriority::High as i32,
+                        koad_core::signal::SignalPriority::Critical => SignalPriority::Critical as i32,
+                    },
+                    timestamp: Some(prost_types::Timestamp {
+                        seconds: s.timestamp.timestamp(),
+                        nanos: s.timestamp.timestamp_subsec_nanos() as i32,
+                    }),
+                    metadata: s.metadata,
+                    status: SignalStatus::Pending as i32,
+                }
+            }).collect();
 
         Ok(Response::new(SessionPackage {
             session_id: session_id.clone(),
@@ -456,6 +492,7 @@ impl SpineService for KoadSpine {
                 recent_events: vec![],
                 metadata: HashMap::new(),
                 hot_context,
+                pending_signals,
             }),
             lease: Some(lease),
         }))
@@ -474,7 +511,12 @@ impl SpineService for KoadSpine {
         match self
             .engine
             .hydration
-            .hydrate(&session_id, &chunk.content, chunk.ttl_seconds)
+            .hydrate(
+                &session_id, 
+                &chunk.content, 
+                if chunk.file_path.is_empty() { None } else { Some(chunk.file_path) },
+                chunk.ttl_seconds
+            )
             .await
         {
             Ok(new_chunk) => Ok(Response::new(HydrationResponse {
@@ -513,6 +555,51 @@ impl SpineService for KoadSpine {
         .map_err(|e| Status::internal(format!("Storage Error: {}", e)))?;
 
         info!("CommitKnowledge: Successfully recorded '{}' for agent '{}'", req.category, session.identity.name);
+
+        Ok(Response::new(Empty {}))
+    }
+
+    async fn terminate_session(
+        &self,
+        request: Request<TerminateSessionRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        let req = request.into_inner();
+        let session_id = req.session_id;
+
+        info!("Kernel: Terminating session {}", session_id);
+
+        // 1. Resolve agent from session
+        if let Some(mut session) = self.engine.asm.get_session(&session_id).await
+            .map_err(|e| Status::internal(e.to_string()))? 
+        {
+            let agent_name = session.identity.name.clone();
+            
+            // 2. Mark as dark
+            session.status = "dark".to_string();
+            let payload = serde_json::to_value(&session).map_err(|e| Status::internal(e.to_string()))?;
+            let session_key = format!("koad:session:{}", session_id);
+
+            let _: () = self.engine.redis.pool.next()
+                .hset("koad:state", (&session_key, payload.to_string()))
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?;
+
+            // 3. Release Lease
+            let _ = self.engine.identity.release_lease(&agent_name, &session_id).await;
+
+            // 4. Broadcast Update
+            let msg = json!({
+                "type": "SESSION_TERMINATED",
+                "session_id": session_id
+            });
+            let _: () = self.engine.redis.pool.next()
+                .publish("koad:sessions", msg.to_string())
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?;
+            
+            // 5. Explicitly update ASM local cache
+            let _ = self.engine.asm.remove_session(&session_id).await;
+        }
 
         Ok(Response::new(Empty {}))
     }
@@ -572,6 +659,113 @@ impl SpineService for KoadSpine {
             .publish(koad_core::constants::REDIS_CHANNEL_TELEMETRY, payload)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(Empty {}))
+    }
+
+    // --- Agent-to-Agent Signals (A2A-S) ---
+
+    async fn send_signal(
+        &self,
+        request: Request<SendSignalRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        // 1. Determine source agent from metadata (injected by interceptor or session ID)
+        let session_id = request.metadata().get("x-session-id")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| Status::unauthenticated("No session ID"))?
+            .to_string();
+            
+        let req = request.into_inner();
+        
+        let session = self.engine.asm.get_session(&session_id).await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::unauthenticated("Invalid session"))?;
+
+        // 2. Map priority
+        let priority = match SignalPriority::try_from(req.priority).unwrap_or(SignalPriority::Standard) {
+            SignalPriority::Low => koad_core::signal::SignalPriority::Low,
+            SignalPriority::Standard => koad_core::signal::SignalPriority::Standard,
+            SignalPriority::High => koad_core::signal::SignalPriority::High,
+            SignalPriority::Critical => koad_core::signal::SignalPriority::Critical,
+        };
+
+        // 3. Send via engine
+        self.engine.signal.send_signal(
+            session.identity.name,
+            req.target_agent,
+            req.message,
+            priority,
+            req.metadata,
+        ).await
+        .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(Empty {}))
+    }
+
+    async fn get_signals(
+        &self,
+        request: Request<GetSignalsRequest>,
+    ) -> Result<Response<GetSignalsResponse>, Status> {
+        let req = request.into_inner();
+        let core_signals = self.engine.signal.get_signals(&req.agent_name).await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let signals = core_signals.into_iter().map(|s| {
+            GhostSignal {
+                id: s.id,
+                source_agent: s.source_agent,
+                target_agent: s.target_agent,
+                message: s.message,
+                priority: match s.priority {
+                    koad_core::signal::SignalPriority::Low => SignalPriority::Low as i32,
+                    koad_core::signal::SignalPriority::Standard => SignalPriority::Standard as i32,
+                    koad_core::signal::SignalPriority::High => SignalPriority::High as i32,
+                    koad_core::signal::SignalPriority::Critical => SignalPriority::Critical as i32,
+                },
+                timestamp: Some(prost_types::Timestamp {
+                    seconds: s.timestamp.timestamp(),
+                    nanos: s.timestamp.timestamp_subsec_nanos() as i32,
+                }),
+                metadata: s.metadata,
+                status: match s.status {
+                    koad_core::signal::SignalStatus::Pending => SignalStatus::Pending as i32,
+                    koad_core::signal::SignalStatus::Read => SignalStatus::Read as i32,
+                    koad_core::signal::SignalStatus::Archived => SignalStatus::Archived as i32,
+                },
+            }
+        }).collect();
+
+        Ok(Response::new(GetSignalsResponse { signals }))
+    }
+
+    async fn update_signal_status(
+        &self,
+        request: Request<UpdateSignalStatusRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        // Resolve agent from session
+        let session_id = request.metadata().get("x-session-id")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| Status::unauthenticated("No session ID"))?
+            .to_string();
+            
+        let req = request.into_inner();
+        
+        let session = self.engine.asm.get_session(&session_id).await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::unauthenticated("Invalid session"))?;
+
+        let status = match SignalStatus::try_from(req.status).unwrap_or(SignalStatus::Pending) {
+            SignalStatus::Pending => koad_core::signal::SignalStatus::Pending,
+            SignalStatus::Read => koad_core::signal::SignalStatus::Read,
+            SignalStatus::Archived => koad_core::signal::SignalStatus::Archived,
+        };
+
+        self.engine.signal.update_signal_status(
+            &session.identity.name,
+            &req.signal_id,
+            status,
+        ).await
+        .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(Empty {}))
     }

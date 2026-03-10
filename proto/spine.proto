@@ -35,6 +35,7 @@ service SpineService {
   
   rpc RegisterComponent(RegisterComponentRequest) returns (RegisterComponentResponse);
   rpc InitializeSession(InitializeSessionRequest) returns (SessionPackage);
+  rpc TerminateSession(TerminateSessionRequest) returns (Empty);
   rpc DrainAll(Empty) returns (Empty);
 
   // --- Intel & Context ---
@@ -42,8 +43,60 @@ service SpineService {
   rpc HydrateContext(HydrationRequest) returns (HydrationResponse);
   rpc CommitKnowledge(CommitKnowledgeRequest) returns (Empty);
 
+  // --- Agent-to-Agent Signals (A2A-S) ---
+  rpc SendSignal(SendSignalRequest) returns (Empty);
+  rpc GetSignals(GetSignalsRequest) returns (GetSignalsResponse);
+  rpc UpdateSignalStatus(UpdateSignalStatusRequest) returns (Empty);
+
   // --- External Event Injection ---
   rpc PostSystemEvent(SystemEvent) returns (Empty);
+}
+
+// --- Signal Messages ---
+
+message SendSignalRequest {
+  string target_agent = 1;
+  string message = 2;
+  SignalPriority priority = 3;
+  map<string, string> metadata = 4;
+}
+
+message GetSignalsRequest {
+  string agent_name = 1;
+  SignalStatus filter_status = 2;
+}
+
+message GetSignalsResponse {
+  repeated GhostSignal signals = 1;
+}
+
+message UpdateSignalStatusRequest {
+  string signal_id = 1;
+  SignalStatus status = 2;
+}
+
+message GhostSignal {
+  string id = 1;
+  string source_agent = 2;
+  string target_agent = 3;
+  string message = 4;
+  SignalPriority priority = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  map<string, string> metadata = 7;
+  SignalStatus status = 8;
+}
+
+enum SignalPriority {
+  SIGNAL_PRIORITY_LOW = 0;
+  SIGNAL_PRIORITY_STANDARD = 1;
+  SIGNAL_PRIORITY_HIGH = 2;
+  SIGNAL_PRIORITY_CRITICAL = 3;
+}
+
+enum SignalStatus {
+  SIGNAL_STATUS_PENDING = 0;
+  SIGNAL_STATUS_READ = 1;
+  SIGNAL_STATUS_ARCHIVED = 2;
 }
 
 // --- Intel Messages ---
@@ -84,6 +137,7 @@ message HotContextChunk {
   string content = 2;
   int32 ttl_seconds = 3; // 0 = persistent for session
   google.protobuf.Timestamp created_at = 4;
+  string file_path = 5; // Path for reference-based hydration
 }
 
 // --- Common Messages ---
@@ -117,6 +171,11 @@ message InitializeSessionRequest {
   string driver_id = 5;       // The cognitive driver (Gemini, Codex, Micro)
   int32 model_tier = 6;       // The tier of the driver model (1=Admin, 2=Dev, 3=Guest)
   string model_name = 7;      // Specific model name (e.g., 'phi3', 'gpt-4o')
+  string body_id = 8;         // Unique terminal/body identifier (UUID per shell session)
+}
+
+message TerminateSessionRequest {
+  string session_id = 1;
 }
 
 message SessionPackage {
@@ -139,6 +198,7 @@ message IntelligencePackage {
   repeated SystemEvent recent_events = 3;
   map<string, string> metadata = 4;
   repeated HotContextChunk hot_context = 5;
+  repeated GhostSignal pending_signals = 6;
 }
 
 // --- Service Discovery Messages ---
