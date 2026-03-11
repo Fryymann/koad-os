@@ -9,6 +9,7 @@ pub mod intelligence;
 pub mod intent;
 pub mod logging;
 pub mod session;
+pub mod signal;
 pub mod storage;
 pub mod types;
 pub mod utils;

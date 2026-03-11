@@ -317,10 +317,11 @@ impl ShipDiagnostics {
     }
 
     async fn check_services(&self, registry: &mut HealthRegistry) -> anyhow::Result<()> {
+        // 1. Web Deck (Gateway) Check
         let addr = std::env::var("GATEWAY_ADDR")
             .unwrap_or_else(|_| koad_core::constants::DEFAULT_GATEWAY_ADDR.to_string());
 
-        let status = match tokio::time::timeout(
+        let gateway_status = match tokio::time::timeout(
             Duration::from_millis(500),
             tokio::net::TcpStream::connect(&addr),
         )
@@ -330,35 +331,62 @@ impl ShipDiagnostics {
             _ => "DOWN".to_string(),
         };
 
-        if status == "DOWN" {
-            // Attempt autonomic recovery if down
+        if gateway_status == "DOWN" {
             let _ = self.autonomic_recovery("web-deck").await;
         }
 
         registry.add(HealthCheck {
             name: "Web Deck (Gateway)".to_string(),
-            status: if status == "UP" { HealthStatus::Pass } else { HealthStatus::Fail },
-            message: if status == "UP" { "Gateway pulse detected." .to_string() } else { "Gateway is DARK. Recovery attempted.".to_string() },
+            status: if gateway_status == "UP" { HealthStatus::Pass } else { HealthStatus::Fail },
+            message: if gateway_status == "UP" { "Gateway pulse detected.".to_string() } else { "Gateway is DARK. Recovery attempted.".to_string() },
             last_checked: Utc::now().timestamp(),
             metadata: Some(json!({ "addr": addr })),
         });
 
+        // 2. ASM Daemon Check
+        let mut sys = self.sys.lock().await;
+        sys.refresh_processes();
+        let is_asm_running = sys
+            .processes()
+            .values()
+            .any(|p| p.name().contains("koad-asm"));
+        
+        let asm_status = if is_asm_running { "UP".to_string() } else { "DOWN".to_string() };
+
+        if !is_asm_running {
+            let _ = self.autonomic_recovery("asm").await;
+        }
+
+        registry.add(HealthCheck {
+            name: "ASM Daemon".to_string(),
+            status: if is_asm_running { HealthStatus::Pass } else { HealthStatus::Fail },
+            message: if is_asm_running { "ASM heartbeat detected.".to_string() } else { "ASM is DARK. Recovery attempted.".to_string() },
+            last_checked: Utc::now().timestamp(),
+            metadata: None,
+        });
+
+        // Broadcast service states
         let web_deck = ServiceEntry {
             name: "web-deck".to_string(),
             host: "0.0.0.0".to_string(),
             port: koad_core::constants::DEFAULT_GATEWAY_PORT,
             protocol: "http".to_string(),
-            status,
+            status: gateway_status,
             last_seen: Utc::now().timestamp(),
         };
 
-        let payload = serde_json::to_string(&web_deck)?;
-        let _: () = self
-            .redis
-            .pool
-            .next()
-            .publish("koad:telemetry:services", &payload)
-            .await?;
+        let asm_entry = ServiceEntry {
+            name: "koad-asm".to_string(),
+            host: "localhost".to_string(),
+            port: 0,
+            protocol: "internal".to_string(),
+            status: asm_status,
+            last_seen: Utc::now().timestamp(),
+        };
+
+        let _: () = self.redis.pool.next().publish("koad:telemetry:services", serde_json::to_string(&web_deck)?).await?;
+        let _: () = self.redis.pool.next().publish("koad:telemetry:services", serde_json::to_string(&asm_entry)?).await?;
+        
         Ok(())
     }
 
@@ -370,6 +398,13 @@ impl ShipDiagnostics {
                     error!("ShipDiagnostics: Recovery failed for web-deck: {}", e);
                 } else {
                     info!("ShipDiagnostics: web-deck restart command issued.");
+                }
+            }
+            "asm" => {
+                if let Err(e) = self._restart_asm().await {
+                    error!("ShipDiagnostics: Recovery failed for asm: {}", e);
+                } else {
+                    info!("ShipDiagnostics: asm restart command issued.");
                 }
             }
             "ghosts" => {
@@ -626,21 +661,34 @@ impl ShipDiagnostics {
                 if !active_session_ids.contains(&sid) {
                     // Grace period: Check if the session object itself is old enough to prune
                     if let Ok(raw_json) = serde_json::from_str::<serde_json::Value>(&val) {
-                        let created_at = raw_json["created_at"].as_i64().unwrap_or(0);
-                        let now = Utc::now().timestamp();
-                        
-                        if now - created_at > 300 {
-                            info!("Autonomic Sentinel: Pruning orphaned session key: {}", key);
-                            let _: () = self
-                                .redis
-                                .pool
-                                .next()
-                                .hdel("koad:state", &key)
-                                .await
-                                .unwrap_or(());
+                        let data = if let Some(inner) = raw_json.get("data") {
+                            inner
+                        } else {
+                            &raw_json
+                        };
+
+                        if let Ok(sess) = serde_json::from_value::<koad_core::session::AgentSession>(data.clone()) {
+                            let now = Utc::now();
+                            let diff = now.signed_duration_since(sess.last_heartbeat);
+
+                            // If it has no lease AND hasn't heartbeat in 5 minutes, it's truly orphaned.
+                            if diff.num_seconds() > 300 {
+                                info!("Autonomic Sentinel: Pruning orphaned session key: {}", key);
+                                let _: () = self
+                                    .redis
+                                    .pool
+                                    .next()
+                                    .hdel("koad:state", &key)
+                                    .await
+                                    .unwrap_or(());
+                            }
+                        } else {
+                            // If we can't parse it as an AgentSession, it's corrupt.
+                            info!("Autonomic Sentinel: Pruning corrupt session key: {}", key);
+                            let _: () = self.redis.pool.next().hdel("koad:state", &key).await.unwrap_or(());
                         }
                     } else {
-                        // If we can't parse it, it's likely corrupt sludge; prune it.
+                        // If we can't parse it as JSON, it's likely corrupt sludge; prune it.
                         let _: () = self.redis.pool.next().hdel("koad:state", &key).await.unwrap_or(());
                     }
                 }
@@ -723,6 +771,23 @@ impl ShipDiagnostics {
             .arg(bin_path)
             .arg("--addr")
             .arg(addr)
+            .stdout(std::process::Stdio::from(std::fs::File::create(&log_path)?))
+            .stderr(std::process::Stdio::from(std::fs::File::create(&log_path)?))
+            .spawn()?;
+
+        Ok(())
+    }
+
+    async fn _restart_asm(&self) -> anyhow::Result<()> {
+        let home =
+            std::env::var("KOAD_HOME").context("KOAD_HOME not set. Cannot restart ASM.")?;
+        let bin_path = PathBuf::from(&home).join("bin/koad-asm");
+        let log_path = PathBuf::from(&home).join("logs/asm_recovery.log");
+
+        info!("Autonomic Sentinel: Re-spawning koad-asm...");
+        let _ = std::process::Command::new("nohup")
+            .arg(bin_path)
+            .env("KOAD_HOME", &home)
             .stdout(std::process::Stdio::from(std::fs::File::create(&log_path)?))
             .stderr(std::process::Stdio::from(std::fs::File::create(&log_path)?))
             .spawn()?;

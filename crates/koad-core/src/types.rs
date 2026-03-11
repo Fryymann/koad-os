@@ -54,6 +54,8 @@ pub struct HotContextChunk {
     pub chunk_id: String,
     /// The actual context content.
     pub content: String,
+    /// Optional file path for reference-based hydration.
+    pub file_path: Option<String>,
     /// Time-to-live in seconds (0 = session-persistent).
     pub ttl_seconds: i32,
     /// Importance for context ranking (0.0 to 1.0).

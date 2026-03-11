@@ -158,6 +158,40 @@ impl KernelBuilder {
             }
         });
 
+        let diag_inner = engine.diagnostics.clone();
+        let mut rx_diag_task = shutdown_rx.clone();
+        let (diag_kill_tx, mut diag_kill_rx) = tokio::sync::mpsc::channel::<bool>(1);
+        
+        tokio::spawn(async move {
+            loop {
+                let diag_loop = diag_inner.clone();
+                let mut rx_inner = rx_diag_task.clone();
+                
+                let handle = tokio::spawn(async move {
+                    tokio::select! {
+                        _ = diag_loop.start_health_monitor() => {
+                            eprintln!("\x1b[33mSHIP ALERT: Health monitor task exited unexpectedly.\x1b[0m");
+                        },
+                        _ = rx_inner.changed() => {
+                            println!("Kernel: Health monitor stopping.");
+                        }
+                    }
+                });
+
+                tokio::select! {
+                    _ = handle => {
+                        println!("Kernel: Diagnostic handle closed. Restarting in 5s...");
+                    },
+                    _ = diag_kill_rx.recv() => {
+                        println!("Kernel: Forcing restart of stalled diagnostic loop...");
+                    }
+                }
+                
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                if *rx_diag_task.borrow() { break; }
+            }
+        });
+
         let diagnostics = engine.diagnostics.clone();
         let mut rx_diag = shutdown_rx.clone();
         tokio::spawn(async move {
@@ -169,8 +203,9 @@ impl KernelBuilder {
                 let now = chrono::Utc::now().timestamp();
                 let gap = now - last_hb;
 
-                if gap > 15 {
-                    eprintln!("\x1b[31mCRITICAL: ShipDiagnostics loop stalled (Gap: {}s). Recovery required.\x1b[0m", gap);
+                if gap > 30 {
+                    eprintln!("\x1b[31mCRITICAL: ShipDiagnostics loop stalled (Gap: {}s). Triggering task reset...\x1b[0m", gap);
+                    let _ = diag_kill_tx.try_send(true);
                 }
 
                 tokio::select! {
@@ -179,23 +214,6 @@ impl KernelBuilder {
                 }
             }
             println!("Kernel: Watchdog stopping.");
-        });
-
-        let diag_inner = engine.diagnostics.clone();
-        let mut rx_diag_task = shutdown_rx.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = diag_inner.start_health_monitor() => {
-                        eprintln!("\x1b[33mSHIP ALERT: Health monitor task exited unexpectedly. Restarting...\x1b[0m");
-                    },
-                    _ = rx_diag_task.changed() => {
-                        println!("Kernel: Health monitor stopping.");
-                        break;
-                    }
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            }
         });
 
         let directive_router = crate::engine::router::DirectiveRouter::new(engine.clone());

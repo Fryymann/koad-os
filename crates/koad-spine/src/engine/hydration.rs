@@ -20,28 +20,50 @@ impl KoadHydrationManager {
     }
 
     /// Hydrates an agent's context with a new chunk.
-    /// Implements the "Governor" logic: Hashing, Capping, and TTL.
+    /// Implements the \"Governor\" logic: Hashing, Capping, and TTL.
     pub async fn hydrate(
         &self,
         session_id: &str,
         content: &str,
+        file_path: Option<String>,
         ttl_seconds: i32,
     ) -> anyhow::Result<HotContextChunk> {
-        // 1. Governor: Character Cap Check
-        if content.len() > self.context_cap {
+        let mut final_content = content.to_string();
+        let mut tags = vec!["manual_hydration".to_string()];
+
+        // 1. Reference Hydration Logic
+        if let Some(ref path) = file_path {
+            tags.push("file_reference".to_string());
+            if final_content.is_empty() {
+                let path_buf = std::path::PathBuf::from(path);
+                if path_buf.exists() && path_buf.is_file() {
+                    let meta = std::fs::metadata(&path_buf)?;
+                    if meta.len() > self.context_cap as u64 {
+                        info!("Sentinel: File {} too large for full hydration. Generating Virtual Chunk.", path);
+                        final_content = format!("[VIRTUAL CHUNK] Reference: {}. Size: {} bytes. Type: Codebase Reference.", path, meta.len());
+                        tags.push("virtual_chunk".to_string());
+                    } else {
+                        final_content = std::fs::read_to_string(&path_buf)?;
+                    }
+                }
+            }
+        }
+
+        // 2. Governor: Character Cap Check (on final content)
+        if final_content.len() > self.context_cap {
             anyhow::bail!(
                 "Hydration Rejected: Content exceeds cap ({} > {})",
-                content.len(),
+                final_content.len(),
                 self.context_cap
             );
         }
 
-        // 2. Governor: Content Hashing (SHA-256)
+        // 3. Governor: Content Hashing (SHA-256)
         let mut hasher = Sha256::new();
-        hasher.update(content.as_bytes());
+        hasher.update(final_content.as_bytes());
         let chunk_id = format!("{:x}", hasher.finalize());
 
-        // 3. Governor: Duplicate Check
+        // 4. Governor: Duplicate Check
         let context_key = format!("koad:context:session:{}", session_id);
         if self
             .redis
@@ -53,19 +75,19 @@ impl KoadHydrationManager {
                 "Hydration Canceled: Chunk {} already exists for session {}",
                 chunk_id, session_id
             );
-            // Return existing or bail? For idempotency, we return the existing structure info.
         }
 
         let chunk = HotContextChunk {
             chunk_id: chunk_id.clone(),
-            content: content.to_string(),
+            content: final_content,
+            file_path,
             ttl_seconds,
-            significance_score: 1.0, // Manual hydration is high-signal by default
-            tags: vec!["manual_hydration".to_string()],
+            significance_score: 1.0,
+            tags,
             created_at: Utc::now(),
         };
 
-        // 4. Persistence
+        // 5. Persistence
         let chunk_json = serde_json::to_string(&chunk)?;
         let _: () = self
             .redis
@@ -73,15 +95,9 @@ impl KoadHydrationManager {
             .hset(&context_key, (&chunk_id, &chunk_json))
             .await?;
 
-        // 5. TTL Logic (Optional: Redis TTL on the whole hash or per-key? Redis HSET doesn't support per-field TTL)
-        // For now, we rely on the agent flushing or the session ending.
-        // We'll implement a manual cleanup in the ASM reaper later.
-
         info!(
-            "Hydration Successful: Chunk {} ({} bytes) injected into session {}",
-            chunk_id,
-            content.len(),
-            session_id
+            "Hydration Successful: Chunk {} injected into session {}",
+            chunk_id, session_id
         );
 
         Ok(chunk)

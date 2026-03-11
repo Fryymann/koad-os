@@ -17,3 +17,5 @@ tracing-appender.workspace = true
 sysinfo.workspace = true
 fred = { workspace = true, features = ["unix-sockets", "subscriber-client", "i-scripts", "i-pubsub"] }
 tokio.workspace = true
+config = { workspace = true, features = ["toml"] }
+toml.workspace = true

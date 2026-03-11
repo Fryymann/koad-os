@@ -67,11 +67,15 @@ pub async fn spawn_issue(
     raw_body: Option<String>,
 ) -> Result<koad_board::issue::Issue> {
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let abs_current = std::fs::canonicalize(&current_dir).unwrap_or(current_dir);
-    let search_path = abs_current.to_string_lossy().to_string();
+    let project_ctx = config.resolve_project_context(&current_dir);
+    let project = project_ctx.as_ref().map(|(_, p)| p);
 
-    // Resolve repository from DB or environment
-    let (owner, repo) = if let Ok(conn) = db.get_conn() {
+    // Resolve repository from Context or DB
+    let (owner, repo) = if let Some(p) = project {
+        (config.get_github_owner(Some(p)), config.get_github_repo(Some(p)))
+    } else if let Ok(conn) = db.get_conn() {
+        let abs_current = std::fs::canonicalize(&current_dir).unwrap_or(current_dir);
+        let search_path = abs_current.to_string_lossy().to_string();
         let mut stmt = conn.prepare("SELECT github_repo FROM projects WHERE ?1 LIKE path || '%' ORDER BY length(path) DESC LIMIT 1")?;
         let repo_full: Option<String> = stmt.query_row(params![search_path], |r| r.get(0)).ok();
 
@@ -80,16 +84,16 @@ pub async fn spawn_issue(
             if parts.len() == 2 {
                 (parts[0].to_string(), parts[1].to_string())
             } else {
-                (config.get_github_owner()?, config.get_github_repo()?)
+                (config.get_github_owner(None), config.get_github_repo(None))
             }
         } else {
-            (config.get_github_owner()?, config.get_github_repo()?)
+            (config.get_github_owner(None), config.get_github_repo(None))
         }
     } else {
-        (config.get_github_owner()?, config.get_github_repo()?)
+        (config.get_github_owner(None), config.get_github_repo(None))
     };
 
-    let token = config.resolve_gh_token()?;
+    let token = config.resolve_gh_token(project)?;
     let client = koad_board::GitHubClient::new(token, owner.clone(), repo.clone())?;
 
     let body = if let Some(rb) = raw_body {
@@ -164,13 +168,13 @@ pub async fn handle_system_action(
                 match key.as_str() {
                     "github_project_number" => {
                         if let Ok(num) = value.parse::<u32>() {
-                            hot_config.github_project_number = num;
+                            hot_config.github.default_project_number = num;
                         } else {
                             anyhow::bail!("Invalid number: {}", value);
                         }
                     }
-                    "gateway_addr" => hot_config.gateway_addr = value.clone(),
-                    "spine_grpc_addr" => hot_config.spine_grpc_addr = value.clone(),
+                    "gateway_addr" => hot_config.network.gateway_addr = value.clone(),
+                    "spine_grpc_addr" => hot_config.network.spine_grpc_addr = value.clone(),
                     _ => {
                         hot_config.extra.insert(key.clone(), value.clone());
                     }
@@ -184,9 +188,9 @@ pub async fn handle_system_action(
                 );
             }
             Some(ConfigAction::Get { key }) => match key.as_str() {
-                "github_project_number" => println!("{}", config.github_project_number),
-                "gateway_addr" => println!("{}", config.gateway_addr),
-                "spine_grpc_addr" => println!("{}", config.spine_grpc_addr),
+                "github_project_number" => println!("{}", config.github.default_project_number),
+                "gateway_addr" => println!("{}", config.network.gateway_addr),
+                "spine_grpc_addr" => println!("{}", config.network.spine_grpc_addr),
                 _ => {
                     if let Some(v) = config.extra.get(&key) {
                         println!("{}", v);
@@ -215,7 +219,7 @@ pub async fn handle_system_action(
             }
 
             let lock_client = RedisLockClient {
-                socket: config.redis_socket.clone(),
+                socket: config.get_redis_socket(),
             };
 
             koad_core::with_sector_lock!(&lock_client, "refresh", agent_name, 600, {
@@ -241,6 +245,7 @@ pub async fn handle_system_action(
                     ("koad", "koad"),
                     ("kspine", "koad-spine"),
                     ("koad-asm", "koad-asm"),
+                    ("koad-watchdog", "koad-watchdog"),
                     ("koad-cli", "koad"),
                 ];
 
@@ -269,9 +274,16 @@ pub async fn handle_system_action(
                     println!(">>> [3/3] Rebooting Core Systems...");
                     let _ = Command::new("pkill").arg("-9").arg("kspine").status();
                     let _ = Command::new("pkill").arg("-9").arg("koad-asm").status();
+                    let _ = Command::new("pkill").arg("-9").arg("koad-watchdog").status();
+                    
                     // Spine handles autonomic restart of ASM when started
                     let spine_bin = bin_dir.join("kspine");
                     let _ = Command::new(spine_bin).env("KOAD_HOME", &home).spawn();
+
+                    // Launch Watchdog
+                    let watchdog_bin = bin_dir.join("koad-watchdog");
+                    let _ = Command::new(watchdog_bin).env("KOAD_HOME", &home).spawn();
+
                     println!("  [OK] Core systems energized.");
                 }
                 Ok::<(), anyhow::Error>(())
@@ -291,7 +303,7 @@ pub async fn handle_system_action(
 
             // 1. Memory Drain (gRPC)
             println!(">>> [1/4] Neuronal Flush (Spine Drain)...");
-            match SpineServiceClient::connect(config.spine_grpc_addr.clone()).await {
+            match SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
                 Ok(mut client) => {
                     if let Err(e) = client.drain_all(tonic::Request::new(Empty {})).await {
                         warn!(
@@ -505,7 +517,7 @@ pub async fn handle_system_action(
         }
         SystemAction::Lock { sector, ttl } => {
             let lock_client = RedisLockClient {
-                socket: config.redis_socket.clone(),
+                socket: config.get_redis_socket(),
             };
 
             if lock_client.lock(&sector, agent_name, ttl).await? {
@@ -527,7 +539,7 @@ pub async fn handle_system_action(
         }
         SystemAction::Unlock { sector } => {
             let lock_client = RedisLockClient {
-                socket: config.redis_socket.clone(),
+                socket: config.get_redis_socket(),
             };
 
             if lock_client.unlock(&sector, agent_name).await? {
@@ -568,7 +580,7 @@ pub async fn handle_system_action(
                 .or_else(|| env::var("KOAD_SESSION_ID").ok())
                 .context("No session ID provided or found in environment (KOAD_SESSION_ID).")?;
 
-            let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
+            let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
                 .await
                 .context("Failed to connect to Spine gRPC")?;
 
@@ -580,7 +592,7 @@ pub async fn handle_system_action(
 
                     if let Err(e) = client.heartbeat(req).await {
                         warn!("Heartbeat failure for session {}: {}. Attempting re-connection...", session_id, e);
-                        if let Ok(c) = SpineServiceClient::connect(config.spine_grpc_addr.clone()).await {
+                        if let Ok(c) = SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
                             client = c;
                         }
                     }
@@ -601,7 +613,7 @@ pub async fn handle_system_action(
         db: &KoadDB,
         agent_name: &str,
         ) -> Result<()> {
-        let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
+        let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
         .await
         .context("Failed to connect to Spine gRPC")?;
 
@@ -624,24 +636,29 @@ pub async fn handle_system_action(
                 sid
             };
 
-            let content = if let Some(p) = path {
-                std::fs::read_to_string(p)?
+            let (content, file_path) = if let Some(p) = path {
+                ("".to_string(), Some(p.to_string_lossy().to_string()))
             } else if let Some(t) = text {
-                t
+                (t, None)
             } else {
                 anyhow::bail!("Provide either --path or --text to hydrate.");
             };
 
-            let mut hasher = sha2::Sha256::new();
-            use sha2::Digest;
-            hasher.update(content.as_bytes());
-            let chunk_id = format!("{:x}", hasher.finalize());
+            let chunk_id = if let Some(ref path) = file_path {
+                path.clone()
+            } else {
+                let mut hasher = sha2::Sha256::new();
+                use sha2::Digest;
+                hasher.update(content.as_bytes());
+                format!("{:x}", hasher.finalize())
+            };
 
             let req = HydrationRequest {
                 session_id: session_id.clone(),
                 chunk: Some(HotContextChunk {
                     chunk_id,
                     content,
+                    file_path: file_path.unwrap_or_default(),
                     ttl_seconds: ttl,
                     created_at: None,
                 }),
@@ -726,6 +743,7 @@ pub async fn handle_system_action(
                         chunk: Some(HotContextChunk {
                             chunk_id: chunk_id.clone(),
                             content: chunk_data["content"].as_str().unwrap_or_default().to_string(),
+                            file_path: chunk_data["file_path"].as_str().unwrap_or_default().to_string(),
                             ttl_seconds: chunk_data["ttl_seconds"].as_i64().unwrap_or(0) as i32,
                             created_at: None,
                         }),

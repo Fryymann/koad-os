@@ -6,11 +6,18 @@ use koad_core::config::KoadConfig;
 use tracing::{info, warn};
 
 pub async fn handle_board(action: BoardAction, config: &KoadConfig) -> Result<()> {
-    // Resolve GitHub credentials from KoadConfig
-    let token = config.resolve_gh_token()?;
-    let owner = config.get_github_owner()?;
-    let repo = config.get_github_repo()?;
-    let project_num = config.github_project_number as i32;
+    // 1. Resolve Project Context from path
+    let current_dir = std::env::current_dir().unwrap_or_default();
+    let project_ctx = config.resolve_project_context(&current_dir);
+    let project = project_ctx.as_ref().map(|(_, p)| p);
+
+    // 2. Resolve GitHub credentials and metadata
+    let token = config.resolve_gh_token(project)?;
+    let owner = config.get_github_owner(project);
+    let repo = config.get_github_repo(project);
+    let project_num = project
+        .and_then(|p| p.default_project)
+        .unwrap_or(config.github.default_project_number) as i32;
 
     let client = GitHubClient::new(token, owner, repo)?;
 

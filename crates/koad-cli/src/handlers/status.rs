@@ -109,31 +109,28 @@ pub async fn handle_status_command(
                 }
             }
 
-            // 7. Crew Manifest (Direct from Redis Data Plane - v5.0 CQRS)
+            // 7. Crew Manifest (Authoritative via ShipDiagnostics)
             println!(
                 "
-\x1b[1m--- Crew Manifest (Data Plane) ---\x1b[0m"
+\x1b[1m--- Crew Manifest (Authoritative) ---\x1b[0m"
             );
-            let state: std::collections::HashMap<String, String> = client.pool.hgetall(REDIS_KEY_STATE).await?;
+            let manifest_res: Option<String> = client.pool.hget(REDIS_KEY_STATE, "crew_manifest").await?;
             let mut wake = 0;
-            
-            for (key, val) in state {
-                if key.starts_with("koad:session:") {
-                    if let Ok(raw_json) = serde_json::from_str::<serde_json::Value>(&val) {
-                        let data = if let Some(inner) = raw_json.get("data") {
-                            inner
-                        } else {
-                            &raw_json
-                        };
-                        if let Ok(sess) = serde_json::from_value::<koad_core::session::AgentSession>(data.clone()) {
-                            if sess.status == "active" {
+            if let Some(m) = manifest_res {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&m) {
+                    if let Some(crew) = json["manifest"].as_object() {
+                        for (name, data) in crew {
+                            if data["status"] == "WAKE" {
+                                let sid = data["session_id"].as_str().unwrap_or("unknown");
+                                let sid_short = if sid.len() > 8 { &sid[..8] } else { sid };
                                 println!(
-                                    "  - {:<10} [{}] (Session: {})",
-                                    sess.identity.name,
-                                    sess.last_heartbeat.format("%H:%M:%S"),
-                                    &sess.session_id[..8]
+                                    "  - {:<10} [\x1b[32mWAKE\x1b[0m] (Session: {})",
+                                    name,
+                                    sid_short
                                 );
                                 wake += 1;
+                            } else if full {
+                                println!("  - {:<10} [\x1b[30mDARK\x1b[0m]", name);
                             }
                         }
                     }

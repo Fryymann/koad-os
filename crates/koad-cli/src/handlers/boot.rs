@@ -80,7 +80,7 @@ pub async fn handle_boot_command(
     let (gh_pat, _) = get_gh_pat_for_path(&current_dir, &role, config);
     let gdrive_token = "GDRIVE_PERSONAL_TOKEN";
 
-    let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
+    let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
         .await
         .context("Failed to connect to Spine Backbone.")?;
 
@@ -164,11 +164,19 @@ pub async fn handle_boot_command(
     let body_id = env::var("KOAD_BODY_ID")
         .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
 
+    // --- [Path-Aware Project Detection] ---
+    let mut project_name = if project { "active" } else { "default" }.to_string();
+    if project {
+        if let Some((name, _)) = config.resolve_project_context(&current_dir) {
+            project_name = name;
+        }
+    }
+
     let resp = client
         .initialize_session(InitializeSessionRequest {
             agent_name: agent.clone(),
             agent_role: role.clone(),
-            project_name: if project { "active" } else { "default" }.to_string(),
+            project_name,
             environment: EnvironmentType::Wsl as i32,
             driver_id: driver_id.clone(),
             model_tier,
@@ -300,7 +308,7 @@ pub async fn handle_logout_command(
     let session_id = session.or_else(|| env::var("KOAD_SESSION_ID").ok())
         .context("No active session ID found. Provide --session or ensure KOAD_SESSION_ID is set.")?;
 
-    let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
+    let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
         .await
         .context("Failed to connect to Spine Backbone.")?;
 

@@ -30,8 +30,8 @@ async fn main() -> anyhow::Result<()> {
     let kernel = KernelBuilder::new()
         .with_home(config.home.clone())
         .with_grpc(
-            &config.spine_grpc_addr.replace("http://", ""),
-            config.spine_socket.clone(),
+            &config.network.spine_grpc_addr.replace("http://", ""),
+            config.home.join(&config.network.spine_socket),
         )
         .start()
         .await?;

@@ -11,6 +11,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         chunk: Some(HotContextChunk {
             chunk_id: "test-chunk".to_string(),
             content: "Test context hydration".to_string(),
+            file_path: "".to_string(),
             ttl_seconds: 0,
             created_at: Some(prost_types::Timestamp {
                 seconds: Utc::now().timestamp(),

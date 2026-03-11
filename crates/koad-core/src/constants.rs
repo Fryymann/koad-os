@@ -2,7 +2,7 @@
 pub const DEFAULT_GATEWAY_PORT: u32 = 3000;
 pub const DEFAULT_GATEWAY_ADDR: &str = "0.0.0.0:3000";
 
-pub const DEFAULT_GITHUB_OWNER: &str = "Fryymann";
+pub const DEFAULT_GITHUB_OWNER: &str = "DoodzCode";
 pub const DEFAULT_GITHUB_REPO: &str = "koad-os";
 
 /// Default address for the KoadOS Spine gRPC service

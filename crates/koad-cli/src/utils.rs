@@ -12,13 +12,13 @@ pub enum PreFlightStatus {
 }
 
 pub async fn get_spine_client(config: &KoadConfig) -> Result<SpineServiceClient<Channel>> {
-    SpineServiceClient::connect(config.spine_grpc_addr.clone())
+    SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
         .await
         .context("Failed to connect to Koad Spine gRPC")
 }
 
 pub fn pre_flight(config: &KoadConfig) -> PreFlightStatus {
-    if !config.redis_socket.exists() {
+    if !config.get_redis_socket().exists() {
         return PreFlightStatus::Critical("Neural Bus (Redis) offline.".to_string());
     }
     PreFlightStatus::Optimal
@@ -54,10 +54,11 @@ pub fn get_gdrive_token_for_path(_path: &Path) -> (String, String) {
 }
 
 pub fn detect_model_tier() -> i32 {
-    if env::var("GEMINI_CLI").is_ok() {
+    if env::var("GEMINI_CLI").is_ok()
+        || env::var("CLAUDE_CODE").is_ok()
+        || env::var("CODEX_CLI").is_ok()
+    {
         1
-    } else if env::var("CODEX_CLI").is_ok() {
-        2
     } else {
         3
     }

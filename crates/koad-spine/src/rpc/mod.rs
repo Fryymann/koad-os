@@ -188,6 +188,8 @@ impl SpineService for KoadSpine {
                 .subscribe(vec![
                     "koad:telemetry",
                     "koad:telemetry:stats",
+                    "koad:telemetry:manifest",
+                    "koad:telemetry:services",
                     "koad:sessions",
                 ])
                 .await

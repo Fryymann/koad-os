@@ -8,6 +8,7 @@ pub mod kcm;
 pub mod kernel;
 pub mod router;
 pub mod sandbox;
+pub mod signal;
 pub mod storage_bridge;
 #[cfg(test)]
 mod tests;
@@ -19,6 +20,7 @@ use crate::engine::context_cache::KoadContextCache;
 use crate::engine::diagnostics::ShipDiagnostics;
 use crate::engine::identity::KAILeaseManager;
 use crate::engine::kcm::KoadComplianceManager;
+use crate::engine::signal::SignalManager;
 use koad_core::utils::redis::RedisClient;
 use crate::engine::storage_bridge::KoadStorageBridge;
 
@@ -36,6 +38,7 @@ pub struct Engine {
     pub context_cache: Arc<KoadContextCache>,
     pub hydration: Arc<hydration::KoadHydrationManager>,
     pub identity: Arc<KAILeaseManager>,
+    pub signal: Arc<SignalManager>,
     pub kcm: Arc<KoadComplianceManager>,
     pub skill_registry: Arc<Mutex<SkillRegistry>>,
 }
@@ -54,7 +57,8 @@ impl Engine {
         let asm = Arc::new(AgentSessionManager::new(storage.clone()));
         let context_cache = Arc::new(KoadContextCache::new(redis.clone()));
         let hydration = Arc::new(hydration::KoadHydrationManager::new(Arc::new(redis_ptr)));
-        let identity = Arc::new(KAILeaseManager::new(storage.clone()));
+        let identity = Arc::new(KAILeaseManager::new(storage.clone(), Arc::new(config_local.clone())));
+        let signal = Arc::new(SignalManager::new(storage.clone()));
         let kcm = Arc::new(KoadComplianceManager::new(storage.clone()));
         let skill_registry = Arc::new(Mutex::new(SkillRegistry::new()));
 
@@ -75,6 +79,7 @@ impl Engine {
             context_cache,
             hydration,
             identity,
+            signal,
             kcm,
             skill_registry,
         })

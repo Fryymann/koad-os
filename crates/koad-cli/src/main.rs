@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
 
     // 4.1 Redis Configuration Hydration (Hot Config Override)
     let mut config = config;
-    if config.redis_socket.exists() {
+    if config.get_redis_socket().exists() {
         use koad_core::utils::redis::RedisClient;
         use fred::interfaces::KeysInterface;
         
@@ -59,14 +59,10 @@ async fn main() -> Result<()> {
                 if let Ok(hot_config) = KoadConfig::from_json(&json) {
                     // Merge hot config: preserve local paths, take hot settings
                     let home = config.home.clone();
-                    let redis_socket = config.redis_socket.clone();
-                    let spine_socket = config.spine_socket.clone();
                     let extra = config.extra.clone();
 
                     config = hot_config;
                     config.home = home;
-                    config.redis_socket = redis_socket;
-                    config.spine_socket = spine_socket;
                     // Merge extra fields
                     for (k, v) in extra {
                         config.extra.entry(k).or_insert(v);
@@ -91,7 +87,10 @@ async fn main() -> Result<()> {
 
     // 4.3 Path-Aware Project Context
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    if current_dir.to_string_lossy().contains("skylinks") {
+    if let Some((_name, project)) = config.resolve_project_context(&current_dir) {
+        env::set_var("GITHUB_OWNER", config.get_github_owner(Some(&project)));
+        env::set_var("GITHUB_REPO", config.get_github_repo(Some(&project)));
+    } else if current_dir.to_string_lossy().contains("skylinks") {
         env::set_var("GITHUB_OWNER", "Skylinks-Golf");
         // Only override GITHUB_REPO if we are actually inside an app directory
         if let Some(repo_name) = current_dir.file_name() {

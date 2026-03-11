@@ -3,6 +3,7 @@ members = [
     "crates/koad-core",
     "crates/koad-proto",
     "crates/koad-spine",
+    "crates/koad-watchdog",
     "crates/koad-cli",
     "crates/koad-board",
     "crates/koad-bridge-notion",
@@ -52,3 +53,5 @@ sysinfo = "0.30"
 async-trait = "0.1"
 async-stream = "0.3"
 futures = "0.3"
+config = { version = "0.14", features = ["toml"] }
+toml = "0.8"

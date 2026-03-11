@@ -1,11 +1,12 @@
+use koad_core::config::KoadConfig;
 use crate::engine::storage_bridge::KoadStorageBridge;
 use chrono::{DateTime, Duration, Utc};
-use fred::interfaces::HashesInterface;
+use fred::interfaces::{HashesInterface, LuaInterface};
 use koad_core::storage::StorageBridge;
 use koad_proto::spine::v1::LeaseInfo;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{error, info};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KAILease {
@@ -23,11 +24,12 @@ pub struct KAILease {
 
 pub struct KAILeaseManager {
     storage: Arc<KoadStorageBridge>,
+    config: Arc<KoadConfig>,
 }
 
 impl KAILeaseManager {
-    pub fn new(storage: Arc<KoadStorageBridge>) -> Self {
-        Self { storage }
+    pub fn new(storage: Arc<KoadStorageBridge>, config: Arc<KoadConfig>) -> Self {
+        Self { storage, config }
     }
 
     pub async fn acquire_lease(
@@ -39,8 +41,8 @@ impl KAILeaseManager {
         body_id: &str,
     ) -> anyhow::Result<LeaseInfo> {
         let key = format!("koad:kai:{}:lease", kai_name);
-
-        // 1. Check existing lease
+        
+        // 1. Pre-check for existing lease (Rust side for detailed error reporting)
         let existing: Option<String> = self.storage.redis.pool.hget("koad:state", &key).await?;
         if let Some(data) = existing {
             let lease: KAILease = serde_json::from_str(&data)?;
@@ -60,37 +62,40 @@ impl KAILeaseManager {
         // 2. Sovereign Guardrail (Tyr/Koad/Ian)
         let is_sovereign =
             kai_name == "Tyr" || kai_name == "Koad" || kai_name == "Ian" || kai_name == "TestKoad";
+        
         if is_sovereign && model_tier > 1 {
             anyhow::bail!("COGNITIVE_REJECTION: Sovereign KAI '{}' requires Tier 1 Admin driver. (Requested: Tier {})", kai_name, model_tier);
         }
 
-        // 3. Create/Renew Lease (90s TTL)
-        let expiry = Utc::now() + Duration::seconds(90);
+        // 3. Atomic Commit
+        let expiry_secs = self.config.sessions.lease_duration_secs;
+        let expires_at = Utc::now() + Duration::seconds(expiry_secs as i64);
+
         let lease = KAILease {
             identity_name: kai_name.to_string(),
             session_id: session_id.to_string(),
             driver_id: driver_id.to_string(),
             model_tier,
-            expires_at: expiry,
+            expires_at,
             is_sovereign,
             body_id: body_id.to_string(),
         };
 
-        let _lease_json = serde_json::to_string(&lease)?;
+        // TODO: In v4.2, use Lua script here for 100% atomic HSETNX or session check
         self.storage
             .set_state(&key, serde_json::to_value(&lease)?, Some(model_tier))
             .await?;
 
         info!(
-            "KAI Lease Acquired: {} -> Session {} (Driver: {})",
-            kai_name, session_id, driver_id
+            "KAI Lease Acquired: {} -> Session {} (Duration: {}s)",
+            kai_name, session_id, expiry_secs
         );
 
         Ok(LeaseInfo {
             lock_id: format!("{}:{}", kai_name, session_id),
             expires_at: Some(prost_types::Timestamp {
-                seconds: expiry.timestamp(),
-                nanos: expiry.timestamp_subsec_nanos() as i32,
+                seconds: expires_at.timestamp(),
+                nanos: expires_at.timestamp_subsec_nanos() as i32,
             }),
             is_sovereign,
         })
@@ -111,8 +116,8 @@ impl KAILeaseManager {
     }
 
     pub async fn heartbeat(&self, session_id: &str) -> anyhow::Result<()> {
-        // Find the lease for this session_id (This requires an inverse mapping or scanning)
-        // For efficiency in v4.1, we'll scan the koad:state for koad:kai:*:lease matching this session_id.
+        let expiry_secs = self.config.sessions.lease_duration_secs;
+        
         let all_state: std::collections::HashMap<String, String> =
             self.storage.redis.pool.hgetall("koad:state").await?;
         for (key, val) in all_state {
@@ -120,7 +125,7 @@ impl KAILeaseManager {
                 if let Ok(mut lease) = serde_json::from_str::<KAILease>(&val) {
                     if lease.session_id == session_id {
                         // Extend lease
-                        lease.expires_at = Utc::now() + Duration::seconds(90);
+                        lease.expires_at = Utc::now() + Duration::seconds(expiry_secs as i64);
                         self.storage
                             .set_state(&key, serde_json::to_value(&lease)?, Some(lease.model_tier))
                             .await?;

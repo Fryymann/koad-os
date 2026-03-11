@@ -20,7 +20,7 @@ struct SessionManager {
 
 impl SessionManager {
     async fn new(config: KoadConfig) -> Result<Self> {
-        let redis_url = format!("redis+unix://{}", config.redis_socket.display());
+        let redis_url = format!("redis+unix://{}", config.get_redis_socket().display());
         info!("ASM: Connecting to Redis at {}", redis_url);
         let redis_config = RedisConfig::from_url(&redis_url)?;
 
@@ -49,11 +49,12 @@ impl SessionManager {
         let reaper_config = self.config.clone();
         tokio::spawn(async move {
             info!("ASM: Prune task spawned.");
+            let interval = Duration::from_secs(reaper_config.sessions.dark_timeout_secs / 2);
             loop {
                 if let Err(e) = SessionManager::static_prune(&reaper_pool, &reaper_config).await {
                     error!("ASM: Prune cycle failed: {}", e);
                 }
-                sleep(Duration::from_secs(30)).await;
+                sleep(interval).await;
             }
         });
 
@@ -134,18 +135,18 @@ impl SessionManager {
                         }
 
                         // Rule 1: Deadman Switch (Tier 1 Flatline)
-                        if session.identity.tier == 1 && diff.num_seconds() > 45 && session.status == "active" {
+                        if session.identity.tier == 1 && diff.num_seconds() > config.sessions.deadman_timeout_secs as i64 && session.status == "active" {
                             warn!("ASM ALERT: Tier 1 Agent '{}' Flatline Detected (Age: {}s)!", session.identity.name, diff.num_seconds());
                             deadman_triggered = true;
                         }
 
-                        // Rule 2: Stale Heartbeat (> 5 minutes) -> Purge
-                        if diff.num_seconds() > 300 {
+                        // Rule 2: Stale Heartbeat -> Purge
+                        if diff.num_seconds() > config.sessions.purge_timeout_secs as i64 {
                             info!("ASM Reaper: Queuing purge for stale session {} (Age: {}s)", session.identity.name, diff.num_seconds());
                             to_remove.push(key.clone());
                         } 
-                        // Rule 3: Inactive (> 1 minute) -> Mark Dark
-                        else if diff.num_seconds() > 60 && session.status != "dark" {
+                        // Rule 3: Inactive -> Mark Dark
+                        else if diff.num_seconds() > config.sessions.dark_timeout_secs as i64 && session.status != "dark" {
                             info!("ASM Reaper: Marking session {} as DARK", session.identity.name);
                             let mut updated = session.clone();
                             updated.status = "dark".to_string();
@@ -177,7 +178,7 @@ impl SessionManager {
 
         if deadman_triggered {
             warn!("ASM: Executing Autonomic Emergency Save...");
-            match SpineServiceClient::connect(config.spine_grpc_addr.clone()).await {
+            match SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
                 Ok(mut client) => {
                     if let Err(e) = client.drain_all(tonic::Request::new(Empty {})).await {
                         error!("ASM: Emergency Save FAILED: {}", e);

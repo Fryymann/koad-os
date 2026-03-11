@@ -59,6 +59,12 @@ impl AgentSessionManager {
         Ok(sessions.get(session_id).cloned())
     }
 
+    pub async fn remove_session(&self, session_id: &str) -> anyhow::Result<()> {
+        let mut sessions = self.sessions.lock().await;
+        sessions.remove(session_id);
+        Ok(())
+    }
+
     pub async fn hydrate_from_db(&self) -> anyhow::Result<()> {
         info!("ASM: Hydrating active sessions from Redis...");
         let mut sessions = self.sessions.lock().await;
@@ -277,6 +283,7 @@ impl AgentSessionManager {
 
     pub async fn prune_body_ghosts(
         &self,
+        agent_name: &str,
         driver_id: &str,
         environment: koad_core::types::EnvironmentType,
         new_session_id: &str,
@@ -285,8 +292,9 @@ impl AgentSessionManager {
         let mut ghosts = Vec::new();
 
         for sess in sessions.values() {
-            // Find sessions from same driver/env that aren't the new one
+            // Find sessions from same agent, driver, and environment that aren't the new one
             if sess.session_id != new_session_id
+                && sess.identity.name == agent_name
                 && sess.metadata.get("driver_id").map(|d| d.as_str()).unwrap_or("") == driver_id
                 && sess.environment == environment
             {
@@ -296,7 +304,7 @@ impl AgentSessionManager {
 
         for sid in ghosts {
             if let Some(sess) = sessions.get_mut(&sid) {
-                info!("ASM (Body Enforcement): Pre-empting ghost session {} for driver {}", sid, driver_id);
+                info!("ASM (Body Enforcement): Pre-empting ghost session {} for Agent {} on driver {}", sid, agent_name, driver_id);
                 sess.status = "dark".to_string();
                 
                 // Authoritative update in Redis

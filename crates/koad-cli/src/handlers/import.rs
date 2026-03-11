@@ -93,6 +93,7 @@ pub async fn handle_import(
                         chunk: Some(HotContextChunk {
                             chunk_id,
                             content: format!("### {}\n{}", title, body),
+                            file_path: "".to_string(),
                             ttl_seconds: 0, // Session-persistent
                             created_at: Some(prost_types::Timestamp {
                                 seconds: Utc::now().timestamp(),
