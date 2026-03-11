@@ -22,8 +22,8 @@ pub enum Intent {
 /// Details for a shell command execution.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExecuteIntent {
-    /// The name of the identity executing the command (e.g., "admin", "dood").
-    pub identity: String,
+    /// The unique session ID executing the command.
+    pub session_id: String,
     /// The raw command string to be executed by the shell.
     pub command: String,
     /// Optional arguments passed to the command.
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn test_intent_execute_serialization() {
         let intent = Intent::Execute(ExecuteIntent {
-            identity: "admin".to_string(),
+            session_id: "admin".to_string(),
             command: "ls".to_string(),
             args: vec!["-la".to_string()],
             working_dir: Some(std::env::var("HOME").unwrap_or_else(|_| "/home/ideans".to_string())),
@@ -133,13 +133,13 @@ mod tests {
         let raw_json = json!({
             "type": "execute",
             "data": {
-                "identity": "admin",
+                "session_id": "admin",
                 "command": "ls"
             }
         });
         let deserialized: Intent = serde_json::from_value(raw_json).unwrap();
         if let Intent::Execute(exec) = deserialized {
-            assert_eq!(exec.identity, "admin");
+            assert_eq!(exec.session_id, "admin");
             assert_eq!(exec.command, "ls");
             assert!(exec.args.is_empty());
         } else {

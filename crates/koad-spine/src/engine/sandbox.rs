@@ -1,3 +1,5 @@
+use koad_core::identity::{Identity, Rank};
+
 /// The Sandbox enforces security policies on commands before they are executed by the Spine.
 pub struct Sandbox;
 
@@ -7,22 +9,27 @@ pub enum PolicyResult {
 }
 
 impl Sandbox {
-    /// Evaluates a command against the policies associated with the given identity (role).
-    pub fn evaluate(identity: &str, command: &str) -> PolicyResult {
-        let role = identity.to_lowercase();
-
-        // Admin/Captain has root access, bypasses all checks.
-        if role == "admin" || role == "admiral" || role == "dood" || role == "captain" {
+    /// Evaluates a command against the policies associated with the given identity.
+    pub fn evaluate(identity: &Identity, command: &str) -> PolicyResult {
+        // 1. Credential Bypass: If the identity carries a Sovereign Key, grant full access.
+        if identity.access_keys.contains(&"GITHUB_ADMIN_PAT".to_string()) {
             return PolicyResult::Allowed;
         }
 
+        // 2. Rank-based Bypass (Admiral/Captain)
+        if identity.rank == Rank::Admiral || identity.rank == Rank::Captain {
+            return PolicyResult::Allowed;
+        }
+
+        let role = identity.name.to_lowercase();
+
         // Developer Agent Policies
-        if role == "developer" || role == "pm" || role == "reviewer" {
+        if identity.tier == 2 || role == "developer" || role == "pm" || role == "reviewer" {
             return Self::evaluate_agent_policy(command);
         }
 
         // Chief Officer Policies (Sky / SLE Isolation)
-        if role == "officer" {
+        if identity.rank == Rank::Officer {
             return Self::evaluate_officer_policy(command);
         }
 
@@ -32,7 +39,7 @@ impl Sandbox {
         }
 
         // Default Deny for unknown identities
-        PolicyResult::Denied(format!("Unknown identity role: {}", identity))
+        PolicyResult::Denied(format!("Unauthorized identity: {} (Rank: {:?})", identity.name, identity.rank))
     }
 
     fn evaluate_officer_policy(command: &str) -> PolicyResult {

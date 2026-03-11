@@ -81,6 +81,8 @@ pub struct IdentityConfig {
 pub struct PreferenceConfig {
     pub languages: Vec<String>,
     pub style: String,
+    #[serde(default)]
+    pub access_keys: Vec<String>,
     pub principles: Vec<String>,
 }
 
@@ -155,9 +157,17 @@ impl KoadConfig {
             .map_err(|e| anyhow::anyhow!("Failed to deserialize config: {}", e))
     }
 
-    pub fn resolve_gh_token(&self, project: Option<&ProjectConfig>) -> Result<String> {
+    pub fn resolve_gh_token(&self, project: Option<&ProjectConfig>, identity: Option<&crate::identity::Identity>) -> Result<String> {
         if let Some(p) = project {
             if let Some(key) = &p.credential_key {
+                if let Ok(token) = env::var(key) {
+                    return Ok(token);
+                }
+            }
+        }
+
+        if let Some(id) = identity {
+            for key in &id.access_keys {
                 if let Ok(token) = env::var(key) {
                     return Ok(token);
                 }
@@ -168,7 +178,7 @@ impl KoadConfig {
             .or_else(|_| env::var("GITHUB_ADMIN_PAT"))
             .or_else(|_| env::var("GITHUB_PERSONAL_PAT"))
             .context(
-                "No GitHub PAT found in environment (tried project key, GITHUB_PAT, GITHUB_ADMIN_PAT, GITHUB_PERSONAL_PAT)",
+                "No GitHub PAT found in environment (tried project key, identity access_keys, GITHUB_PAT, GITHUB_ADMIN_PAT, GITHUB_PERSONAL_PAT)",
             )
     }
 

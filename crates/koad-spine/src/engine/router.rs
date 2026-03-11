@@ -4,9 +4,11 @@ use chrono::Utc;
 use fred::interfaces::{
     EventInterface, HashesInterface, PubsubInterface, SetsInterface, StreamsInterface,
 };
+use koad_core::identity::{Identity, Rank};
 use koad_core::intent::{ExecuteIntent, Intent, SessionAction, SystemAction};
 use serde_json::json;
 use std::sync::Arc;
+use tracing::{error, info};
 use uuid::Uuid;
 
 pub struct DirectiveRouter {
@@ -54,8 +56,9 @@ impl DirectiveRouter {
                         Ok(json) => {
                             println!("DirectiveRouter: Falling back to legacy JSON Execute");
                             Intent::Execute(ExecuteIntent {
-                                identity: json["identity"]
+                                session_id: json["session_id"]
                                     .as_str()
+                                    .or_else(|| json["identity"].as_str())
                                     .unwrap_or("unknown")
                                     .to_string(),
                                 command: json["command"].as_str().unwrap_or("").to_string(),
@@ -67,7 +70,7 @@ impl DirectiveRouter {
                         Err(_) => {
                             println!("DirectiveRouter: Falling back to raw string Execute");
                             Intent::Execute(ExecuteIntent {
-                                identity: "admin".to_string(),
+                                session_id: "admin".to_string(),
                                 command: payload_str,
                                 args: vec![],
                                 working_dir: None,
@@ -89,7 +92,7 @@ impl DirectiveRouter {
         match intent {
             Intent::Execute(exec) => {
                 let task_id = Uuid::new_v4().to_string();
-                Self::execute_task(engine, task_id, exec.identity, exec.command).await;
+                Self::execute_task(engine, task_id, exec.session_id, exec.command).await;
             }
             Intent::Governance(gov) => {
                 if let Err(e) = engine.kcm.handle_intent(gov).await {
@@ -128,8 +131,25 @@ impl DirectiveRouter {
         }
     }
 
-    async fn execute_task(engine: Arc<Engine>, task_id: String, identity: String, cmd_str: String) {
+    async fn execute_task(engine: Arc<Engine>, task_id: String, session_id: String, cmd_str: String) {
         let timestamp = Utc::now().timestamp();
+
+        let identity = match engine.asm.get_session(&session_id).await {
+            Ok(Some(sess)) => sess.identity.clone(),
+            _ => {
+                // error!("ExecuteTask: No active session found for id {}", session_id);
+                // Fallback for system-level or legacy tasks that don't have a session yet
+                // But for security, we should ideally fail here in Phase 3.
+                // For now, let's create a "Ghost" identity to allow legacy until full migration.
+                Identity {
+                    name: "ghost".to_string(),
+                    rank: Rank::Crew,
+                    permissions: vec![],
+                    access_keys: vec![],
+                    tier: 3,
+                }
+            }
+        };
 
         // 1. Sandbox Policy Check
         match Sandbox::evaluate(&identity, &cmd_str) {
@@ -137,7 +157,7 @@ impl DirectiveRouter {
                 let error_state = json!({
                     "task_id": task_id,
                     "status": "FAILED",
-                    "error": format!("Policy Violation ({}): {}", identity, reason),
+                    "error": format!("Policy Violation ({}): {}", identity.name, reason),
                     "updated_at": timestamp
                 });
                 let _: () = engine
@@ -178,7 +198,7 @@ impl DirectiveRouter {
         let initial_state = json!({
             "task_id": task_id,
             "command": cmd_str,
-            "identity": identity,
+            "identity": identity.name,
             "status": "RUNNING",
             "updated_at": timestamp
         });

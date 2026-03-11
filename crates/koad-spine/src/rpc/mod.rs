@@ -344,22 +344,43 @@ impl SpineService for KoadSpine {
             .await
             .map_err(|e| Status::permission_denied(e.to_string()))?;
 
-        let rank =
-            if req.agent_name.to_lowercase() == "dood" || req.agent_name.to_lowercase() == "ian" {
-                Rank::Admiral
-            } else {
-                match req.agent_role.to_lowercase().as_str() {
+        let (rank, permissions, access_keys) = {
+            let config = self.engine.identity.get_config();
+            if let Some(id_config) = config.identities.get(&req.agent_name) {
+                let r = match id_config.rank.to_lowercase().as_str() {
                     "admiral" | "dood" => Rank::Admiral,
                     "captain" | "admin" => Rank::Captain,
                     "officer" | "pm" => Rank::Officer,
                     _ => Rank::Crew,
-                }
-            };
+                };
+                let keys = id_config
+                    .preferences
+                    .as_ref()
+                    .map(|p| p.access_keys.clone())
+                    .unwrap_or_default();
+                (r, vec!["all".to_string()], keys)
+            } else {
+                let r = if req.agent_name.to_lowercase() == "dood"
+                    || req.agent_name.to_lowercase() == "ian"
+                {
+                    Rank::Admiral
+                } else {
+                    match req.agent_role.to_lowercase().as_str() {
+                        "admiral" | "dood" => Rank::Admiral,
+                        "captain" | "admin" => Rank::Captain,
+                        "officer" | "pm" => Rank::Officer,
+                        _ => Rank::Crew,
+                    }
+                };
+                (r, vec!["all".to_string()], vec![])
+            }
+        };
 
         let identity = koad_core::identity::Identity {
             name: req.agent_name.clone(),
             rank,
-            permissions: vec!["all".to_string()],
+            permissions,
+            access_keys,
             tier: req.model_tier,
         };
 
