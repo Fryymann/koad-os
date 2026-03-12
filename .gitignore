@@ -26,6 +26,9 @@ release/
 .crates.toml
 .crates2.json
 
+# --- Memory Backups ---
+backups/
+
 # --- Build Artifacts (Node/Web) ---
 node_modules/
 **/node_modules/

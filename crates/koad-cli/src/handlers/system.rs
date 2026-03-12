@@ -9,12 +9,15 @@ use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
 use koad_proto::spine::v1::*;
 use koad_core::utils::redis::RedisClient;
 use fred::interfaces::{KeysInterface, HashesInterface, LuaInterface};
+use fred::types::Scanner;
+use futures_util::StreamExt;
+use std::fs;
 use rusqlite::params;
 use serde_json::Value;
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
-use tracing::warn;
+use tracing::{info, warn};
 
 pub struct RedisLockClient {
     pub socket: PathBuf,
@@ -25,21 +28,25 @@ impl DistributedLock for RedisLockClient {
     async fn lock(&self, sector: &str, agent_name: &str, ttl_secs: u64) -> Result<bool> {
         let client = RedisClient::new(&self.socket.parent().unwrap().to_string_lossy(), false).await?;
         let key = format!("koad:lock:{}", sector);
+        let session_id = env::var("KOAD_SESSION_ID").unwrap_or_else(|_| agent_name.to_string());
+        let val = format!("{}:{}", agent_name, session_id);
 
         let res: Option<String> = client.pool.set(
             &key,
-            agent_name,
+            &val,
             Some(fred::types::Expiration::EX(ttl_secs as i64)),
             Some(fred::types::SetOptions::NX),
             false
         ).await?;
 
-        Ok(res.is_some() || client.pool.get::<Option<String>, _>(&key).await?.as_deref() == Some(agent_name))
+        Ok(res.is_some() || client.pool.get::<Option<String>, _>(&key).await?.as_deref() == Some(&val))
     }
 
     async fn unlock(&self, sector: &str, agent_name: &str) -> Result<bool> {
         let client = RedisClient::new(&self.socket.parent().unwrap().to_string_lossy(), false).await?;
         let key = format!("koad:lock:{}", sector);
+        let session_id = env::var("KOAD_SESSION_ID").unwrap_or_else(|_| agent_name.to_string());
+        let val = format!("{}:{}", agent_name, session_id);
 
         let script = r"
             if redis.call('get', KEYS[1]) == ARGV[1] then
@@ -49,7 +56,7 @@ impl DistributedLock for RedisLockClient {
             end
         ";
 
-        let result: i32 = client.pool.next().eval(script, vec![key], vec![agent_name]).await?;
+        let result: i32 = client.pool.next().eval(script, vec![key], vec![val]).await?;
         Ok(result == 1)
     }
 }
@@ -93,7 +100,7 @@ pub async fn spawn_issue(
         (config.get_github_owner(None), config.get_github_repo(None))
     };
 
-    let token = config.resolve_gh_token(project)?;
+    let token = config.resolve_gh_token(project, None)?;
     let client = koad_board::GitHubClient::new(token, owner.clone(), repo.clone())?;
 
     let body = if let Some(rb) = raw_body {
@@ -168,7 +175,11 @@ pub async fn handle_system_action(
                 match key.as_str() {
                     "github_project_number" => {
                         if let Ok(num) = value.parse::<u32>() {
-                            hot_config.github.default_project_number = num;
+                            if let Some(ref mut g) = hot_config.integrations.github {
+                                g.default_project_number = num;
+                            } else {
+                                anyhow::bail!("GitHub integration not configured in TOML.");
+                            }
                         } else {
                             anyhow::bail!("Invalid number: {}", value);
                         }
@@ -181,14 +192,19 @@ pub async fn handle_system_action(
                 }
 
                 let json = hot_config.to_json()?;
-                let _: () = client.pool.set(koad_core::constants::REDIS_KEY_CONFIG, json, None, None, false).await?;
+                let _: () = client.pool.next().set(koad_core::constants::REDIS_KEY_CONFIG, json, None, None, false).await?;
                 println!(
                     "\x1b[32m[OK]\x1b[0m Config '{}' set to '{}' in Redis.",
                     key, value
                 );
             }
             Some(ConfigAction::Get { key }) => match key.as_str() {
-                "github_project_number" => println!("{}", config.github.default_project_number),
+                "github_project_number" => {
+                    let val = config.integrations.github.as_ref()
+                        .map(|g| g.default_project_number.to_string())
+                        .unwrap_or_else(|| "Not Configured".to_string());
+                    println!("{}", val);
+                }
                 "gateway_addr" => println!("{}", config.network.gateway_addr),
                 "spine_grpc_addr" => println!("{}", config.network.spine_grpc_addr),
                 _ => {
@@ -213,9 +229,15 @@ pub async fn handle_system_action(
                 }
             }
         },
-        SystemAction::Refresh { restart } => {
+        SystemAction::Refresh { restart, confirm } => {
             if !is_admin {
                 anyhow::bail!("Admin only.");
+            }
+
+            if restart && !confirm {
+                println!("\x1b[33m[SAFETY GATE]\x1b[0m Restarting services will terminate active sessions and may cause disruption.");
+                println!("Run with --confirm to proceed with full refresh.");
+                return Ok(());
             }
 
             let lock_client = RedisLockClient {
@@ -305,7 +327,7 @@ pub async fn handle_system_action(
             println!(">>> [1/4] Neuronal Flush (Spine Drain)...");
             match SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
                 Ok(mut client) => {
-                    if let Err(e) = client.drain_all(tonic::Request::new(Empty {})).await {
+                    if let Err(e) = client.drain_all(crate::utils::authenticated_request(Empty {})).await {
                         warn!(
                             "  [FAIL] Neuronal flush failed: {}. Continuing with local save.",
                             e
@@ -495,15 +517,15 @@ pub async fn handle_system_action(
                 .unwrap_or_else(|| {
                     format!(
                         "{}/{}",
-                        config.get_github_owner().unwrap_or_default(),
-                        config.get_github_repo().unwrap_or_default()
+                        config.get_github_owner(None),
+                        config.get_github_repo(None)
                     )
                 })
             } else {
                 format!(
                     "{}/{}",
-                    config.get_github_owner().unwrap_or_default(),
-                    config.get_github_repo().unwrap_or_default()
+                    config.get_github_owner(None),
+                    config.get_github_repo(None)
                 )
             };
 
@@ -561,6 +583,173 @@ pub async fn handle_system_action(
                 }
             }
         }
+        SystemAction::Locks => {
+            let client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
+            let mut scan_stream = client.pool.next().scan("koad:lock:*", None, None);
+            
+            let mut all_keys: Vec<String> = Vec::new();
+            while let Some(res) = scan_stream.next().await {
+                if let Ok(page) = res {
+                    if let Some(keys) = page.results() {
+                        for key in keys {
+                            if let Some(k) = key.as_str() {
+                                all_keys.push(k.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            
+            println!("\n\x1b[1m--- Active Distributed Locks ---\x1b[0m");
+            if all_keys.is_empty() {
+                println!("No active locks found.");
+            } else {
+                println!("{:<20} | {:<30} | {:<10}", "Sector", "Owner:Session", "TTL (s)");
+                println!("{}", "-".repeat(65));
+                for key in all_keys {
+                    let val: String = client.pool.next().get::<Option<String>, _>(&key).await?.unwrap_or_else(|| "unknown".to_string());
+                    let ttl: i64 = client.pool.next().ttl(&key).await?;
+                    let sector = key.replace("koad:lock:", "");
+                    println!("{:<20} | {:<30} | {:<10}", sector, val, ttl);
+                }
+            }
+        }
+        SystemAction::Reconnect { agent, live } => {
+            let session_id = env::var("KOAD_SESSION_ID").unwrap_or_default();
+            let body_id = env::var("KOAD_BODY_ID").unwrap_or_default();
+            
+            // If live is requested but no SID, fail early
+            if live && session_id.is_empty() {
+                anyhow::bail!("Live reconnection failed: KOAD_SESSION_ID not set in environment.");
+            }
+
+            let target_agent = agent.unwrap_or_else(|| config.get_agent_name());
+
+            if live {
+                println!(">>> [LIVE RE-SYNC] Re-linking session {} for agent {}...", session_id, target_agent);
+            } else {
+                println!(">>> [RECONNECT] Searching for Ghost: {}...", target_agent);
+            }
+            
+            let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await?;
+            let req = ReconnectSessionRequest {
+                agent_name: target_agent.clone(),
+                body_id: body_id.clone(),
+                session_id: if live { session_id.clone() } else { "".to_string() },
+            };
+
+            let res = client.reconnect_session(req).await;
+            
+            match res {
+                Ok(resp) => {
+                    let pkg = resp.into_inner();
+                    let sid = pkg.session_id;
+                    let identity: koad_core::identity::Identity = serde_json::from_str(&pkg.identity_json)?;
+                    
+                    // Recover body_id from session if not in environment
+                    let bid = if body_id.is_empty() {
+                        body_id 
+                    } else {
+                        body_id
+                    };
+
+                    if live {
+                        println!("\n\x1b[32m--- KoadOS Live Connection RESTORED ---\x1b[0m");
+                        println!("Agent:    {}", target_agent);
+                        println!("Session:  {}", sid);
+                    } else {
+                        println!("\n\x1b[32m--- KoadOS Neural Link RE-ESTABLISHED ---\x1b[0m");
+                        println!("Agent:    {}", target_agent);
+                        println!("Rank:     {:?}", identity.rank);
+                        println!("Session:  {}", sid);
+                        println!("Body:     {}", bid);
+                        println!("\nShell:    Run `export KOAD_SESSION_ID={} KOAD_BODY_ID={}` to bind this shell.", sid, bid);
+                    }
+                    
+                    if let Some(intel) = pkg.intelligence {
+                        println!("\n\x1b[1mBrain Refreshed:\x1b[0m");
+                        println!("{}", intel.mission_briefing);
+                    }
+                },
+                Err(e) => {
+                    anyhow::bail!("Reconnection Failed: {}. Try a fresh `koad boot`.", e.message());
+                }
+            }
+        }
+        SystemAction::Backup { source } => {
+            if !is_admin {
+                anyhow::bail!("Admin only.");
+            }
+            let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await?;
+            let req = TriggerBackupRequest { source };
+            let res = client.trigger_backup(crate::utils::authenticated_request(req)).await?.into_inner();
+            
+            if res.success {
+                println!("\x1b[32m[OK]\x1b[0m {}", res.message);
+                println!("Backup ID: {}", res.backup_id);
+            } else {
+                println!("\x1b[31m[ERROR]\x1b[0m {}", res.message);
+            }
+        }
+        SystemAction::Logs { service, tail, follow } => {
+            let log_dir = config.home.join("logs");
+            let service_filter = service.as_deref().unwrap_or("");
+            
+            let log_files = fs::read_dir(&log_dir)?
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.is_file() && 
+                    p.extension().and_then(|s| s.to_str()) == Some("log") &&
+                    p.file_name().and_then(|s| s.to_str()).map(|s| s.contains(service_filter)).unwrap_or(false)
+                })
+                .collect::<Vec<_>>();
+            
+            if log_files.is_empty() {
+                anyhow::bail!("No matching log files found in {:?} (Filter: '{}')", log_dir, service_filter);
+            }
+            
+            let latest_log = log_files.iter().max_by_key(|p| {
+                fs::metadata(p).and_then(|m| m.modified()).ok()
+            });
+            
+            if let Some(path) = latest_log {
+                let mut args = vec!["-n".to_string(), tail.to_string()];
+                if follow {
+                    args.push("-f".to_string());
+                }
+                args.push(path.to_string_lossy().to_string());
+                
+                println!(">>> Tailing log: {:?}", path);
+                let mut child = Command::new("tail")
+                    .args(args)
+                    .spawn()?;
+                let _ = child.wait();
+            }
+        }
+        SystemAction::Stop { drain, confirm } => {
+            if !is_admin {
+                anyhow::bail!("Admin only.");
+            }
+            
+            if !confirm {
+                println!("\x1b[33m[SAFETY GATE]\x1b[0m This will shut down the KoadOS Spine and all background services.");
+                println!("Run with --confirm to proceed.");
+                return Ok(());
+            }
+            
+            if drain {
+                println!(">>> [1/2] Neuronal Flush (Spine Drain)...");
+                if let Ok(mut client) = SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
+                    let _ = client.drain_all(crate::utils::authenticated_request(Empty {})).await;
+                }
+            }
+            
+            println!(">>> [2/2] Terminating KoadOS Core...");
+            let _ = Command::new("pkill").arg("koad-spine").status();
+            let _ = Command::new("pkill").arg("koad-watchdog").status();
+            println!("\x1b[32m[OK]\x1b[0m System halted.");
+        }
         SystemAction::Context { action } => {
             handle_context_action(action, config, db, agent_name).await?;
         }
@@ -587,21 +776,32 @@ pub async fn handle_system_action(
             if daemon {
                 // Heartbeat Daemon: Subconscious Neural Pulse
                 loop {
-                    let mut req = tonic::Request::new(Empty {});
-                    req.metadata_mut().insert("x-session-id", session_id.parse()?);
-
-                    if let Err(e) = client.heartbeat(req).await {
+                    if let Err(e) = client.heartbeat(crate::utils::authenticated_request(Empty {})).await {
                         warn!("Heartbeat failure for session {}: {}. Attempting re-connection...", session_id, e);
-                        if let Ok(c) = SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
+
+                        // 1. Re-connect to gRPC
+                        if let Ok(mut c) = SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
+                            // 2. If session is unknown to Spine (e.g. Spine rebooted), trigger Live Reconnect
+                            if e.code() == tonic::Code::NotFound || e.code() == tonic::Code::Unavailable {
+                                let agent_name = config.get_agent_name();
+                                let body_id = env::var("KOAD_BODY_ID").unwrap_or_default();
+                                let rec_req = ReconnectSessionRequest {
+                                    agent_name,
+                                    body_id,
+                                    session_id: session_id.clone(),
+                                };
+                                if let Ok(_) = c.reconnect_session(rec_req).await {
+                                    info!("Subconscious Recovery: Session {} re-linked to Spine.", session_id);
+                                }
+                            }
                             client = c;
                         }
                     }
                     tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                 }
-            } else {
-                let mut req = tonic::Request::new(Empty {});
-                req.metadata_mut().insert("x-session-id", session_id.parse()?);
-                client.heartbeat(req).await?;
+            }
+ else {
+                client.heartbeat(crate::utils::authenticated_request(Empty {})).await?;
                 println!("\x1b[32m[OK]\x1b[0m Heartbeat transmitted for session {}.", session_id);
             }
             Ok(())
@@ -664,7 +864,7 @@ pub async fn handle_system_action(
                 }),
             };
 
-            let res = client.hydrate_context(req).await?.into_inner();
+            let res = client.hydrate_context(crate::utils::authenticated_request(req)).await?.into_inner();
             if res.success {
                 println!(
                     "\x1b[32m[OK]\x1b[0m Context Hydrated for session {}. Current size: {} bytes.",
@@ -675,10 +875,27 @@ pub async fn handle_system_action(
                     "\x1b[31m[ERROR]\x1b[0m Hydration Failed: {}", res.error);
             }
         }
-        crate::cli::ContextAction::Flush { session: _ } => {
-            // Flush implementation to be added to Spine and called here.
+        crate::cli::ContextAction::Flush { session, confirm } => {
+            if !confirm {
+                println!("\x1b[33m[SAFETY GATE]\x1b[0m This will purge all volatile hot context for the target session. This action is irreversible.");
+                println!("Run with --confirm to proceed.");
+                return Ok(());
+            }
+            let target_sid = if let Some(s) = session {
+                s
+            } else {
+                env::var("KOAD_SESSION_ID").context("KOAD_SESSION_ID not set. Provide --session ID.")?
+            };
+
+            client
+                .flush_context(crate::utils::authenticated_request(FlushContextRequest {
+                    session_id: target_sid.clone(),
+                }))
+                .await?;
+
             println!(
-                "\x1b[33m[STUB]\x1b[0m Context Flush logic energized. (Requires Spine refresh)."
+                "\x1b[32m[OK]\x1b[0m Hot context flushed for session {}.",
+                target_sid
             );
         }
         crate::cli::ContextAction::List { agent } => {

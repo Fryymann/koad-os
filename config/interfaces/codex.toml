@@ -1,0 +1,9 @@
+[interfaces.codex]
+name = "codex"
+bootstrap = "~/.koad-os/bodies/codex/BOOT.md"
+mcp_enabled = false
+tools = [
+    "run_shell_command",
+    "read_file",
+    "write_file"
+]

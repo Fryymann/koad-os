@@ -1,0 +1,31 @@
+syntax = "proto3";
+package koad.skill;
+
+service SkillService {
+    // The Kernel calls this to run a specific skill
+    rpc Run(RunRequest) returns (stream RunUpdate);
+    
+    // Skills can report status or metrics back to the Kernel
+    rpc ReportStatus(StatusUpdate) returns (Empty);
+}
+
+message RunRequest {
+    string skill_id = 1;
+    string input = 2;
+    map<string, string> context = 3;
+}
+
+message RunUpdate {
+    string skill_id = 1;
+    string output = 2;
+    double progress = 3; // 0.0 to 1.0
+    bool finished = 4;
+}
+
+message StatusUpdate {
+    string skill_id = 1;
+    string status = 2;
+    map<string, string> metrics = 3;
+}
+
+message Empty {}

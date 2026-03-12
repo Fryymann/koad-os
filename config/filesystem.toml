@@ -1,0 +1,8 @@
+[filesystem]
+workspace_symlink = "/home/ideans/data"
+
+[filesystem.mappings]
+data = "/mnt/c/data"
+projects = "/mnt/c/data/projects"
+skylinks = "/mnt/c/data/skylinks"
+personal = "/mnt/c/data/personal"

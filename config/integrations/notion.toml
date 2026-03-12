@@ -1,0 +1,12 @@
+[integrations.notion]
+mcp = false
+[integrations.notion.index]
+koad = "30cfe8ec-ae8f-808b-8eff-fa75e1cb0572"
+stream = "310fe8ec-ae8f-8046-9172-000bfe5966cd"
+stream_db = "310fe8ec-ae8f-80ba-9cbb-f31731d396d4"
+noti = "295fe8ec-ae8f-805d-a0c8-e44bf3bbef0b"
+projects = "1f4300ee-bd64-41cf-a85e-94e8ee7e485e"
+projects_db = "2b5cf778-395b-4ac8-8775-b6b80c3cdf2f"
+memories = "420f889b-7284-4658-ba62-fc57370f614f"
+memories_db = "ae366b72-8cd2-4da2-a242-a1f2d6cae343"
+skylinks = "2db6d4b3-5385-4a6b-9d38-2ef099b7a09e"

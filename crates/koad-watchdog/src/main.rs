@@ -6,7 +6,6 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 use koad_core::logging::init_logging;
-use sysinfo::System;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -28,12 +27,6 @@ async fn main() -> anyhow::Result<()> {
             health_ok = false;
         }
 
-        // 2. Check ASM Process (if enabled)
-        if config.watchdog.monitor_asm && !check_asm() {
-            warn!("ASM daemon process not found.");
-            health_ok = false;
-        }
-
         if health_ok {
             if failures > 0 {
                 info!("System health restored. Resetting failure counter.");
@@ -45,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
 
             if failures >= max_failures {
                 error!("CRITICAL: System unresponsive. Initiating autonomic reboot...");
-                reboot_spine(&config);
+                reboot_spine(&config).await;
                 failures = 0; 
                 sleep(Duration::from_secs(10)).await;
             }
@@ -57,27 +50,34 @@ async fn main() -> anyhow::Result<()> {
 
 async fn check_spine(config: &KoadConfig) -> anyhow::Result<()> {
     let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await?;
-    let _ = client.heartbeat(tonic::Request::new(Empty {})).await?;
+    let mut request = tonic::Request::new(Empty {});
+    // Use system key for health check
+    request.metadata_mut().insert("x-system-key", "citadel-core".parse().unwrap());
+    let _ = client.heartbeat(request).await?;
     Ok(())
 }
 
-fn check_asm() -> bool {
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    sys.processes()
-        .values()
-        .any(|p| p.name().contains("koad-asm"))
-}
+async fn reboot_spine(config: &KoadConfig) {
+    info!("Watchdog: Attempting graceful drain before reboot...");
+    if let Ok(mut client) = SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
+        let mut request = tonic::Request::new(Empty {});
+        request.metadata_mut().insert("x-system-key", "citadel-core".parse().unwrap());
+        let _ = client.drain_all(request).await;
+    }
 
-fn reboot_spine(config: &KoadConfig) {
-    info!("Watchdog: Purging stale processes...");
-    let _ = Command::new("pkill").arg("-9").arg("kspine").status();
-    let _ = Command::new("pkill").arg("-9").arg("koad-asm").status();
+    info!("Watchdog: Terminating Spine process...");
+    let _ = Command::new("pkill").arg("koad-spine").status();
     
-    let bin_path = config.home.join("bin/kspine");
+    // Wait for graceful exit
+    sleep(Duration::from_secs(5)).await;
+
+    // Fallback to SIGKILL
+    let _ = Command::new("pkill").arg("-9").arg("koad-spine").status();
+    
+    let bin_path = config.home.join("bin/koad-spine");
     let log_path = config.home.join("logs/watchdog_recovery.log");
 
-    info!("Watchdog: Respawning kspine...");
+    info!("Watchdog: Respawning Spine...");
     if let Ok(file) = std::fs::File::create(&log_path) {
         let _ = Command::new("nohup")
             .arg(&bin_path)
@@ -85,14 +85,12 @@ fn reboot_spine(config: &KoadConfig) {
             .stdout(std::process::Stdio::from(file.try_clone().unwrap()))
             .stderr(std::process::Stdio::from(file))
             .spawn();
-        info!("Watchdog: kspine respawned. Recovery log at {:?}", log_path);
+        info!("Watchdog: Spine respawned. Recovery log at {:?}", log_path);
     } else {
         let _ = Command::new("nohup")
             .arg(&bin_path)
             .env("KOAD_HOME", &config.home)
             .spawn();
-        warn!("Watchdog: kspine respawned (log file creation failed).");
+        warn!("Watchdog: Spine respawned (log file creation failed).");
     }
-    
-    // ASM is usually spawned by Spine kernel, but we give it a moment
 }

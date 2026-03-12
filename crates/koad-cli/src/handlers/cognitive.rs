@@ -1,9 +1,8 @@
 use crate::db::KoadDB;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use koad_core::config::KoadConfig;
 use koad_core::utils::redis::RedisClient;
 use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
-use koad_proto::spine::v1::*;
 use fred::interfaces::HashesInterface;
 use std::env;
 use sysinfo::System;
@@ -19,7 +18,7 @@ pub async fn handle_cognitive_check(
     // --- Layer 1: Tethering ---
     let session_id = env::var("KOAD_SESSION_ID").unwrap_or_default();
     if !session_id.is_empty() {
-        match SpineServiceClient::connect(config.spine_grpc_addr.clone()).await {
+        match SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
             Ok(_) => println!("[32m[PASS][0m L1: Tethered (Session: {})[0m", &session_id[..8]),
             Err(_) => println!("[31m[FAIL][0m L1: Spine Disconnected"),
         }
@@ -28,7 +27,7 @@ pub async fn handle_cognitive_check(
     }
 
     // --- Layer 2: Hot Memory ---
-    let mut client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
+    let client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
     let context_key = format!("koad:session:{}:hot_context", session_id);
     let chunks: std::collections::HashMap<String, String> = client.pool.hgetall(&context_key).await.unwrap_or_default();
     

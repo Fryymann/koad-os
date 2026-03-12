@@ -1,7 +1,6 @@
 #![allow(dead_code, unused_imports, clippy::type_complexity)]
 
 mod cli;
-mod config_legacy;
 mod db;
 mod handlers;
 mod utils;
@@ -9,12 +8,14 @@ mod utils;
 use anyhow::{Context, Result};
 use clap::Parser;
 use koad_core::config::KoadConfig;
+use koad_core::utils::redis::RedisClient;
+use koad_core::session::AgentSession;
+use fred::interfaces::HashesInterface;
 use koad_core::logging::init_logging;
 use std::env;
 use std::path::PathBuf;
 
-use crate::cli::{Cli, Commands, SystemAction};
-use crate::config_legacy::KoadLegacyConfig;
+use crate::cli::{AsmAction, Cli, Commands, SystemAction, WatchdogAction};
 use crate::db::KoadDB;
 use crate::handlers::boot::handle_boot_command;
 use crate::handlers::bridge::handle_bridge_action;
@@ -23,6 +24,41 @@ use crate::handlers::intel::handle_intel_action;
 use crate::handlers::status::handle_status_command;
 use crate::handlers::system::handle_system_action;
 use crate::utils::{detect_model_tier, feature_gate, pre_flight, PreFlightStatus};
+use std::collections::HashMap;
+
+async fn handle_asm_action(action: AsmAction, config: &KoadConfig) -> Result<()> {
+    match action {
+        AsmAction::Status => {
+            let redis_client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
+            let sessions: HashMap<String, String> = redis_client.pool.hgetall("koad:state").await?;
+            
+            let mut active_count = 0;
+            let mut dark_count = 0;
+            
+            println!("\n\x1b[1m--- Agent Session Manager (ASM) Status ---\x1b[0m");
+            for (key, val) in sessions {
+                if key.starts_with("koad:session:") {
+                    if let Ok(session) = serde_json::from_str::<koad_core::session::AgentSession>(&val) {
+                        if session.status == "active" { active_count += 1; }
+                        else if session.status == "dark" { dark_count += 1; }
+                    }
+                }
+            }
+            
+            println!("Active Sessions: {}", active_count);
+            println!("Dark Sessions:   {}", dark_count);
+            println!("Total Tracked:   {}", active_count + dark_count);
+            println!("\nIntegrated Reaper: \x1b[32mACTIVE\x1b[0m (via Spine)");
+        }
+        AsmAction::Prune => {
+            println!(">>> Triggering manual session prune cycle...");
+            let _client = koad_proto::spine::v1::spine_service_client::SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await?;
+            // Spine reaper is internal, but we can trigger a system-wide health check/refresh
+            println!("\x1b[33m[NOTE]\x1b[0m Spine integrated reaper runs every 10s. Manual trigger not required.");
+        }
+    }
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -31,21 +67,17 @@ async fn main() -> Result<()> {
     let role = cli.role.clone();
     let _is_admin = role == "admin";
 
-    // 1. Legacy Config (Bio/Persona)
-    let legacy_config = KoadLegacyConfig::load(&config.home.join("koad.json"))?;
-
-    // 2. Determine Agent Name for Logging
+    // 1. Determine Agent Name
     let agent_name = match &cli.command {
         Commands::Boot { agent, .. } => agent.clone(),
-        _ => legacy_config.identity.name.clone(),
+        _ => config.get_agent_name(),
     };
 
-
-    // 3. Logging
+    // 2. Logging
     let log_dir = Some(config.home.join("logs"));
     let _guard = init_logging(&agent_name, log_dir);
 
-    // 4. Database
+    // 3. Database
     let db = KoadDB::new(&config.get_db_path())?;
 
     // 4.1 Redis Configuration Hydration (Hot Config Override)
@@ -72,11 +104,18 @@ async fn main() -> Result<()> {
         }
     }
 
-    // 4.2 Role Resolution (Auto-lookup for non-Koad agents if default is used)
+    // 4.2 Role Resolution (Auto-lookup for non-sovereign agents if default is used)
     let mut role = cli.role.clone();
     if role == "admin" {
         if let Commands::Boot { ref agent, .. } = cli.command {
-            if agent != "Koad" && agent != "Tyr" {
+            let is_sovereign = if let Some(id_config) = config.identities.get(agent) {
+                let r = id_config.rank.to_lowercase();
+                r == "admiral" || r == "captain"
+            } else {
+                agent == "Tyr" || agent == "Vigil"
+            };
+
+            if !is_sovereign {
                 if let Ok(Some(db_role)) = db.get_primary_role(agent) {
                     role = db_role;
                 }
@@ -111,7 +150,24 @@ async fn main() -> Result<()> {
             compact,
             force,
         } => {
-            handle_boot_command(agent, project, task, compact, force, role, &config, &legacy_config)
+            // Pre-boot sovereign check
+            let is_authorized = if let Some(id_config) = config.identities.get(&agent) {
+                let r = id_config.rank.to_lowercase();
+                r == "admiral" || r == "captain" || r == "officer" || r == "dood" || r == "admin"
+            } else {
+                // Fallback for legacy or recognized agents
+                agent == "Tyr" || agent == "Dood" || agent == "Vigil" || agent == "Sky"
+            };
+
+            if !is_authorized {
+                anyhow::bail!(
+                    "\x1b[31mREJECTION\x1b[0m: Agent '{}' is not a registered Sovereign KAI. \
+                     Only Officers and Captains can be booted as primary ghosts.",
+                    agent
+                );
+            }
+
+            handle_boot_command(agent, project, task, compact, force, role, &config)
                 .await?;
         }
         Commands::System { action } => match action {
@@ -136,13 +192,13 @@ async fn main() -> Result<()> {
                     &db,
                     role,
                     is_admin,
-                    &legacy_config.identity.name,
+                    &agent_name,
                 )
                 .await?;
             }
         },
         Commands::Intel { action } => {
-            handle_intel_action(action, &config, &db, &legacy_config.identity.name).await?;
+            handle_intel_action(action, &config, &db, &agent_name).await?;
         }
         Commands::Fleet { action } => {
             handle_fleet_action(action, &config, &db).await?;
@@ -151,7 +207,16 @@ async fn main() -> Result<()> {
             handle_bridge_action(action, &config, &db).await?;
         }
         Commands::Signal { action } => {
-            crate::handlers::signal::handle_signal_action(action, &config, &legacy_config.identity.name).await?;
+            crate::handlers::signal::handle_signal_action(action, &config, &agent_name).await?;
+        }
+        Commands::Version => {
+            println!("KoadOS CLI v{}", env!("CARGO_PKG_VERSION"));
+            // Try to query Spine version if possible
+            if let Ok(mut client) = koad_proto::spine::v1::spine_service_client::SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
+                if let Ok(resp) = client.get_system_state(koad_proto::spine::v1::GetSystemStateRequest {}).await {
+                    println!("KoadOS Spine v{}", resp.into_inner().version);
+                }
+            }
         }
         Commands::Board { action } => {
             crate::handlers::board::handle_board(action, &config).await?;
@@ -171,15 +236,28 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Whoami => {
-            println!(
-                "Identity: {} [{}]\nBio:      {}",
-                legacy_config.identity.name,
-                legacy_config.identity.role,
-                legacy_config.identity.bio
-            );
+            crate::handlers::whoami::handle_whoami(&config, &db).await?;
         }
         Commands::Cognitive => {
-            crate::handlers::cognitive::handle_cognitive_check(&config, &db, &legacy_config.identity.name).await?;
+            let session_id = std::env::var("KOAD_SESSION_ID").unwrap_or_default();
+            let final_agent_name = if !session_id.is_empty() {
+                let redis_client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
+                let session_key = format!("koad:session:{}", session_id);
+                let res: Option<String> = redis_client.pool.hget("koad:state", &session_key).await?;
+                
+                res.and_then(|data| {
+                    serde_json::from_str::<koad_core::session::AgentSession>(&data).ok()
+                })
+                .map(|s| s.identity.name)
+                .unwrap_or_else(|| agent_name.clone())
+            } else {
+                agent_name.clone()
+            };
+
+            crate::handlers::cognitive::handle_cognitive_check(&config, &db, &final_agent_name).await?;
+        }
+        Commands::Asm { action } => {
+            handle_asm_action(action, &config).await?;
         }
         Commands::Logout { session } => {
             crate::handlers::boot::handle_logout_command(session, &config).await?;
@@ -187,23 +265,68 @@ async fn main() -> Result<()> {
         Commands::Dash => {
             crate::handlers::status::handle_status_command(false, true, &config, &db).await?;
         }
-        Commands::Watchdog { daemon } => {
+        Commands::Watchdog { action, daemon } => {
             let home = config.home.clone();
             let bin_path = home.join("bin/koad-watchdog");
-            if !bin_path.exists() {
-                anyhow::bail!("Watchdog binary not found at {:?}", bin_path);
-            }
-
-            if daemon {
-                println!(">>> Launching Autonomic Watchdog daemon...");
-                let _ = std::process::Command::new("nohup")
-                    .arg(bin_path)
-                    .env("KOAD_HOME", &home)
-                    .spawn()?;
-            } else {
-                let mut cmd = std::process::Command::new(bin_path);
-                cmd.env("KOAD_HOME", &home);
-                cmd.status()?;
+            
+            match action {
+                Some(WatchdogAction::Start { daemon: start_daemon }) => {
+                    if !bin_path.exists() {
+                        anyhow::bail!("Watchdog binary not found at {:?}", bin_path);
+                    }
+                    if start_daemon {
+                        println!(">>> Launching Autonomic Watchdog daemon...");
+                        let _ = std::process::Command::new("nohup")
+                            .arg(bin_path)
+                            .env("KOAD_HOME", &home)
+                            .spawn()?;
+                    } else {
+                        let mut cmd = std::process::Command::new(bin_path);
+                        cmd.env("KOAD_HOME", &home);
+                        cmd.status()?;
+                    }
+                },
+                Some(WatchdogAction::Status) => {
+                    use sysinfo::System;
+                    let mut sys = System::new_all();
+                    sys.refresh_all();
+                    let watchdog_procs: Vec<_> = sys.processes()
+                        .values()
+                        .filter(|p| p.name().contains("koad-watchdog"))
+                        .collect();
+                    
+                    if watchdog_procs.is_empty() {
+                        println!("Watchdog: \x1b[31mSTOPPED\x1b[0m");
+                    } else {
+                        println!("Watchdog: \x1b[32mRUNNING\x1b[0m");
+                        for p in watchdog_procs {
+                            println!("  - PID: {} | Uptime: {}s", p.pid(), p.run_time());
+                        }
+                    }
+                },
+                Some(WatchdogAction::Stop) => {
+                    println!(">>> Stopping Autonomic Watchdog...");
+                    let _ = std::process::Command::new("pkill")
+                        .arg("koad-watchdog")
+                        .status()?;
+                },
+                None => {
+                    // Legacy support for 'koad watchdog --daemon'
+                    if !bin_path.exists() {
+                        anyhow::bail!("Watchdog binary not found at {:?}", bin_path);
+                    }
+                    if daemon {
+                        println!(">>> Launching Autonomic Watchdog daemon...");
+                        let _ = std::process::Command::new("nohup")
+                            .arg(bin_path)
+                            .env("KOAD_HOME", &home)
+                            .spawn()?;
+                    } else {
+                        let mut cmd = std::process::Command::new(bin_path);
+                        cmd.env("KOAD_HOME", &home);
+                        cmd.status()?;
+                    }
+                }
             }
         }
     }

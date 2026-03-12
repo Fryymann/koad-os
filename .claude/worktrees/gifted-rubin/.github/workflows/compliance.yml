@@ -1,0 +1,36 @@
+name: KoadOS v3 Compliance & Health
+
+on:
+  push:
+    branches: [ pre-v3, main ]
+  pull_request:
+    branches: [ pre-v3, main ]
+
+jobs:
+  compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Workspace Health Check
+        run: cargo check --workspace
+
+      - name: Git Compliance Check
+        run: |
+          # Verify no forbidden files are tracked
+          forbidden=("redis.pid" "*.sock" "koad.db" "venv/")
+          for pattern in "${forbidden[@]}"; do
+            if git ls-files | grep -q "$pattern"; then
+              echo "Error: Forbidden pattern '$pattern' found in git index."
+              exit 1
+            fi
+          done
+          echo "Repository hygiene verified."

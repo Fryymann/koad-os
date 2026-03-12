@@ -2,8 +2,21 @@
 pub const DEFAULT_GATEWAY_PORT: u32 = 3000;
 pub const DEFAULT_GATEWAY_ADDR: &str = "0.0.0.0:3000";
 
-pub const DEFAULT_GITHUB_OWNER: &str = "DoodzCode";
+pub const DEFAULT_GITHUB_OWNER: &str = "Fryymann";
 pub const DEFAULT_GITHUB_REPO: &str = "koad-os";
+pub const DEFAULT_GITHUB_PROJECT_NUMBER: u32 = 2;
+
+/// Session & Reaper Defaults
+pub const DEFAULT_REAPER_INTERVAL_SECS: u64 = 10;
+pub const DEFAULT_LEASE_DURATION_SECS: u64 = 90;
+pub const DEFAULT_DARK_TIMEOUT_SECS: u64 = 60;
+pub const DEFAULT_PURGE_TIMEOUT_SECS: u64 = 300;
+pub const DEFAULT_DEADMAN_TIMEOUT_SECS: u64 = 45;
+
+/// Backup Paths (Relative to KOAD_HOME)
+pub const BACKUP_DIR_SQLITE: &str = "backups/sqlite";
+pub const BACKUP_DIR_REDIS: &str = "backups/redis";
+pub const BACKUP_DIR_SYSTEM: &str = "backups/system";
 
 /// Default address for the KoadOS Spine gRPC service
 pub const DEFAULT_SPINE_GRPC_PORT: u32 = 50051;

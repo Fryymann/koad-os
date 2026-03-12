@@ -11,8 +11,8 @@ pub async fn handle_signal_action(
     config: &KoadConfig,
     agent_name: &str,
 ) -> Result<()> {
-    let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone()).await?;
-    let session_id = env::var("KOAD_SESSION_ID").unwrap_or_else(|_| agent_name.to_string());
+    let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await?;
+    let _session_id = env::var("KOAD_SESSION_ID").unwrap_or_else(|_| agent_name.to_string());
 
     match action {
         SignalAction::Send { target, message, priority } => {
@@ -23,25 +23,19 @@ pub async fn handle_signal_action(
                 _ => SignalPriority::Standard,
             };
 
-            let mut req = tonic::Request::new(SendSignalRequest {
+            client.send_signal(crate::utils::authenticated_request(SendSignalRequest {
                 target_agent: target.clone(),
                 message,
                 priority: p as i32,
                 metadata: HashMap::new(),
-            });
-            req.metadata_mut().insert("x-session-id", session_id.parse()?);
-
-            client.send_signal(req).await?;
+            })).await?;
             println!("Signal dispatched to {}.", target);
         }
         SignalAction::List { all: _all } => {
-            let mut req = tonic::Request::new(GetSignalsRequest {
+            let res = client.get_signals(crate::utils::authenticated_request(GetSignalsRequest {
                 agent_name: agent_name.to_string(),
                 filter_status: SignalStatus::Pending as i32,
-            });
-            req.metadata_mut().insert("x-session-id", session_id.parse()?);
-
-            let res = client.get_signals(req).await?.into_inner();
+            })).await?.into_inner();
             if res.signals.is_empty() {
                 println!("No pending signals for {}.", agent_name);
             } else {
@@ -53,13 +47,10 @@ pub async fn handle_signal_action(
             }
         }
         SignalAction::Read { id } => {
-            let mut req = tonic::Request::new(GetSignalsRequest {
+            let res = client.get_signals(crate::utils::authenticated_request(GetSignalsRequest {
                 agent_name: agent_name.to_string(),
                 filter_status: SignalStatus::Pending as i32,
-            });
-            req.metadata_mut().insert("x-session-id", session_id.clone().parse()?);
-            
-            let res = client.get_signals(req).await?.into_inner();
+            })).await?.into_inner();
             
             if let Some(sig) = res.signals.into_iter().find(|s| s.id.starts_with(&id)) {
                 println!("--- Signal {} ---", sig.id);
@@ -68,23 +59,19 @@ pub async fn handle_signal_action(
                 println!("Message:  {}", sig.message);
                 
                 // Mark as read
-                let mut update_req = tonic::Request::new(UpdateSignalStatusRequest {
+                client.update_signal_status(crate::utils::authenticated_request(UpdateSignalStatusRequest {
                     signal_id: sig.id,
                     status: SignalStatus::Read as i32,
-                });
-                update_req.metadata_mut().insert("x-session-id", session_id.parse()?);
-                client.update_signal_status(update_req).await?;
+                })).await?;
             } else {
                 println!("Signal not found.");
             }
         }
         SignalAction::Archive { id } => {
-             let mut update_req = tonic::Request::new(UpdateSignalStatusRequest {
+            client.update_signal_status(crate::utils::authenticated_request(UpdateSignalStatusRequest {
                 signal_id: id,
                 status: SignalStatus::Archived as i32,
-            });
-            update_req.metadata_mut().insert("x-session-id", session_id.parse()?);
-            client.update_signal_status(update_req).await?;
+            })).await?;
             println!("Signal archived.");
         }
     }

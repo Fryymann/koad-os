@@ -1,0 +1,36 @@
+{
+  "learnings": [
+    {
+      "date": "2026-02-22",
+      "observation": "JSON indexing allows agents to query context without reading massive Markdown files",
+      "category": "Technical",
+      "call_id": "SAVEUP-20260222-195721Z",
+      "why_it_matters": "Recorded via CLI saveup.",
+      "behavior_update": "Updated behavior for future sessions."
+    },
+    {
+      "date": "2026-02-22",
+      "observation": "Decoupling agent orchestration into a global CLI enables consistent operations across any project workspace.",
+      "category": "Process",
+      "call_id": "SAVEUP-20260222-195807Z",
+      "why_it_matters": "Recorded via CLI saveup.",
+      "behavior_update": "Updated behavior for future sessions."
+    },
+    {
+      "date": "2026-02-22",
+      "observation": "Programmatic memory access via JSON sidecars allows for precise context retrieval without high token overhead.",
+      "category": "Process",
+      "call_id": "SAVEUP-20260222-195807Z",
+      "why_it_matters": "Recorded via CLI saveup.",
+      "behavior_update": "Updated behavior for future sessions."
+    },
+    {
+      "date": "2026-02-22",
+      "observation": "Ian Deans' 'Operator-Engineer' role prioritizes 'Operational Continuity' and documentation quality.",
+      "category": "Operational",
+      "call_id": "SAVEUP-20260222-204000Z",
+      "why_it_matters": "Aligns agent definition of 'done' with user needs.",
+      "behavior_update": "Include validation steps, staff impact, and runbooks in deliverables."
+    }
+  ]
+}

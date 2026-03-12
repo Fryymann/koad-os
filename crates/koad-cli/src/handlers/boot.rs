@@ -1,4 +1,3 @@
-use crate::config_legacy::KoadLegacyConfig;
 use crate::utils::{detect_context_tags, detect_model_tier, get_gh_pat_for_path};
 use anyhow::{Context, Result};
 use fred::interfaces::{HashesInterface, PubsubInterface};
@@ -16,7 +15,6 @@ pub async fn handle_boot_command(
     force: bool,
     role: String,
     config: &KoadConfig,
-    legacy_config: &KoadLegacyConfig,
 ) -> Result<()> {
     // --- [Laws of Consciousness: Occupancy Check] ---
     // Gate 1: If KOAD_SESSION_ID is set, verify the session is actually alive before blocking.
@@ -80,6 +78,11 @@ pub async fn handle_boot_command(
     let (gh_pat, _) = get_gh_pat_for_path(&current_dir, &role, config);
     let gdrive_token = "GDRIVE_PERSONAL_TOKEN";
 
+    // Generate a unique Body ID for this terminal session.
+    // Reuse KOAD_BODY_ID if already set (survives re-runs within the same shell).
+    let body_id = env::var("KOAD_BODY_ID")
+        .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+
     let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
         .await
         .context("Failed to connect to Spine Backbone.")?;
@@ -87,7 +90,15 @@ pub async fn handle_boot_command(
     // --- [Sovereign Pruning] ---
     // Requires explicit --force flag. Without it, an existing live sovereign session
     // blocks boot to prevent silent cross-terminal session assassination.
-    if agent == "Tyr" || agent == "Koad" || agent == "Dood" {
+    let is_sovereign = if let Some(id_config) = config.identities.get(&agent) {
+        let r = id_config.rank.to_lowercase();
+        r == "admiral" || r == "captain"
+    } else {
+        // Fallback for legacy or unknown agents
+        agent == "Tyr" || agent == "Dood"
+    };
+
+    if is_sovereign {
         let redis_client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
         let pool = &redis_client.pool;
         let lease_field = format!("koad:kai:{}:lease", agent);
@@ -116,31 +127,40 @@ pub async fn handle_boot_command(
                 );
             }
 
-            // --force: explicit takeover — prune the existing sovereign session
+            // --force: explicit takeover — notify and prune the existing sovereign session
             if !compact {
                 println!(
                     "\x1b[33m[Sovereign Override --force] Taking over existing session {} for {}...\x1b[0m",
                     live_sid, agent
                 );
             }
+
+            // Notification Broadcast
+            let takeover_msg = serde_json::json!({
+                "type": "SIG_FORCE_TAKEOVER",
+                "session_id": live_sid,
+                "agent": agent,
+                "new_body_id": body_id.clone()
+            });
+            let _: () = pool.next().publish("koad:sessions", takeover_msg.to_string()).await?;
         }
 
         if force || existing_lease.is_none() || live_lease.is_none() {
             // Clear Lease
-            let _: () = pool.hdel("koad:state", &lease_field).await?;
+            let _: () = pool.next().hdel("koad:state", &lease_field).await?;
 
             // Clear identity mapping
             let identity_field = format!("koad:identity:{}", agent);
-            let _: () = pool.hdel("koad:state", &identity_field).await?;
+            let _: () = pool.next().hdel("koad:state", &identity_field).await?;
 
             // Scan and prune stale sessions
             let all_state: std::collections::HashMap<String, String> =
-                pool.hgetall("koad:state").await?;
+                pool.next().hgetall("koad:state").await?;
             for (key, val) in all_state {
                 if key.starts_with("koad:session:")
                     && val.contains(&format!("\"name\":\"{}\"", agent))
                 {
-                    let _: () = pool.hdel("koad:state", &key).await?;
+                    let _: () = pool.next().hdel("koad:state", &key).await?;
                     let sid = key.replace("koad:session:", "");
                     let msg = serde_json::json!({ "type": "SESSION_PRUNED", "session_id": sid });
                     let _: () = pool.next().publish("koad:sessions", msg.to_string()).await?;
@@ -158,11 +178,6 @@ pub async fn handle_boot_command(
     } else {
         "cli".to_string()
     };
-
-    // Generate a unique Body ID for this terminal session.
-    // Reuse KOAD_BODY_ID if already set (survives re-runs within the same shell).
-    let body_id = env::var("KOAD_BODY_ID")
-        .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
 
     // --- [Path-Aware Project Detection] ---
     let mut project_name = if project { "active" } else { "default" }.to_string();
@@ -184,6 +199,8 @@ pub async fn handle_boot_command(
                 .or_else(|_| env::var("CODEX_MODEL"))
                 .unwrap_or_else(|_| "unknown".to_string()),
             body_id: body_id.clone(),
+            force,
+            session_id: env::var("KOAD_SESSION_ID").unwrap_or_default(),
         })
         .await
         .map_err(|e| anyhow::anyhow!("Lease Denied: {}", e.message()))?;
@@ -253,35 +270,28 @@ pub async fn handle_boot_command(
         println!("Lifeforce: Tethered via KOAD_SESSION_ID.");
         println!("Shell:    Run `export KOAD_SESSION_ID={} KOAD_BODY_ID={}` to bind this shell.", session_id, body_id);
 
-        if let Some(ref drivers) = legacy_config.drivers {
-            if let Some(driver) = drivers.get(&agent) {
-                let b_path = driver
-                    .bootstrap
-                    .replace("~", &env::var("HOME").unwrap_or_default());
+        // --- [Ghost & Body Bootstrap] ---
+        // 1. Load Persona Bootstrap (The Ghost)
+        let identity_config = config.identities.get(&agent)
+            .or_else(|| config.identities.get(&agent.to_lowercase()));
+
+        if let Some(id_config) = identity_config {
+            if let Some(ref b_path_raw) = id_config.bootstrap {
+                let b_path = b_path_raw.replace("~", &env::var("HOME").unwrap_or_default());
                 if let Ok(content) = std::fs::read_to_string(b_path) {
-                    println!(
-                        "
-\x1b[1m[BOOTSTRAP: {}]\x1b[0m
-{}",
-                        agent, content
-                    );
+                    println!("\n\x1b[1m[PERSONA: {}]\x1b[0m\n{}", agent, content);
                 }
             }
         }
 
-        if driver_id == "claude" && agent != "claude" {
-            if let Some(ref drivers) = legacy_config.drivers {
-                if let Some(claude_driver) = drivers.get("claude") {
-                    let b_path = claude_driver
-                        .bootstrap
-                        .replace("~", &env::var("HOME").unwrap_or_default());
-                    if let Ok(content) = std::fs::read_to_string(b_path) {
-                        println!(
-                            "\n\x1b[1m[DRIVER: claude]\x1b[0m\n{}",
-                            content
-                        );
-                    }
-                }
+        // 2. Load Interface Bootstrap (The Body)
+        let interface_config = config.interfaces.get(&driver_id)
+            .or_else(|| config.interfaces.get(&driver_id.to_lowercase()));
+
+        if let Some(if_config) = interface_config {
+            let b_path = if_config.bootstrap.replace("~", &env::var("HOME").unwrap_or_default());
+            if let Ok(content) = std::fs::read_to_string(b_path) {
+                println!("\n\x1b[1m[INTERFACE: {}]\x1b[0m\n{}", driver_id, content);
             }
         }
 
@@ -314,9 +324,9 @@ pub async fn handle_logout_command(
 
     println!(">>> Terminating session {}...", session_id);
 
-    client.terminate_session(TerminateSessionRequest {
+    client.terminate_session(crate::utils::authenticated_request(TerminateSessionRequest {
         session_id: session_id.clone(),
-    }).await?;
+    })).await?;
 
     println!("\x1b[32m[OK]\x1b[0m Session untethered successfully.");
     println!("Shell:    Run `unset KOAD_SESSION_ID KOAD_BODY_ID` to clear this shell's binding.");

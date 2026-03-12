@@ -77,6 +77,9 @@ pub enum Commands {
         action: SignalAction,
     },
 
+    /// Display the version of the KoadOS CLI and connected services.
+    Version,
+
     /// Display real-time system telemetry and grid integrity.
     Status {
         /// Output telemetry data as JSON.
@@ -115,7 +118,10 @@ pub enum Commands {
 
     /// Start or manage the Autonomic Watchdog.
     Watchdog {
-        /// Run the watchdog as a background daemon.
+        #[command(subcommand)]
+        action: Option<WatchdogAction>,
+
+        /// Run the watchdog as a background daemon (legacy, use 'start --daemon').
         #[arg(short, long)]
         daemon: bool,
     },
@@ -123,7 +129,14 @@ pub enum Commands {
     /// Perform a deep audit of the agent's internal cognitive layers.
     Cognitive,
 
+    /// Inspect and manage the integrated Agent Session Manager (ASM).
+    Asm {
+        #[command(subcommand)]
+        action: AsmAction,
+    },
+
     /// Gracefully logout and untether the current session.
+
     Logout {
         /// Explicit session ID to terminate.
         #[arg(short, long)]
@@ -158,6 +171,9 @@ pub enum SystemAction {
         /// Restart services (Spine, Gateway) after successful build.
         #[arg(short, long)]
         restart: bool,
+        /// Explicit confirmation to bypass the safety gate.
+        #[arg(long)]
+        confirm: bool,
     },
 
     /// Execute the Sovereign Save Protocol (Total State Checkpoint).
@@ -256,6 +272,50 @@ pub enum SystemAction {
         sector: String,
     },
 
+    /// List all active distributed locks.
+    Locks,
+
+    /// Re-establish a neural link session after a disconnection or reboot.
+    Reconnect {
+        /// Explicit agent name to recover.
+        #[arg(short, long)]
+        agent: Option<String>,
+
+        /// Perform a live re-sync using the active environment session ID.
+        #[arg(short, long)]
+        live: bool,
+    },
+
+    /// Trigger a manual backup of the system memory sectors.
+    Backup {
+        /// Sector to backup (all, sqlite, redis). [default: all]
+        #[arg(short, long, default_value = "all")]
+        source: String,
+    },
+
+    /// Tail or filter KoadOS log files.
+    Logs {
+        /// The service or component to filter by (e.g., spine, gateway, watchdog).
+        #[arg(short, long)]
+        service: Option<String>,
+        /// Number of lines to show from the end. [default: 50]
+        #[arg(short, long, default_value_t = 50)]
+        tail: usize,
+        /// Follow log output in real-time.
+        #[arg(short, long)]
+        follow: bool,
+    },
+
+    /// Gracefully stop the Spine kernel and all background services.
+    Stop {
+        /// Trigger a full state drain before stopping.
+        #[arg(short, long)]
+        drain: bool,
+        /// Explicit confirmation to bypass the safety gate.
+        #[arg(long)]
+        confirm: bool,
+    },
+
     /// Maintain an active neural link session via periodic heartbeats.
     Heartbeat {
         /// Run as a background daemon process.
@@ -295,6 +355,9 @@ pub enum ContextAction {
         /// Target session ID (omit for current).
         #[arg(short, long)]
         session: Option<String>,
+        /// Explicit confirmation to bypass the safety gate.
+        #[arg(long)]
+        confirm: bool,
     },
     /// List available context quicksaves.
     List {
@@ -438,7 +501,12 @@ pub enum BoardAction {
         dry_run: bool,
     },
     /// Transition a node to 'Done' on the Command Deck.
-    Done { id: i32 },
+    Done {
+        id: i32,
+        /// Explicit confirmation to bypass the safety gate.
+        #[arg(long)]
+        confirm: bool,
+    },
     /// Re-open a node or move to 'Todo'.
     Todo { id: i32 },
     /// Run a Strategic Design Review (SDR).
@@ -524,8 +592,8 @@ pub enum NotionAction {
     Stream {
         /// The message to post.
         message: String,
-        /// Target agent (e.g., Sky, Koad, Noti). [default: Koad]
-        #[arg(short, long, default_value = "Koad")]
+        /// Target agent (e.g., Sky, Vigil, Noti). [default: Tyr]
+        #[arg(short, long, default_value = "Tyr")]
         target: String,
         /// Priority level (Low, Medium, High). [default: Medium]
         #[arg(short, long, default_value = "Medium")]
@@ -602,4 +670,26 @@ pub enum SignalAction {
         /// Signal ID.
         id: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum WatchdogAction {
+    /// Start the watchdog service.
+    Start {
+        /// Run as a background daemon.
+        #[arg(short, long)]
+        daemon: bool,
+    },
+    /// Display the current status of the autonomic watchdog.
+    Status,
+    /// Gracefully stop the watchdog service.
+    Stop,
+}
+
+#[derive(Subcommand)]
+pub enum AsmAction {
+    /// Display the current status and metrics of the ASM.
+    Status,
+    /// Manually trigger a session prune cycle.
+    Prune,
 }

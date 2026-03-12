@@ -5,9 +5,9 @@ use koad_core::config::KoadConfig;
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = KoadConfig::load()?;
-    let token = config.resolve_gh_token()?;
-    let owner = config.get_github_owner()?;
-    let repo = config.get_github_repo()?;
+    let token = config.resolve_gh_token(None, None)?;
+    let owner = config.get_github_owner(None);
+    let repo = config.get_github_repo(None);
 
     let client = GitHubClient::new(token, owner, repo)?;
     let project_id = client.get_project_id(2).await?;

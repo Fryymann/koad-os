@@ -1,3 +1,6 @@
+[system]
+version = "3.2"
+
 [network]
 gateway_port = 3000
 gateway_addr = "0.0.0.0:3000"
@@ -8,12 +11,14 @@ spine_socket = "kspine.sock"
 
 [storage]
 db_name = "koad.db"
+drain_interval_secs = 30
 
 [sessions]
 deadman_timeout_secs = 45
 dark_timeout_secs = 60
 purge_timeout_secs = 300
 lease_duration_secs = 90
+reaper_interval_secs = 10
 
 [watchdog]
 check_interval_secs = 10

@@ -14,7 +14,7 @@ pub async fn handle_intel_action(
     db: &KoadDB,
     agent_name: &str,
 ) -> Result<()> {
-    let model_tier = detect_model_tier();
+    let _model_tier = detect_model_tier();
     match action {
         IntelAction::Query {
             term,
@@ -46,33 +46,33 @@ pub async fn handle_intel_action(
                 crate::cli::MemoryCategory::Fact { text, tags } => ("fact", text, tags),
                 crate::cli::MemoryCategory::Learning { text, tags } => ("learning", text, tags),
             };
-            
+
             let session_id = env::var("KOAD_SESSION_ID").context("KOAD_SESSION_ID not set. Please boot an agent first.")?;
-            let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
+            let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
                 .await
                 .context("Failed to connect to Spine gRPC")?;
 
-            client.commit_knowledge(CommitKnowledgeRequest {
+            client.commit_knowledge(crate::utils::authenticated_request(CommitKnowledgeRequest {
                 session_id,
                 category: cat_str.to_string(),
                 content: text,
                 tags: tags.unwrap_or_default(),
-            }).await.context("Commit failed")?;
+            })).await.context("Commit failed")?;
 
             println!("Memory updated via Spine.");
         }
         IntelAction::Ponder { text, tags } => {
             let session_id = env::var("KOAD_SESSION_ID").context("KOAD_SESSION_ID not set. Please boot an agent first.")?;
-            let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
+            let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
                 .await
                 .context("Failed to connect to Spine gRPC")?;
 
-            client.commit_knowledge(CommitKnowledgeRequest {
+            client.commit_knowledge(crate::utils::authenticated_request(CommitKnowledgeRequest {
                 session_id,
                 category: "pondering".to_string(),
                 content: text,
                 tags: format!("persona-journal,{}", tags.unwrap_or_default()),
-            }).await.context("Commit failed")?;
+            })).await.context("Commit failed")?;
 
             println!("Reflection recorded via Spine.");
         }
@@ -113,18 +113,18 @@ pub async fn handle_intel_action(
         } => {
             println!(
                 ">>> [UPLINK] Connecting to Spine at {}...",
-                config.spine_grpc_addr
+                config.network.spine_grpc_addr
             );
-            let mut client = SpineServiceClient::connect(config.spine_grpc_addr.clone())
+            let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
                 .await
                 .context("Connect failed.")?;
             let resp = client
-                .get_file_snippet(GetFileSnippetRequest {
+                .get_file_snippet(crate::utils::authenticated_request(GetFileSnippetRequest {
                     path: path.to_string_lossy().to_string(),
                     start_line: start,
                     end_line: end,
                     bypass_cache: bypass,
-                })
+                }))
                 .await
                 .map_err(|e| {
                     anyhow::anyhow!("Snippet Retrieval Failed: [{:?}] {}", e.code(), e.message())

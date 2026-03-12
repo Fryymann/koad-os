@@ -1,4 +1,5 @@
-[github]
-default_owner = "DoodzCode"
+[integrations.github]
+api_base = "https://api.github.com"
+default_owner = "Fryymann"
 default_repo = "koad-os"
 default_project_number = 2

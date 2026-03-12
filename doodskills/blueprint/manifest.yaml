@@ -1,7 +1,0 @@
-id: blueprint_engine
-name: Dood Blueprint Engine
-version: 1.0.0
-endpoint: unix:///tmp/koad-blueprint.sock
-tools:
-  - generate
-  - validate

@@ -17,6 +17,16 @@ pub async fn get_spine_client(config: &KoadConfig) -> Result<SpineServiceClient<
         .context("Failed to connect to Koad Spine gRPC")
 }
 
+pub fn authenticated_request<T>(payload: T) -> tonic::Request<T> {
+    let mut req = tonic::Request::new(payload);
+    if let Ok(sid) = env::var("KOAD_SESSION_ID") {
+        if let Ok(val) = sid.parse::<tonic::metadata::MetadataValue<tonic::metadata::Ascii>>() {
+            req.metadata_mut().insert("x-session-id", val);
+        }
+    }
+    req
+}
+
 pub fn pre_flight(config: &KoadConfig) -> PreFlightStatus {
     if !config.get_redis_socket().exists() {
         return PreFlightStatus::Critical("Neural Bus (Redis) offline.".to_string());
@@ -54,9 +64,18 @@ pub fn get_gdrive_token_for_path(_path: &Path) -> (String, String) {
 }
 
 pub fn detect_model_tier() -> i32 {
+    if let Ok(override_tier) = env::var("KOAD_TIER_OVERRIDE") {
+        if let Ok(tier) = override_tier.parse::<i32>() {
+            return tier;
+        }
+    }
+
     if env::var("GEMINI_CLI").is_ok()
         || env::var("CLAUDE_CODE").is_ok()
         || env::var("CODEX_CLI").is_ok()
+        || env::var("GEMINI_MODEL").is_ok()
+        || env::var("CLAUDE_MODEL").is_ok()
+        || env::var("CODEX_MODEL").is_ok()
     {
         1
     } else {

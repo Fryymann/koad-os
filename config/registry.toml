@@ -1,6 +1,6 @@
 [projects.koados]
 path = "~/.koad-os"
-github_owner = "DoodzCode"
+github_owner = "Fryymann"
 github_repo = "koad-os"
 credential_key = "GITHUB_PERSONAL_PAT"
 

@@ -2,12 +2,10 @@
 members = [
     "crates/koad-core",
     "crates/koad-proto",
-    "crates/koad-spine",
     "crates/koad-watchdog",
     "crates/koad-cli",
     "crates/koad-board",
-    "crates/koad-bridge-notion",
-    "crates/koad-asm"
+    "crates/koad-bridge-notion"
 ]
 resolver = "2"
 

@@ -1,8 +1,0 @@
-id: vault
-name: Koad System Vault
-version: 1.0.0
-endpoint: unix:///tmp/koad-vault.sock
-tools:
-  - snapshot
-  - list
-  - restore
