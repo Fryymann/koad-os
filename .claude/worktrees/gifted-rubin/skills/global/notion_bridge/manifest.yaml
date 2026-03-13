@@ -1,8 +1,0 @@
-id: notion_bridge
-name: Koad Notion Bridge
-version: 1.0.0
-endpoint: unix:///tmp/koad-notion.sock
-tools:
-  - post_message
-  - list_messages
-  - sync_index

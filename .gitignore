@@ -84,3 +84,14 @@ pub.key
 # --- Binaries ---
 bin/
 !bin/*.sh
+
+# --- Claude Code Agent Workspace ---
+# Worktrees are git-managed checkouts and must never be committed into the repo.
+# settings.local.json is a machine-local Claude Code config file.
+# Agent working-memory files (context.md, log.md, README.md) are ephemeral
+# per-session artefacts, not project source.
+.claude/worktrees/
+.claude/settings.local.json
+.claude/README.md
+.claude/context.md
+.claude/log.md
