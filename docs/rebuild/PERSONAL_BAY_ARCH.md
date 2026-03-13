@@ -19,5 +19,15 @@ Define Personal Bay storage and isolation requirements.
 - **Fallback:** `chroot` if `bwrap` is unavailable.
 - **Constraint:** Sanctuary Rule enforcement (No cross-bay access).
 
-## 5. Admin Override (Dood Sovereignty)
+## 5. Docking State Machine (Lifecycle)
+The Citadel manages the following agent states:
+- **DORMANT:** Identity registered, no active lease.
+- **DOCKING:** Handshake/Auth in progress.
+- **HYDRATING:** Context loading (Tier 1/2) via CASS.
+- **ACTIVE:** Session live, heartbeat established.
+- **WORKING:** Active tool/execution phase.
+- **DARK:** Heartbeat missed (>30s).
+- **TEARDOWN:** Brain Drain protocol, lock release, session closure.
+
+## 6. Admin Override (Dood Sovereignty)
 - **Path:** Admin (Dood) can use a privileged Unix Domain Socket (`UDS`) for emergency recovery and full audit access to any Personal Bay.
