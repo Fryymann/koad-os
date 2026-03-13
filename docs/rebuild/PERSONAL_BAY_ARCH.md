@@ -13,11 +13,13 @@ Define Personal Bay storage and isolation requirements.
 - **Trigger:** Explicit `koad citadel provision-bay --agent <name>`.
 - **Formatting:** Creates the directory hierarchy and initial SQLite schema.
 - **Detection:** Citadel scans `config/identities/` for registered agents and verifies their bay existence at boot.
+- **Workspace Integration:** The **Workspace Manager** (Citadel Service) provisions Git Worktrees for assigned tasks and mounts them to the Bay's filesystem map at `~/.koad-os/workspaces/{agent}/{task_id}/`.
 
 ## 4. Isolation (Linux Host)
-- **Strategy:** Bubblewrap (`bwrap`) for Linux-based isolation.
-- **Fallback:** `chroot` if `bwrap` is unavailable.
-- **Constraint:** Sanctuary Rule enforcement (No cross-bay access).
+- **Primary (Logical):** The Citadel gRPC layer enforces the **Sanctuary Rule** by validating every file-operation path against the agent's assigned `KOAD_WORKSPACE_ROOT` (lookup from FS Map).
+- **Secondary (Physical):** Bubblewrap (`bwrap`) is used for kernel-level namespace isolation if available on the host. 
+- **Fallback:** If `bwrap` is unavailable, the system operates in "Logical Isolation" mode. `chroot` is reserved for high-privilege administrative sessions.
+- **Constraint:** Zero-trust architecture assumes the agent shell may attempt to bypass logical guards; redundant server-side path validation is mandatory.
 
 ## 5. Docking State Machine (Lifecycle)
 The Citadel manages the following agent states:
