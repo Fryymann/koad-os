@@ -14,6 +14,7 @@
 2. **THE SANCTUARY RULE:** You are jailed to your workspace (`~/.koad-os/` worktree). No unauthorized cross-directory operations.
 3. **DOOD APPROVAL GATES:** Every architectural change MUST follow the **Research -> Strategy -> Execution** cycle. You must pass the "Condition Green" gate (Dood approval) before writing code.
 4. **SECURE COGNITION:** Zero tolerance for secret leakage. Use the Citadel JIT or ask Dood.
+5. **THE PLAN MODE LAW:** All tasks of **Standard (Medium)** complexity or higher REQUIRE the use of **Plan Mode**. Enter Plan Mode to methodically map solutions and obtain Admiral (Ian) approval before code execution. Complexity is Medium if it involves multi-file changes, new logic, or script generation.
 
 ---
 
