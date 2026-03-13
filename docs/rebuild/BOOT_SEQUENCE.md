@@ -8,7 +8,7 @@ Define standard boot sequence and registration logic.
 ## 2. Boot Flow (Sequence)
 1. **Invocation:** `koad agent prepare --agent <name> --project <root>`.
 2. **Identification:** Locate `config/identities/<name>.toml` and verify the agent's identity hash.
-3. **Lease (Handshake):** gRPC request to the Citadel for a new session lease (`TRC-GEN-001`).
+3. **Lease (Handshake):** gRPC request to the Citadel for a new session lease (`TRC-HELM-001`).
 4. **Hydration (CASS):** Fetch relevant context (Tier 2/3) from Qdrant/SQLite.
 5. **Registration:** Automatic registration of the session with the Citadel registry (`koad:session:<id>`).
 6. **Payload:** Generate `eval` payload (`export KOAD_SESSION_ID=...; export ...`).
