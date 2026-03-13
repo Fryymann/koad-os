@@ -95,3 +95,8 @@ bin/
 .claude/README.md
 .claude/context.md
 .claude/log.md
+
+# --- Personal Agent Bays & Admiral Commands ---
+.admiral/
+.helm/
+.tyr/
