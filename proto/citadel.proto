@@ -1,0 +1,117 @@
+syntax = "proto3";
+package koad.citadel.v5;
+
+import "google/protobuf/timestamp.proto";
+
+// --- Core Primitives ---
+
+// Mandatory context for every request across the Tri-Tier model.
+message TraceContext {
+  string trace_id = 1;     // TRC-{actor}-{uuid-short}
+  string origin = 2;       // CLI | Citadel | CASS | Agent
+  string actor = 3;        // agent name or "admiral"
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message StatusResponse {
+  bool success = 1;
+  string message = 2;
+  TraceContext context = 3;
+}
+
+// --- Services ---
+
+service CitadelSession {
+  // Request a new session lease (Handshake).
+  rpc CreateLease(LeaseRequest) returns (LeaseResponse);
+  // Heartbeat to maintain an active lease.
+  rpc Heartbeat(HeartbeatRequest) returns (StatusResponse);
+  // Terminate a session (EndOfWatch).
+  rpc CloseSession(CloseRequest) returns (StatusResponse);
+}
+
+service Sector {
+  // Acquire a lock on a shared resource/sector.
+  rpc AcquireLock(LockRequest) returns (LockResponse);
+  // Release a lock.
+  rpc ReleaseLock(LockRequest) returns (StatusResponse);
+}
+
+service Signal {
+  // Subscribe to the Signal Corps event stream.
+  rpc Subscribe(SubscribeRequest) returns (stream Event);
+  // Broadcast a high-signal event to the bus.
+  rpc Broadcast(Event) returns (StatusResponse);
+}
+
+service PersonalBay {
+  // Provision or format a Personal Bay.
+  rpc Provision(ProvisionRequest) returns (StatusResponse);
+  // Query the health and status of a bay.
+  rpc GetStatus(BayQuery) returns (BayStatus);
+}
+
+// --- Message Definitions ---
+
+message LeaseRequest {
+  TraceContext context = 1;
+  string agent_name = 2;
+  string project_root = 3;
+}
+
+message LeaseResponse {
+  string session_id = 1;
+  string token = 2;
+  TraceContext context = 3;
+}
+
+message HeartbeatRequest {
+  TraceContext context = 1;
+  string session_id = 2;
+}
+
+message CloseRequest {
+  TraceContext context = 1;
+  string session_id = 2;
+  string summary_path = 3; // Path to the EoW markdown summary
+}
+
+message LockRequest {
+  TraceContext context = 1;
+  string sector_id = 2;
+  uint32 ttl_ms = 3;
+}
+
+message LockResponse {
+  bool acquired = 1;
+  string lock_id = 2;
+  TraceContext context = 3;
+}
+
+message SubscribeRequest {
+  TraceContext context = 1;
+  repeated string topics = 2;
+}
+
+message Event {
+  string topic = 1;
+  string payload = 2; // JSON-serialized event data
+  TraceContext context = 3;
+}
+
+message ProvisionRequest {
+  TraceContext context = 1;
+  string agent_name = 2;
+}
+
+message BayQuery {
+  TraceContext context = 1;
+  string agent_name = 2;
+}
+
+message BayStatus {
+  string agent_name = 1;
+  string health = 2; // GREEN | YELLOW | RED
+  string last_sync = 3;
+  TraceContext context = 4;
+}
