@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/koad-core",
+    "crates/koad-proto",
     "crates/koad-watchdog",
     "crates/koad-cli",
     "crates/koad-board",
