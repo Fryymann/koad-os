@@ -1,17 +1,17 @@
+use crate::db::KoadDB;
 use anyhow::Result;
 use fred::interfaces::HashesInterface;
 use koad_core::config::KoadConfig;
 use koad_core::session::AgentSession;
 use koad_core::utils::redis::RedisClient;
 use std::env;
-use crate::db::KoadDB;
 
 pub async fn handle_whoami(config: &KoadConfig, _db: &KoadDB) -> Result<()> {
     let session_id = env::var("KOAD_SESSION_ID").unwrap_or_default();
     let body_id = env::var("KOAD_BODY_ID").unwrap_or_default();
 
     let redis_client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
-    
+
     // 1. Try direct SID lookup
     if !session_id.is_empty() {
         let session_key = format!("koad:session:{}", session_id);
@@ -26,7 +26,8 @@ pub async fn handle_whoami(config: &KoadConfig, _db: &KoadDB) -> Result<()> {
 
     // 2. Try Body ID scan (Session might have been re-generated during boot)
     if !body_id.is_empty() {
-        let all_state: std::collections::HashMap<String, String> = redis_client.pool.hgetall("koad:state").await?;
+        let all_state: std::collections::HashMap<String, String> =
+            redis_client.pool.hgetall("koad:state").await?;
         for (key, val) in all_state {
             if key.starts_with("koad:session:") {
                 if let Ok(session) = serde_json::from_str::<AgentSession>(&val) {
@@ -48,9 +49,7 @@ pub async fn handle_whoami(config: &KoadConfig, _db: &KoadDB) -> Result<()> {
     if let Some((_, id)) = config.identities.iter().next() {
         println!(
             "\x1b[33m[NOT_TETHERED]\x1b[0m (Using local config)\nIdentity: {} [{}]\nBio:      {}",
-            id.name,
-            id.role,
-            id.bio
+            id.name, id.role, id.bio
         );
     } else {
         println!("\x1b[33m[NOT_TETHERED]\x1b[0m No identities found in config.");
@@ -60,14 +59,16 @@ pub async fn handle_whoami(config: &KoadConfig, _db: &KoadDB) -> Result<()> {
 }
 
 fn print_session_info(session: &AgentSession, sid: &str) {
-    let bio = session.metadata.get("bio")
+    let bio = session
+        .metadata
+        .get("bio")
         .map(|b| b.to_string())
         .unwrap_or_else(|| "Active KoadOS Agent".to_string());
 
     println!(
         "\x1b[32m[TETHERED]\x1b[0m\nIdentity: {} [{:?}]\nRank:     {:?}\nBio:      {}\nSession:  {}\nBody:     {}",
         session.identity.name,
-        session.identity.rank, 
+        session.identity.rank,
         session.identity.rank,
         bio,
         sid,

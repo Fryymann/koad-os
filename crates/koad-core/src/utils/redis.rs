@@ -1,10 +1,10 @@
+use anyhow::Result;
 use fred::clients::RedisPool;
 use fred::prelude::*;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::Duration;
 use tokio::time::sleep;
-use anyhow::Result;
 
 pub struct RedisClient {
     pub pool: RedisPool,
@@ -58,11 +58,9 @@ impl RedisClient {
                 _ => false,
             };
 
-            if !is_alive {
-                if manage_process {
-                    let _ = std::fs::remove_file(&socket_path);
-                    let _ = std::fs::remove_file(&pid_path);
-                }
+            if !is_alive && manage_process {
+                let _ = std::fs::remove_file(&socket_path);
+                let _ = std::fs::remove_file(&pid_path);
             }
         }
 

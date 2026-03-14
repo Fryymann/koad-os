@@ -310,12 +310,17 @@ impl KoadConfig {
     }
 
     /// Validates that a path is within authorized KoadOS boundaries.
-    pub fn validate_path(&self, path: &str, session: Option<&crate::session::AgentSession>) -> Result<PathBuf> {
+    pub fn validate_path(
+        &self,
+        path: &str,
+        session: Option<&crate::session::AgentSession>,
+    ) -> Result<PathBuf> {
         // 0. System Bypass
         if let Some(s) = session {
             if s.context.allowed_paths.contains(&"all".to_string()) {
                 let expanded_p = self.resolve_path(path);
-                return std::fs::canonicalize(&expanded_p).context(format!("System Path Resolve Error: {}", path));
+                return std::fs::canonicalize(&expanded_p)
+                    .context(format!("System Path Resolve Error: {}", path));
             }
         }
 
@@ -337,7 +342,7 @@ impl KoadConfig {
 
         // 2. Check registered projects
         if !allowed {
-            for (_, project) in &self.projects {
+            for project in self.projects.values() {
                 let project_path = self.resolve_path(&project.path);
                 if let Ok(canon_project) = std::fs::canonicalize(project_path) {
                     if canonical_p.starts_with(&canon_project) {
@@ -368,7 +373,11 @@ impl KoadConfig {
             .map_err(|e| anyhow::anyhow!("Failed to deserialize config: {}", e))
     }
 
-    pub fn resolve_gh_token(&self, project: Option<&ProjectConfig>, identity: Option<&crate::identity::Identity>) -> Result<String> {
+    pub fn resolve_gh_token(
+        &self,
+        project: Option<&ProjectConfig>,
+        identity: Option<&crate::identity::Identity>,
+    ) -> Result<String> {
         if let Some(p) = project {
             if let Some(key) = &p.credential_key {
                 if let Ok(token) = env::var(key) {
@@ -397,7 +406,9 @@ impl KoadConfig {
         project
             .and_then(|p| p.github_owner.clone())
             .unwrap_or_else(|| {
-                self.integrations.github.as_ref()
+                self.integrations
+                    .github
+                    .as_ref()
                     .map(|g| g.default_owner.clone())
                     .unwrap_or_else(|| "Fryymann".to_string())
             })
@@ -407,7 +418,9 @@ impl KoadConfig {
         project
             .and_then(|p| p.github_repo.clone())
             .unwrap_or_else(|| {
-                self.integrations.github.as_ref()
+                self.integrations
+                    .github
+                    .as_ref()
                     .map(|g| g.default_repo.clone())
                     .unwrap_or_else(|| "koad-os".to_string())
             })
@@ -433,18 +446,21 @@ impl KoadConfig {
         if let Ok(agent) = env::var("KOAD_AGENT") {
             return agent;
         }
-        
+
         if self.identities.contains_key("Tyr") {
             return "Tyr".to_string();
         }
 
-        self.identities.keys().next().cloned().unwrap_or_else(|| "Koad".to_string())
+        self.identities
+            .keys()
+            .next()
+            .cloned()
+            .unwrap_or_else(|| "Koad".to_string())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    
 
     #[test]
     fn test_config_loading() {
