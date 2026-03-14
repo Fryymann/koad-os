@@ -47,32 +47,44 @@ pub async fn handle_intel_action(
                 crate::cli::MemoryCategory::Learning { text, tags } => ("learning", text, tags),
             };
 
-            let session_id = env::var("KOAD_SESSION_ID").context("KOAD_SESSION_ID not set. Please boot an agent first.")?;
+            let session_id = env::var("KOAD_SESSION_ID")
+                .context("KOAD_SESSION_ID not set. Please boot an agent first.")?;
             let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
                 .await
                 .context("Failed to connect to Spine gRPC")?;
 
-            client.commit_knowledge(crate::utils::authenticated_request(CommitKnowledgeRequest {
-                session_id,
-                category: cat_str.to_string(),
-                content: text,
-                tags: tags.unwrap_or_default(),
-            })).await.context("Commit failed")?;
+            client
+                .commit_knowledge(crate::utils::authenticated_request(
+                    CommitKnowledgeRequest {
+                        session_id,
+                        category: cat_str.to_string(),
+                        content: text,
+                        tags: tags.unwrap_or_default(),
+                    },
+                ))
+                .await
+                .context("Commit failed")?;
 
             println!("Memory updated via Spine.");
         }
         IntelAction::Ponder { text, tags } => {
-            let session_id = env::var("KOAD_SESSION_ID").context("KOAD_SESSION_ID not set. Please boot an agent first.")?;
+            let session_id = env::var("KOAD_SESSION_ID")
+                .context("KOAD_SESSION_ID not set. Please boot an agent first.")?;
             let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
                 .await
                 .context("Failed to connect to Spine gRPC")?;
 
-            client.commit_knowledge(crate::utils::authenticated_request(CommitKnowledgeRequest {
-                session_id,
-                category: "pondering".to_string(),
-                content: text,
-                tags: format!("persona-journal,{}", tags.unwrap_or_default()),
-            })).await.context("Commit failed")?;
+            client
+                .commit_knowledge(crate::utils::authenticated_request(
+                    CommitKnowledgeRequest {
+                        session_id,
+                        category: "pondering".to_string(),
+                        content: text,
+                        tags: format!("persona-journal,{}", tags.unwrap_or_default()),
+                    },
+                ))
+                .await
+                .context("Commit failed")?;
 
             println!("Reflection recorded via Spine.");
         }

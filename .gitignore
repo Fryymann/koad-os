@@ -1,5 +1,8 @@
 # KoadOS v3 Exhaustive Ignore Rules
 
+
+*cache/
+
 # --- Local State & Telemetry ---
 koad.json
 koad.db
@@ -17,6 +20,7 @@ NOTION_INDEX.md
 *.sock.*
 data/redis/
 *.rdb
+legacy/
 
 # --- Build Artifacts (Rust) ---
 target/

@@ -1,7 +1,21 @@
 # KoadOS — AGENTS.md (The Rebuild Onboarding Portal)
 **Status:** Phase 1: Citadel MVP Construction
 **Environment:** NEW WORLD (Citadel-First)
-**Date:** 2026-03-12
+**Date: 2026-03-14**
+
+---
+
+## ⚡ FIRST LIGHT (MANDATORY BOOT)
+
+**If you have just arrived in this shell, YOU MUST HYDRATE your identity before proceeding.** 
+
+Run this command immediately to inject your role, credentials, and latest session brief:
+```bash
+eval $(koad-agent boot <YourAgentName>)
+```
+*Example for Tyr:* `eval $(koad-agent boot tyr)`
+
+This hydration layer aligns your persona and saves thousands of orientation tokens. **Do not perform work in a dry shell.**
 
 ---
 

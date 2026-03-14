@@ -31,20 +31,18 @@ pub async fn handle_bridge_action(
                     target,
                     priority,
                 } => {
-                    let db_id = env::var("NOTION_STREAM_DB_ID")
-                        .or_else(|_| {
-                            config.integrations.notion.as_ref()
-                                .and_then(|n| n.index.get("stream_db").cloned())
-                                .ok_or_else(|| anyhow!("Notion stream_db ID not found in config or env"))
-                        })?;
+                    let db_id = env::var("NOTION_STREAM_DB_ID").or_else(|_| {
+                        config
+                            .integrations
+                            .notion
+                            .as_ref()
+                            .and_then(|n| n.index.get("stream_db").cloned())
+                            .ok_or_else(|| {
+                                anyhow!("Notion stream_db ID not found in config or env")
+                            })
+                    })?;
                     client
-                        .post_to_stream(
-                            &db_id,
-                            &agent_name,
-                            &target,
-                            &message,
-                            &priority,
-                        )
+                        .post_to_stream(&db_id, &agent_name, &target, &message, &priority)
                         .await?;
                     println!(">>> [UPLINK] Message posted to Notion KoadStream.");
                 }

@@ -122,8 +122,20 @@ async fn main() -> Result<()> {
 
                     // --- Generate AI Anchors ---
                     let anchor_content = format!(
-                        "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\nName: {}\nRole: {}\nRank: {}\nBio: {}\n",
-                        timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio
+                        "# KoadOS Agent Identity Anchor\n\
+                         Generated At: {}\n\n\
+                         ## Identity\n\
+                         Name: {}\n\
+                         Role: {}\n\
+                         Rank: {}\n\n\
+                         ## Bio\n\
+                         {}\n\n\
+                         ## MANDATORY: Session Hydration\n\
+                         If you have not done so, or if you need to refresh your context, run:\n\
+                         `eval $(koad-agent boot {})`\n\n\
+                         This command injects your identity, credentials, and generates your session brief at:\n\
+                         `~/.koad-os/cache/session-brief-{}.md`\n",
+                        timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, agent_key, agent_key
                     );
 
                     let home = dirs::home_dir().unwrap_or_default();
@@ -136,6 +148,15 @@ async fn main() -> Result<()> {
                         let _ = fs::write(claude_dir.join("CLAUDE.md"), &anchor_content).await;
                     }
                 }
+
+                // --- PATH Hydration ---
+                let home = dirs::home_dir().unwrap_or_default();
+                let cargo_bin = home.join(".cargo/bin");
+                let koad_bin = config.home.join("bin");
+                if !koad_bin.exists() {
+                    let _ = fs::create_dir_all(&koad_bin).await;
+                }
+                println!("export PATH=\"{}:{}:$PATH\";", koad_bin.display(), cargo_bin.display());
 
                 // --- Generate Session Brief ---
                 let cache_dir = config.home.join("cache");
@@ -184,7 +205,7 @@ async fn main() -> Result<()> {
                             local agent=$1; \
                             if [ -z \"$agent\" ]; then agent=$KOAD_AGENT_NAME; fi; \
                             unset $(env | grep KOAD_ | cut -d= -f1); \
-                            eval $(/home/ideans/.koad-os/target/debug/koad-agent boot $agent); \
+                            eval $(koad-agent boot $agent); \
                           }};"
                 );
 
@@ -206,7 +227,7 @@ async fn main() -> Result<()> {
                 // Refresh utility
                 println!("function koad-refresh() {{ \
                             echo \"[REFRESH] Regenerating session brief...\"; \
-                            eval $(/home/ideans/.koad-os/target/debug/koad-agent boot $KOAD_AGENT_NAME); \
+                            eval $(koad-agent boot $KOAD_AGENT_NAME); \
                           }};");
 
                 if agent_key == "scribe" {

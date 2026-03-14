@@ -136,7 +136,6 @@ pub enum Commands {
     },
 
     /// Gracefully logout and untether the current session.
-
     Logout {
         /// Explicit session ID to terminate.
         #[arg(short, long)]

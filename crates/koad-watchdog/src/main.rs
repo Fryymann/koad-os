@@ -1,11 +1,11 @@
 use koad_core::config::KoadConfig;
+use koad_core::logging::init_logging;
 use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
 use koad_proto::spine::v1::Empty;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
-use koad_core::logging::init_logging;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -34,12 +34,15 @@ async fn main() -> anyhow::Result<()> {
             failures = 0;
         } else {
             failures += 1;
-            warn!("System health check failed ({}/{}).", failures, max_failures);
+            warn!(
+                "System health check failed ({}/{}).",
+                failures, max_failures
+            );
 
             if failures >= max_failures {
                 error!("CRITICAL: System unresponsive. Initiating autonomic reboot...");
                 reboot_spine(&config).await;
-                failures = 0; 
+                failures = 0;
                 sleep(Duration::from_secs(10)).await;
             }
         }
@@ -52,28 +55,34 @@ async fn check_spine(config: &KoadConfig) -> anyhow::Result<()> {
     let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await?;
     let mut request = tonic::Request::new(Empty {});
     // Use system key for health check
-    request.metadata_mut().insert("x-system-key", "citadel-core".parse().unwrap());
+    request
+        .metadata_mut()
+        .insert("x-system-key", "citadel-core".parse().unwrap());
     let _ = client.heartbeat(request).await?;
     Ok(())
 }
 
 async fn reboot_spine(config: &KoadConfig) {
     info!("Watchdog: Attempting graceful drain before reboot...");
-    if let Ok(mut client) = SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
+    if let Ok(mut client) =
+        SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await
+    {
         let mut request = tonic::Request::new(Empty {});
-        request.metadata_mut().insert("x-system-key", "citadel-core".parse().unwrap());
+        request
+            .metadata_mut()
+            .insert("x-system-key", "citadel-core".parse().unwrap());
         let _ = client.drain_all(request).await;
     }
 
     info!("Watchdog: Terminating Spine process...");
     let _ = Command::new("pkill").arg("koad-spine").status();
-    
+
     // Wait for graceful exit
     sleep(Duration::from_secs(5)).await;
 
     // Fallback to SIGKILL
     let _ = Command::new("pkill").arg("-9").arg("koad-spine").status();
-    
+
     let bin_path = config.home.join("bin/koad-spine");
     let log_path = config.home.join("logs/watchdog_recovery.log");
 

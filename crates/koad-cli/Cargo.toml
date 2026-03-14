@@ -45,6 +45,14 @@ koad-proto = { path = "../koad-proto" }
 koad-board = { path = "../koad-board" }
 koad-bridge-notion = { path = "../koad-bridge-notion" }
 
+[[bin]]
+name = "koad"
+path = "src/main.rs"
+
+[[bin]]
+name = "koad-agent"
+path = "src/bin/koad-agent.rs"
+
 [dev-dependencies]
 assert_cmd = "2.0"
 predicates = "3.0"

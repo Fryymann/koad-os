@@ -3,6 +3,7 @@ members = [
     "crates/koad-core",
     "crates/koad-proto",
     "crates/koad-watchdog",
+    "crates/koad-citadel",
     "crates/koad-cli",
     "crates/koad-board",
     "crates/koad-bridge-notion"
@@ -31,6 +32,8 @@ tonic = "0.12"
 prost = "0.13"
 prost-types = "0.13"
 hyper-util = "0.1"
+tower = "0.4"
+hyper = "0.14"
 
 # Persistence & State
 rusqlite = { version = "0.32", features = ["bundled"] }

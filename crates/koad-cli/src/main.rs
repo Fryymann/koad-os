@@ -7,11 +7,11 @@ mod utils;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use koad_core::config::KoadConfig;
-use koad_core::utils::redis::RedisClient;
-use koad_core::session::AgentSession;
 use fred::interfaces::HashesInterface;
+use koad_core::config::KoadConfig;
 use koad_core::logging::init_logging;
+use koad_core::session::AgentSession;
+use koad_core::utils::redis::RedisClient;
 use std::env;
 use std::path::PathBuf;
 
@@ -31,20 +31,25 @@ async fn handle_asm_action(action: AsmAction, config: &KoadConfig) -> Result<()>
         AsmAction::Status => {
             let redis_client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
             let sessions: HashMap<String, String> = redis_client.pool.hgetall("koad:state").await?;
-            
+
             let mut active_count = 0;
             let mut dark_count = 0;
-            
+
             println!("\n\x1b[1m--- Agent Session Manager (ASM) Status ---\x1b[0m");
             for (key, val) in sessions {
                 if key.starts_with("koad:session:") {
-                    if let Ok(session) = serde_json::from_str::<koad_core::session::AgentSession>(&val) {
-                        if session.status == "active" { active_count += 1; }
-                        else if session.status == "dark" { dark_count += 1; }
+                    if let Ok(session) =
+                        serde_json::from_str::<koad_core::session::AgentSession>(&val)
+                    {
+                        if session.status == "active" {
+                            active_count += 1;
+                        } else if session.status == "dark" {
+                            dark_count += 1;
+                        }
                     }
                 }
             }
-            
+
             println!("Active Sessions: {}", active_count);
             println!("Dark Sessions:   {}", dark_count);
             println!("Total Tracked:   {}", active_count + dark_count);
@@ -52,7 +57,10 @@ async fn handle_asm_action(action: AsmAction, config: &KoadConfig) -> Result<()>
         }
         AsmAction::Prune => {
             println!(">>> Triggering manual session prune cycle...");
-            let _client = koad_proto::spine::v1::spine_service_client::SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await?;
+            let _client = koad_proto::spine::v1::spine_service_client::SpineServiceClient::connect(
+                config.network.spine_grpc_addr.clone(),
+            )
+            .await?;
             // Spine reaper is internal, but we can trigger a system-wide health check/refresh
             println!("\x1b[33m[NOTE]\x1b[0m Spine integrated reaper runs every 10s. Manual trigger not required.");
         }
@@ -83,11 +91,15 @@ async fn main() -> Result<()> {
     // 4.1 Redis Configuration Hydration (Hot Config Override)
     let mut config = config;
     if config.get_redis_socket().exists() {
-        use koad_core::utils::redis::RedisClient;
         use fred::interfaces::KeysInterface;
-        
+        use koad_core::utils::redis::RedisClient;
+
         if let Ok(client) = RedisClient::new(&config.home.to_string_lossy(), false).await {
-            if let Ok(Some(json)) = client.pool.get::<Option<String>, _>(koad_core::constants::REDIS_KEY_CONFIG).await {
+            if let Ok(Some(json)) = client
+                .pool
+                .get::<Option<String>, _>(koad_core::constants::REDIS_KEY_CONFIG)
+                .await
+            {
                 if let Ok(hot_config) = KoadConfig::from_json(&json) {
                     // Merge hot config: preserve local paths, take hot settings
                     let home = config.home.clone();
@@ -133,9 +145,9 @@ async fn main() -> Result<()> {
         env::set_var("GITHUB_OWNER", "Skylinks-Golf");
         // Only override GITHUB_REPO if we are actually inside an app directory
         if let Some(repo_name) = current_dir.file_name() {
-             if current_dir.to_string_lossy().contains("/apps/") {
-                 env::set_var("GITHUB_REPO", repo_name);
-             }
+            if current_dir.to_string_lossy().contains("/apps/") {
+                env::set_var("GITHUB_REPO", repo_name);
+            }
         }
     }
 
@@ -167,8 +179,7 @@ async fn main() -> Result<()> {
                 );
             }
 
-            handle_boot_command(agent, project, task, compact, force, role, &config)
-                .await?;
+            handle_boot_command(agent, project, task, compact, force, role, &config).await?;
         }
         Commands::System { action } => match action {
             SystemAction::Import {
@@ -186,15 +197,7 @@ async fn main() -> Result<()> {
                 .await?;
             }
             _ => {
-                handle_system_action(
-                    action,
-                    &config,
-                    &db,
-                    role,
-                    is_admin,
-                    &agent_name,
-                )
-                .await?;
+                handle_system_action(action, &config, &db, role, is_admin, &agent_name).await?;
             }
         },
         Commands::Intel { action } => {
@@ -212,8 +215,16 @@ async fn main() -> Result<()> {
         Commands::Version => {
             println!("KoadOS CLI v{}", env!("CARGO_PKG_VERSION"));
             // Try to query Spine version if possible
-            if let Ok(mut client) = koad_proto::spine::v1::spine_service_client::SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
-                if let Ok(resp) = client.get_system_state(koad_proto::spine::v1::GetSystemStateRequest {}).await {
+            if let Ok(mut client) =
+                koad_proto::spine::v1::spine_service_client::SpineServiceClient::connect(
+                    config.network.spine_grpc_addr.clone(),
+                )
+                .await
+            {
+                if let Ok(resp) = client
+                    .get_system_state(koad_proto::spine::v1::GetSystemStateRequest {})
+                    .await
+                {
                     println!("KoadOS Spine v{}", resp.into_inner().version);
                 }
             }
@@ -243,8 +254,9 @@ async fn main() -> Result<()> {
             let final_agent_name = if !session_id.is_empty() {
                 let redis_client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
                 let session_key = format!("koad:session:{}", session_id);
-                let res: Option<String> = redis_client.pool.hget("koad:state", &session_key).await?;
-                
+                let res: Option<String> =
+                    redis_client.pool.hget("koad:state", &session_key).await?;
+
                 res.and_then(|data| {
                     serde_json::from_str::<koad_core::session::AgentSession>(&data).ok()
                 })
@@ -254,7 +266,8 @@ async fn main() -> Result<()> {
                 agent_name.clone()
             };
 
-            crate::handlers::cognitive::handle_cognitive_check(&config, &db, &final_agent_name).await?;
+            crate::handlers::cognitive::handle_cognitive_check(&config, &db, &final_agent_name)
+                .await?;
         }
         Commands::Asm { action } => {
             handle_asm_action(action, &config).await?;
@@ -268,9 +281,11 @@ async fn main() -> Result<()> {
         Commands::Watchdog { action, daemon } => {
             let home = config.home.clone();
             let bin_path = home.join("bin/koad-watchdog");
-            
+
             match action {
-                Some(WatchdogAction::Start { daemon: start_daemon }) => {
+                Some(WatchdogAction::Start {
+                    daemon: start_daemon,
+                }) => {
                     if !bin_path.exists() {
                         anyhow::bail!("Watchdog binary not found at {:?}", bin_path);
                     }
@@ -285,16 +300,17 @@ async fn main() -> Result<()> {
                         cmd.env("KOAD_HOME", &home);
                         cmd.status()?;
                     }
-                },
+                }
                 Some(WatchdogAction::Status) => {
                     use sysinfo::System;
                     let mut sys = System::new_all();
                     sys.refresh_all();
-                    let watchdog_procs: Vec<_> = sys.processes()
+                    let watchdog_procs: Vec<_> = sys
+                        .processes()
                         .values()
                         .filter(|p| p.name().contains("koad-watchdog"))
                         .collect();
-                    
+
                     if watchdog_procs.is_empty() {
                         println!("Watchdog: \x1b[31mSTOPPED\x1b[0m");
                     } else {
@@ -303,13 +319,13 @@ async fn main() -> Result<()> {
                             println!("  - PID: {} | Uptime: {}s", p.pid(), p.run_time());
                         }
                     }
-                },
+                }
                 Some(WatchdogAction::Stop) => {
                     println!(">>> Stopping Autonomic Watchdog...");
                     let _ = std::process::Command::new("pkill")
                         .arg("koad-watchdog")
                         .status()?;
-                },
+                }
                 None => {
                     // Legacy support for 'koad watchdog --daemon'
                     if !bin_path.exists() {

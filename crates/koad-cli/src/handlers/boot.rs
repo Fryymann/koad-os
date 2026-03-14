@@ -80,8 +80,7 @@ pub async fn handle_boot_command(
 
     // Generate a unique Body ID for this terminal session.
     // Reuse KOAD_BODY_ID if already set (survives re-runs within the same shell).
-    let body_id = env::var("KOAD_BODY_ID")
-        .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+    let body_id = env::var("KOAD_BODY_ID").unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
 
     let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
         .await
@@ -105,15 +104,17 @@ pub async fn handle_boot_command(
 
         let existing_lease: Option<String> = pool.hget("koad:state", &lease_field).await?;
         let live_lease = existing_lease.as_deref().and_then(|data| {
-            serde_json::from_str::<serde_json::Value>(data).ok().and_then(|v| {
-                let expires_str = v["expires_at"].as_str()?.to_string();
-                let session_id = v["session_id"].as_str()?.to_string();
-                let body_id = v["body_id"].as_str().unwrap_or("unknown").to_string();
-                chrono::DateTime::parse_from_rfc3339(&expires_str)
-                    .ok()
-                    .filter(|exp| exp.with_timezone(&chrono::Utc) > chrono::Utc::now())
-                    .map(|_| (session_id, body_id))
-            })
+            serde_json::from_str::<serde_json::Value>(data)
+                .ok()
+                .and_then(|v| {
+                    let expires_str = v["expires_at"].as_str()?.to_string();
+                    let session_id = v["session_id"].as_str()?.to_string();
+                    let body_id = v["body_id"].as_str().unwrap_or("unknown").to_string();
+                    chrono::DateTime::parse_from_rfc3339(&expires_str)
+                        .ok()
+                        .filter(|exp| exp.with_timezone(&chrono::Utc) > chrono::Utc::now())
+                        .map(|_| (session_id, body_id))
+                })
         });
 
         if let Some((ref live_sid, ref live_body)) = live_lease {
@@ -142,7 +143,10 @@ pub async fn handle_boot_command(
                 "agent": agent,
                 "new_body_id": body_id.clone()
             });
-            let _: () = pool.next().publish("koad:sessions", takeover_msg.to_string()).await?;
+            let _: () = pool
+                .next()
+                .publish("koad:sessions", takeover_msg.to_string())
+                .await?;
         }
 
         if force || existing_lease.is_none() || live_lease.is_none() {
@@ -163,7 +167,10 @@ pub async fn handle_boot_command(
                     let _: () = pool.next().hdel("koad:state", &key).await?;
                     let sid = key.replace("koad:session:", "");
                     let msg = serde_json::json!({ "type": "SESSION_PRUNED", "session_id": sid });
-                    let _: () = pool.next().publish("koad:sessions", msg.to_string()).await?;
+                    let _: () = pool
+                        .next()
+                        .publish("koad:sessions", msg.to_string())
+                        .await?;
                 }
             }
         }
@@ -268,11 +275,16 @@ pub async fn handle_boot_command(
         println!("Body:     {}", body_id);
         println!("Tags:     {}", tags.join(", "));
         println!("Lifeforce: Tethered via KOAD_SESSION_ID.");
-        println!("Shell:    Run `export KOAD_SESSION_ID={} KOAD_BODY_ID={}` to bind this shell.", session_id, body_id);
+        println!(
+            "Shell:    Run `export KOAD_SESSION_ID={} KOAD_BODY_ID={}` to bind this shell.",
+            session_id, body_id
+        );
 
         // --- [Ghost & Body Bootstrap] ---
         // 1. Load Persona Bootstrap (The Ghost)
-        let identity_config = config.identities.get(&agent)
+        let identity_config = config
+            .identities
+            .get(&agent)
             .or_else(|| config.identities.get(&agent.to_lowercase()));
 
         if let Some(id_config) = identity_config {
@@ -285,11 +297,15 @@ pub async fn handle_boot_command(
         }
 
         // 2. Load Interface Bootstrap (The Body)
-        let interface_config = config.interfaces.get(&driver_id)
+        let interface_config = config
+            .interfaces
+            .get(&driver_id)
             .or_else(|| config.interfaces.get(&driver_id.to_lowercase()));
 
         if let Some(if_config) = interface_config {
-            let b_path = if_config.bootstrap.replace("~", &env::var("HOME").unwrap_or_default());
+            let b_path = if_config
+                .bootstrap
+                .replace("~", &env::var("HOME").unwrap_or_default());
             if let Ok(content) = std::fs::read_to_string(b_path) {
                 println!("\n\x1b[1m[INTERFACE: {}]\x1b[0m\n{}", driver_id, content);
             }
@@ -311,12 +327,12 @@ pub async fn handle_boot_command(
     Ok(())
 }
 
-pub async fn handle_logout_command(
-    session: Option<String>,
-    config: &KoadConfig,
-) -> Result<()> {
-    let session_id = session.or_else(|| env::var("KOAD_SESSION_ID").ok())
-        .context("No active session ID found. Provide --session or ensure KOAD_SESSION_ID is set.")?;
+pub async fn handle_logout_command(session: Option<String>, config: &KoadConfig) -> Result<()> {
+    let session_id = session
+        .or_else(|| env::var("KOAD_SESSION_ID").ok())
+        .context(
+            "No active session ID found. Provide --session or ensure KOAD_SESSION_ID is set.",
+        )?;
 
     let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
         .await
@@ -324,9 +340,13 @@ pub async fn handle_logout_command(
 
     println!(">>> Terminating session {}...", session_id);
 
-    client.terminate_session(crate::utils::authenticated_request(TerminateSessionRequest {
-        session_id: session_id.clone(),
-    })).await?;
+    client
+        .terminate_session(crate::utils::authenticated_request(
+            TerminateSessionRequest {
+                session_id: session_id.clone(),
+            },
+        ))
+        .await?;
 
     println!("\x1b[32m[OK]\x1b[0m Session untethered successfully.");
     println!("Shell:    Run `unset KOAD_SESSION_ID KOAD_BODY_ID` to clear this shell's binding.");

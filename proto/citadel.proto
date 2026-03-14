@@ -47,6 +47,8 @@ service Signal {
 service PersonalBay {
   // Provision or format a Personal Bay.
   rpc Provision(ProvisionRequest) returns (StatusResponse);
+  // Provision a workspace (git worktree) for a task.
+  rpc ProvisionWorkspace(WorkspaceRequest) returns (WorkspaceResponse);
   // Query the health and status of a bay.
   rpc GetStatus(BayQuery) returns (BayStatus);
 }
@@ -57,6 +59,9 @@ message LeaseRequest {
   TraceContext context = 1;
   string agent_name = 2;
   string project_root = 3;
+  bool force = 4;             // Take over existing lease if true
+  string body_id = 5;         // Unique terminal/shell identifier
+  string driver_id = 6;       // CLI driver: "claude" | "gemini" | "codex" | "cli"
 }
 
 message LeaseResponse {
@@ -114,4 +119,15 @@ message BayStatus {
   string health = 2; // GREEN | YELLOW | RED
   string last_sync = 3;
   TraceContext context = 4;
+}
+
+message WorkspaceRequest {
+  TraceContext context = 1;
+  string agent_name = 2;
+  string task_id = 3;         // e.g. "issue-147-session-brokering"
+}
+
+message WorkspaceResponse {
+  string worktree_path = 1;
+  TraceContext context = 2;
 }

@@ -1614,6 +1614,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "koad-citadel"
+version = "3.2.0"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "async-trait",
+ "chrono",
+ "clap",
+ "fred",
+ "futures",
+ "hyper 0.14.32",
+ "koad-core",
+ "koad-proto",
+ "prost",
+ "prost-types",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tower 0.4.13",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "koad-core"
 version = "3.2.0"
 dependencies = [

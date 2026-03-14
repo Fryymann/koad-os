@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// A distilled unit of high-signal knowledge extracted from session context.
 /// FactCards are durable (L3) and searchable across agent sessions.

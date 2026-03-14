@@ -1,10 +1,10 @@
 use crate::db::KoadDB;
 use anyhow::Result;
+use fred::interfaces::HashesInterface;
 use koad_core::config::KoadConfig;
 use koad_core::constants::{REDIS_KEY_STATE, REDIS_KEY_SYSTEM_STATS};
 use koad_core::health::{HealthRegistry, HealthStatus};
 use koad_core::utils::redis::RedisClient;
-use fred::interfaces::HashesInterface;
 use serde_json::Value;
 use sysinfo::System;
 
@@ -14,8 +14,10 @@ pub async fn handle_status_command(
     config: &KoadConfig,
     _db: &KoadDB,
 ) -> Result<()> {
-    println!("
-\x1b[1m--- [TELEMETRY] Neural Link & Grid Integrity ---\x1b[0m");
+    println!(
+        "
+\x1b[1m--- [TELEMETRY] Neural Link & Grid Integrity ---\x1b[0m"
+    );
 
     // 1. Engine Room (Redis Process/Socket)
     print!("{:<30}", "Engine Room (Redis):");
@@ -77,7 +79,10 @@ pub async fn handle_status_command(
     if full {
         if let Some(ref client) = redis_client {
             // 5. System Stats (Direct from Redis Data Plane)
-            let res: Option<String> = client.pool.hget(REDIS_KEY_STATE, REDIS_KEY_SYSTEM_STATS).await?;
+            let res: Option<String> = client
+                .pool
+                .hget(REDIS_KEY_STATE, REDIS_KEY_SYSTEM_STATS)
+                .await?;
             if let Some(s) = res {
                 let v: Value = serde_json::from_str(&s).unwrap_or_default();
                 println!(
@@ -86,11 +91,15 @@ pub async fn handle_status_command(
                 );
                 println!("CPU Usage: {:.1}%", v["cpu_usage"].as_f64().unwrap_or(0.0));
                 println!("Memory:    {} MB", v["memory_usage"].as_u64().unwrap_or(0));
-                println!("Latency:   {:.2} ms (Bus)", v["latency_ms"].as_f64().unwrap_or(0.0));
+                println!(
+                    "Latency:   {:.2} ms (Bus)",
+                    v["latency_ms"].as_f64().unwrap_or(0.0)
+                );
             }
 
             // 6. Detailed Health Registry (The "Doctor" Report)
-            let health_res: Option<String> = client.pool.hget(REDIS_KEY_STATE, "health_registry").await?;
+            let health_res: Option<String> =
+                client.pool.hget(REDIS_KEY_STATE, "health_registry").await?;
             if let Some(h) = health_res {
                 if let Ok(registry) = serde_json::from_str::<HealthRegistry>(&h) {
                     println!(
@@ -114,7 +123,8 @@ pub async fn handle_status_command(
                 "
 \x1b[1m--- Crew Manifest (Authoritative) ---\x1b[0m"
             );
-            let manifest_res: Option<String> = client.pool.hget(REDIS_KEY_STATE, "crew_manifest").await?;
+            let manifest_res: Option<String> =
+                client.pool.hget(REDIS_KEY_STATE, "crew_manifest").await?;
             let mut wake = 0;
             if let Some(m) = manifest_res {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&m) {
@@ -125,8 +135,7 @@ pub async fn handle_status_command(
                                 let sid_short = if sid.len() > 8 { &sid[..8] } else { sid };
                                 println!(
                                     "  - {:<10} [\x1b[32mWAKE\x1b[0m] (Session: {})",
-                                    name,
-                                    sid_short
+                                    name, sid_short
                                 );
                                 wake += 1;
                             } else if full {
@@ -145,4 +154,3 @@ pub async fn handle_status_command(
     println!("\x1b[1m---------------------------------------------------\x1b[0m");
     Ok(())
 }
-

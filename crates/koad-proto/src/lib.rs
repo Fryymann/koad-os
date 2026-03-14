@@ -7,3 +7,9 @@ pub mod spine {
         tonic::include_proto!("koad.spine.v1");
     }
 }
+
+pub mod citadel {
+    pub mod v5 {
+        tonic::include_proto!("koad.citadel.v5");
+    }
+}
