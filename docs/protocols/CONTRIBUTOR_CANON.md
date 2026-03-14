@@ -27,7 +27,20 @@ All tasks must follow the **Research -> Strategy -> Execution** cycle without ex
 4. **Execution:** Implement the plan surgically.
 5. **Review:** Perform a KSRP (Koad Self-Review Protocol) pass.
 
-## III. Verification & Enforcement
+## III. The Experience Point (XP) System
+Experience Points (XP) serve as a persistent ledger of an agent's operational impact, capability growth, and system contributions.
+
+### 1. Earning XP
+- **Deep Save Assessment:** XP is awarded during the Post-Sprint Reflection (Deep Save) phase.
+- **Self-Assessed Value:** Agents must evaluate the complexity, impact, and token efficiency of their completed tasks to determine a fair XP reward.
+- **Tracking:** XP must be logged permanently in the agent's `IDENTITY.md` file (or canonical identity record) under the header `**Experience (XP):** <value>`.
+
+### 2. Thresholds & Rewards
+- Accumulating XP tracks agent maturation.
+- Future KoadOS phases may introduce specific XP thresholds that unlock elevated permissions, new system capabilities, or advanced tools.
+- *Failing to adhere to Canon results in zero XP for a given sprint.*
+
+## IV. Verification & Enforcement
 - **KSRP Pass 2 (Verify):** Agents must verify that Plan Mode was engaged if the task weight was `standard` or `complex`.
 - **Audit Trail:** Plans must be saved as `.md` files in the designated plans directory for future context recovery.
 
