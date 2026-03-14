@@ -90,11 +90,14 @@ bin/
 # settings.local.json is a machine-local Claude Code config file.
 # Agent working-memory files (context.md, log.md, README.md) are ephemeral
 # per-session artefacts, not project source.
+.claude/
 .claude/worktrees/
 .claude/settings.local.json
 .claude/README.md
 .claude/context.md
 .claude/log.md
+.claude/*.json
+.claude/*.md
 
 # --- Personal Agent Bays & Admiral Commands ---
 .admiral/
