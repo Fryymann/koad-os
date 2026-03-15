@@ -20,7 +20,6 @@ pub struct PersonalBayService {
 }
 
 impl PersonalBayService {
-    /// Creates a new `PersonalBayService`.
     pub fn new(bay_store: Arc<BayStore>, workspace_manager: Arc<WorkspaceManager>) -> Self {
         Self {
             bay_store,
@@ -31,10 +30,6 @@ impl PersonalBayService {
 
 #[tonic::async_trait]
 impl PersonalBay for PersonalBayService {
-    /// Provisions a new personal bay for an agent.
-    ///
-    /// # Errors
-    /// Returns `INTERNAL` if the filesystem or database operations fail.
     async fn provision(
         &self,
         request: Request<ProvisionRequest>,
@@ -42,9 +37,7 @@ impl PersonalBay for PersonalBayService {
         let req = request.into_inner();
         let agent_name = &req.agent_name;
 
-        self.bay_store
-            .provision(agent_name)
-            .await
+        self.bay_store.provision(agent_name).await
             .map_err(|e| Status::internal(format!("Bay provisioning failed: {}", e)))?;
 
         info!("PersonalBay: Provisioned bay for '{}'", agent_name);
@@ -56,11 +49,6 @@ impl PersonalBay for PersonalBayService {
         }))
     }
 
-    /// Creates a git worktree assigned to an agent for a specific task.
-    ///
-    /// # Errors
-    /// Returns `INVALID_ARGUMENT` if `task_id` is missing.
-    /// Returns `INTERNAL` if worktree creation or mapping fails.
     async fn provision_workspace(
         &self,
         request: Request<WorkspaceRequest>,
@@ -73,10 +61,7 @@ impl PersonalBay for PersonalBayService {
             return Err(Status::invalid_argument("task_id is required"));
         }
 
-        let worktree_path = self
-            .workspace_manager
-            .create_worktree(agent_name, task_id, &self.bay_store)
-            .await
+        let worktree_path = self.workspace_manager.create_worktree(agent_name, task_id, &self.bay_store).await
             .map_err(|e| Status::internal(format!("Worktree creation failed: {}", e)))?;
 
         let now = Utc::now();
@@ -88,6 +73,7 @@ impl PersonalBay for PersonalBayService {
                 seconds: now.timestamp(),
                 nanos: 0,
             }),
+            level: WorkspaceLevel::LevelCitadel as i32,
         });
 
         Ok(Response::new(WorkspaceResponse {
@@ -96,18 +82,11 @@ impl PersonalBay for PersonalBayService {
         }))
     }
 
-    /// Queries the current health and status of an agent's personal bay.
-    ///
-    /// # Errors
-    /// Returns `NOT_FOUND` if the bay has not been provisioned.
     async fn get_status(&self, request: Request<BayQuery>) -> Result<Response<BayStatus>, Status> {
         let req = request.into_inner();
         let agent_name = &req.agent_name;
 
-        let health = self
-            .bay_store
-            .get_health(agent_name)
-            .await
+        let health = self.bay_store.get_health(agent_name).await
             .map_err(|e| Status::not_found(format!("Bay not found: {}", e)))?;
 
         let now = Utc::now();
@@ -119,6 +98,7 @@ impl PersonalBay for PersonalBayService {
                 seconds: now.timestamp(),
                 nanos: 0,
             }),
+            level: WorkspaceLevel::LevelCitadel as i32,
         });
 
         Ok(Response::new(BayStatus {

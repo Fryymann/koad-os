@@ -9,6 +9,7 @@
 | **Helm** | Sentinel | Gemini CLI | Security Audit, Jailing, Integrity Oversight | Blocking alerts, Audit logs |
 | **Claude** | Contractor | Claude Code | Implementation, Scaffolding, Integration Tests | PR-based submission via Git Worktrees |
 | **Scribe** | Crew | Gemini CLI | Context Distillation, Scouting, Scaffolding | Single instruction -> Execution -> Report |
+| **Cid** | Engineer | Codex | Crate Architect, Systems Infra | Research -> Strategy -> Execution |
 | **Dood** | Admin | Human (Ian) | Final Approval, Security, Strategic Direction | Explicit "Condition Green" signature |
 
 ## Deployment Protocols

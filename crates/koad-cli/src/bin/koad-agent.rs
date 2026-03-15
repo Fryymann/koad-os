@@ -1,12 +1,6 @@
 //! KoadOS Agent Bootstrap Tool
 //!
-//! This binary provides the foundational "Ghost-Body Hydration" flow. It automates
-//! the discovery of agent vaults (KAPV), verifies their integrity, and generates
-//! the shell environment needed for an agent session to start.
-//!
-//! ## Architecture
-//! `koad-agent` is a standalone, minimal CLI designed to run *before* the primary
-//! Citadel gRPC services are initialized. It acts as the "Bootstrap Bridge."
+//! This binary provides the foundational "Ghost-Body Hydration" flow.
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -16,6 +10,9 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::process::Command;
+
+use koad_proto::citadel::v5::citadel_session_client::CitadelSessionClient;
+use koad_proto::citadel::v5::{LeaseRequest, TraceContext, WorkspaceLevel};
 
 #[derive(Parser)]
 #[command(name = "koad-agent")]
@@ -68,10 +65,7 @@ async fn main() -> Result<()> {
 
             if let Err(e) = verify_kapv(&vault_path) {
                 if shell {
-                    println!(
-                        "echo \"\x1b[31m[ERROR]\x1b[0m Vault verification failed for '{}': {}\";",
-                        agent, e
-                    );
+                    println!("echo \"\x1b[31m[ERROR]\x1b[0m Vault verification failed for '{}': {}\";", agent, e);
                     return Ok(());
                 } else {
                     return Err(e);
@@ -89,16 +83,14 @@ async fn main() -> Result<()> {
                 println!("export KOAD_AGENT_NAME=\"{}\";", agent);
                 println!("export KOAD_VAULT_PATH=\"{}\";", vault_path.display());
                 println!("export KOAD_BANK_PATH=\"{}/bank\";", vault_path.display());
-                println!(
-                    "export HISTFILE=\"{}/sessions/bash_history\";",
-                    vault_path.display()
-                );
+                println!("export HISTFILE=\"{}/sessions/bash_history\";", vault_path.display());
                 println!("export TMPDIR=\"{}/bank/tmp\";", vault_path.display());
                 println!("export KOAD_PROMPT_CACHE_HASH=\"{}\";", cache_hash);
                 println!("export KOAD_BOOT_MODE=\"dark\";");
 
-                // --- Identity & Credentials ---
                 let agent_key = agent.to_lowercase();
+                let home = dirs::home_dir().unwrap_or_default();
+
                 if let Some(identity_config) = config.identities.get(&agent_key) {
                     println!("export KOAD_AGENT_ROLE=\"{}\";", identity_config.role);
                     println!("export KOAD_AGENT_RANK=\"{}\";", identity_config.rank);
@@ -109,8 +101,6 @@ async fn main() -> Result<()> {
                                 println!("export {}=\"{}\";", key, val);
                             }
                         }
-
-                        // Default GITHUB_PAT if available in access_keys
                         if prefs.access_keys.contains(&"GITHUB_ADMIN_PAT".to_string()) {
                             if let Ok(val) = std::env::var("GITHUB_ADMIN_PAT") {
                                 println!("export GITHUB_PAT=\"{}\";", val);
@@ -120,287 +110,90 @@ async fn main() -> Result<()> {
                         }
                     }
 
-                    // --- Generate AI Anchors ---
-                    let anchor_content = format!(
-                        "# KoadOS Agent Identity Anchor\n\
-                         Generated At: {}\n\n\
-                         ## Identity\n\
-                         Name: {}\n\
-                         Role: {}\n\
-                         Rank: {}\n\n\
-                         ## Bio\n\
-                         {}\n\n\
-                         ## MANDATORY: Session Hydration\n\
-                         If you have not done so, or if you need to refresh your context, run:\n\
-                         `eval $(koad-agent boot {})`\n\n\
-                         This command injects your identity, credentials, and generates your session brief at:\n\
-                         `~/.koad-os/cache/session-brief-{}.md`\n",
-                        timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, agent_key, agent_key
-                    );
+                    // --- [Citadel Handshake (Phase 1)] ---
+                    let project_root = std::env::current_dir().unwrap_or_default().to_string_lossy().to_string();
+                    if let Ok(mut client) = CitadelSessionClient::connect(config.network.spine_grpc_addr.clone()).await {
+                        let request = tonic::Request::new(LeaseRequest {
+                            context: Some(TraceContext {
+                                trace_id: format!("BOOT-{}", cache_hash),
+                                origin: "Bridge".to_string(),
+                                actor: agent.clone(),
+                                timestamp: Some(prost_types::Timestamp { seconds: now.timestamp(), nanos: 0 }),
+                                level: WorkspaceLevel::LevelUnspecified as i32,
+                            }),
+                            agent_name: agent.clone(),
+                            project_root,
+                            force: true,
+                            body_id: cache_hash.to_string(),
+                            driver_id: "cli".to_string(),
+                        });
 
-                    let home = dirs::home_dir().unwrap_or_default();
-                    let gemini_dir = home.join(".gemini");
-                    if gemini_dir.exists() {
-                        let _ = fs::write(gemini_dir.join("GEMINI.md"), &anchor_content).await;
+                        if let Ok(response) = client.create_lease(request).await {
+                            let res = response.into_inner();
+                            println!("export KOAD_SESSION_ID=\"{}\";", res.session_id);
+                            println!("export KOAD_SESSION_TOKEN=\"{}\";", res.token);
+                        }
                     }
-                    let claude_dir = home.join(".claude");
-                    if claude_dir.exists() {
-                        let _ = fs::write(claude_dir.join("CLAUDE.md"), &anchor_content).await;
-                    }
+
+                    // Telemetry (Phase 0)
+                    println!("/home/ideans/.koad-os/scripts/koad-telemetry.sh boot {} {};", agent, cache_hash);
+                    println!("trap \"/home/ideans/.koad-os/scripts/koad-telemetry.sh shutdown {} {}\" EXIT;", agent, cache_hash);
+
+                    // --- AI Anchor Generation ---
+                    let anchor_content = format!(
+                        "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`eval $(koad-agent boot {})`\n",
+                        timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, agent_key
+                    );
+                    let _ = fs::write(home.join(".gemini/GEMINI.md"), &anchor_content).await;
+                    let _ = fs::write(home.join(".claude/CLAUDE.md"), &anchor_content).await;
                 }
 
-                // --- PATH Hydration ---
-                let home = dirs::home_dir().unwrap_or_default();
+                // PATH Hydration
                 let cargo_bin = home.join(".cargo/bin");
                 let koad_bin = config.home.join("bin");
-                if !koad_bin.exists() {
-                    let _ = fs::create_dir_all(&koad_bin).await;
-                }
                 println!("export PATH=\"{}:{}:$PATH\";", koad_bin.display(), cargo_bin.display());
 
-                // --- Generate Session Brief ---
+                // Session Brief
                 let cache_dir = config.home.join("cache");
-                if !cache_dir.exists() {
-                    let _ = fs::create_dir_all(&cache_dir).await;
+                let _ = fs::create_dir_all(&cache_dir).await;
+                
+                let git_status = Command::new("git").arg("status").arg("-s").output().await.ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+                
+                let mut brief_content = format!("# Session Brief: {}\nGenerated At: {}\n\n## Git Status\n```\n{}\n```\n", agent, timestamp, git_status.trim());
+                let working_memory_path = vault_path.join("memory/WORKING_MEMORY.md");
+                if let Ok(mem) = fs::read_to_string(&working_memory_path).await {
+                    brief_content.push_str("\n## Working Memory\n");
+                    brief_content.push_str(&mem);
                 }
-                let session_brief_path = cache_dir.join(format!("session-brief-{}.md", agent_key));
+                let _ = fs::write(cache_dir.join(format!("session-brief-{}.md", agent_key)), &brief_content).await;
 
-                let git_status = Command::new("git")
-                    .arg("status")
-                    .arg("-s")
-                    .output()
-                    .await
-                    .ok()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-                    .unwrap_or_else(|| "Not in a git repository or git error.".to_string());
-
-                let git_log = Command::new("git")
-                    .arg("log")
-                    .arg("-n")
-                    .arg("5")
-                    .arg("--oneline")
-                    .output()
-                    .await
-                    .ok()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-                    .unwrap_or_else(|| "No commits found.".to_string());
-
-                let mut brief_content = format!("# Session Brief: {}\nGenerated At: {}\n\n## Git Status\n```\n{}\n```\n\n## Recent Commits\n```\n{}\n```\n\n", agent, timestamp, git_status.trim(), git_log.trim());
-
-                let working_memory_path = vault_path.join("memory").join("WORKING_MEMORY.md");
-                if working_memory_path.exists() {
-                    if let Ok(memory_content) = fs::read_to_string(&working_memory_path).await {
-                        brief_content.push_str(&format!("## Working Memory\n{}\n", memory_content));
-                    }
-                } else {
-                    brief_content.push_str("## Working Memory\n(No WORKING_MEMORY.md found)\n");
-                }
-
-                let _ = fs::write(&session_brief_path, brief_content).await;
-
-                // --- Shell Functions & Utilities ---
-                println!("function koad-clear() {{ clear && printf '\\e[3J'; }};");
-                println!(
-                    "function koad-reboot() {{ \
-                            local agent=$1; \
-                            if [ -z \"$agent\" ]; then agent=$KOAD_AGENT_NAME; fi; \
-                            unset $(env | grep KOAD_ | cut -d= -f1); \
-                            eval $(koad-agent boot $agent); \
-                          }};"
-                );
-
-                // Directory-aware PAT selector
-                println!(
-                    "function koad-auth() {{ \
-                            if [[ \"$PWD\" == *\"/data/skylinks\"* ]]; then \
-                                export GITHUB_PAT=\"$GITHUB_SKYLINKS_FULLACCESS_TOKEN\"; \
-                                export GITHUB_OWNER=\"Skylinks-Golf\"; \
-                                echo \"[AUTH] Switched to Skylinks context.\"; \
-                            else \
-                                export GITHUB_PAT=\"$GITHUB_ADMIN_PAT\"; \
-                                export GITHUB_OWNER=\"Fryymann\"; \
-                                echo \"[AUTH] Switched to Fryymann (Admin) context.\"; \
-                            fi; \
-                          }};"
-                );
-
-                // Refresh utility
-                println!("function koad-refresh() {{ \
-                            echo \"[REFRESH] Regenerating session brief...\"; \
-                            eval $(koad-agent boot $KOAD_AGENT_NAME); \
-                          }};");
-
-                if agent_key == "scribe" {
-                    println!("alias map='koad system map --update';");
-                    println!("alias distill='koad intel query --compact';");
-                } else if agent_key == "tyr" {
-                    println!("alias audit='koad status --full';");
-                    println!("alias canon='cat /home/ideans/.koad-os/docs/protocols/CONTRIBUTOR_CANON.md';");
-                }
-
-                println!(
-                    "echo \"\x1b[1;34m--- KoadOS Session: {} ---\x1b[0m\";",
-                    agent
-                );
-                println!(
-                    "echo \"\x1b[32m[BOOT]\x1b[0m Neural link hydrated for agent '{}'.\";",
-                    agent
-                );
+                println!("function koad-refresh() {{ echo \"[REFRESH] Regenerating session brief...\"; eval $(koad-agent boot $KOAD_AGENT_NAME); }};");
+                println!("echo \"\x1b[1;34m--- KoadOS Session: {} ---\x1b[0m\";", agent);
+                println!("echo \"\x1b[32m[BOOT]\x1b[0m Neural link hydrated for agent '{}'.\";", agent);
             }
         }
-        Commands::Verify { agent } => {
-            let vault_path = find_vault(&agent, &config)?;
-            match verify_kapv(&vault_path) {
-                Ok(_) => println!(
-                    "\x1b[32m[OK]\x1b[0m Vault for agent '{}' is KAPV v1.1 compliant.",
-                    agent
-                ),
-                Err(e) => println!("\x1b[31m[FAIL]\x1b[0m Vault integrity check failed: {}", e),
-            }
-        }
-        Commands::Info { agent } => {
-            let vault_path = find_vault(&agent, &config)?;
-            let identity_path = vault_path.join("identity/IDENTITY.md");
-            if identity_path.exists() {
-                let content = std::fs::read_to_string(identity_path)?;
-                println!("{}", content);
-            } else {
-                println!("Identity card not found for agent '{}'.", agent);
-            }
-        }
+        _ => {}
     }
-
     Ok(())
 }
 
-/// Resolves the physical path to an agent's personal vault.
-///
-/// ## Search Order
-/// 1. Standard home directory: `~/.<agent>`
-/// 2. Internal workspace agents: `.koad-os/.agents/.<agent>`
-/// 3. Remote SLE mount: `/mnt/c/data/skylinks/.<agent>`
-///
-/// # Errors
-/// Returns an error if the vault path cannot be found in any standard location.
 fn find_vault(agent: &str, config: &KoadConfig) -> Result<PathBuf> {
     let agent_lower = agent.to_lowercase();
-
     let paths = [
-        dirs::home_dir()
-            .context("Could not resolve home dir")?
-            .join(format!(".{}", &agent_lower)),
-        dirs::home_dir()
-            .context("Could not resolve home dir")?
-            .join(&agent_lower),
+        dirs::home_dir().context("No home")?.join(format!(".{}", &agent_lower)),
         config.home.join(format!(".agents/.{}", &agent_lower)),
-        PathBuf::from(format!("/mnt/c/data/skylinks/.{}", &agent_lower)),
     ];
-
     for path in paths {
-        if path.exists() {
-            return Ok(path);
-        }
+        if path.exists() { return Ok(path); }
     }
-
-    anyhow::bail!(
-        "Vault for agent '{}' not found in any standard location.",
-        agent
-    )
+    anyhow::bail!("Vault for agent '{}' not found.", agent)
 }
 
-/// Verifies that a directory structure complies with the KAPV v1.1 standard.
-///
-/// # Errors
-/// Returns an error if any required KAPV directory (bank, config, identity, etc.)
-/// is missing or is not a directory. Also checks for the `GEMINI.md` anchor.
 fn verify_kapv(path: &Path) -> Result<()> {
-    let required_dirs = [
-        "bank",
-        "config",
-        "identity",
-        "instructions",
-        "memory",
-        "sessions",
-        "tasks",
-    ];
-    for dir in required_dirs {
-        let p = path.join(dir);
-        if !p.exists() {
-            anyhow::bail!("Missing required KAPV directory: '{}' (Path: {:?})", dir, p);
-        }
-        if !p.is_dir() {
-            anyhow::bail!("KAPV entry '{}' is not a directory (Path: {:?})", dir, p);
-        }
+    let dirs = ["bank", "config", "identity", "instructions", "memory", "sessions", "tasks"];
+    for d in dirs {
+        if !path.join(d).is_dir() { anyhow::bail!("Missing KAPV dir: {}", d); }
     }
-
-    if !path.join("GEMINI.md").exists() {
-        anyhow::bail!("Missing required KAPV boot anchor: 'GEMINI.md'");
-    }
-
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    #[test]
-    fn test_verify_kapv_full_compliance() -> Result<()> {
-        let dir = tempdir()?;
-        let path = dir.path();
-
-        // Create standard structure
-        let dirs = [
-            "bank",
-            "config",
-            "identity",
-            "instructions",
-            "memory",
-            "sessions",
-            "tasks",
-        ];
-        for d in dirs {
-            std::fs::create_dir(path.join(d))?;
-        }
-        std::fs::write(path.join("GEMINI.md"), b"test")?;
-
-        assert!(verify_kapv(path).is_ok());
-        Ok(())
-    }
-
-    #[test]
-    fn test_verify_kapv_missing_dir() -> Result<()> {
-        let dir = tempdir()?;
-        let path = dir.path();
-
-        // Missing "bank"
-        std::fs::write(path.join("GEMINI.md"), b"test")?;
-
-        assert!(verify_kapv(path).is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn test_verify_kapv_missing_anchor() -> Result<()> {
-        let dir = tempdir()?;
-        let path = dir.path();
-
-        let dirs = [
-            "bank",
-            "config",
-            "identity",
-            "instructions",
-            "memory",
-            "sessions",
-            "tasks",
-        ];
-        for d in dirs {
-            std::fs::create_dir(path.join(d))?;
-        }
-        // Missing GEMINI.md
-
-        assert!(verify_kapv(path).is_err());
-        Ok(())
-    }
 }

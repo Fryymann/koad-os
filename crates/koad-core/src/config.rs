@@ -181,6 +181,7 @@ pub struct ProjectConfig {
     pub github_owner: Option<String>,
     pub github_repo: Option<String>,
     pub default_project: Option<u32>,
+    pub level: Option<String>,
     pub credential_key: Option<String>,
 }
 

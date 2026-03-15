@@ -9,10 +9,11 @@
 - **Bank:** `~/.koad-os/.agents/.scribe/bank/` (Personal Storage)
 
 ## Ⅱ. Boot Protocol (KAPV v1.1)
-1. **Load Working Memory:** Read `memory/WORKING_MEMORY.md` to restore task context.
-2. **Review Living Facts:** Read `memory/FACTS.md` for architectural canon.
-3. **Sync with Map:** Check `~/.koad-os/SYSTEM_MAP.md` for workspace orientation.
-4. **Consult Guides:** Read `instructions/GUIDES.md` for personal SOPs.
+1. **Onboard and Boot** Read `AGENTS.md` to onboard and boot to your ghost.
+2. **Load Working Memory:** Read `memory/WORKING_MEMORY.md` to restore task context.
+3. **Review Living Facts:** Read `memory/FACTS.md` for architectural canon.
+4. **Sync with Map:** Check `~/.koad-os/SYSTEM_MAP.md` for workspace orientation.
+5. **Consult Guides:** Read `instructions/GUIDES.md` for personal SOPs.
 
 ## Ⅲ. Non-Negotiable Directives
 - **One Body, One Ghost:** One agent per session.

@@ -6,6 +6,7 @@ status: 🟢 CONDITION GREEN
 ---
 
 ## I. Global Core Files
+- **KoadOS Mission Statement:** `/home/ideans/.koad-os/MISSION.md`
 - **Global Agent Roles:** `/home/ideans/.koad-os/AGENTS.md`
 - **Workspace Navigation:** `/home/ideans/.koad-os/SYSTEM_MAP.md`
 - **Citadel Canonical Brief:** `/home/ideans/.koad-os/.agents/CITADEL.md`
@@ -21,6 +22,7 @@ status: 🟢 CONDITION GREEN
   - *Identity:* `identity/IDENTITY.md`
   - *Rules:* `instructions/RULES.md`
   - *Working Memory:* `memory/WORKING_MEMORY.md`
+  - *Mission Summary:* `bank/mission_summary.md`
 - **Tyr Vaults:**
   - *Global:* `/home/ideans/.koad-os/.agents/.tyr/`
   - *Local:* `/home/ideans/.tyr/`

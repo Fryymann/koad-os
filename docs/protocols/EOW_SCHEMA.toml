@@ -1,0 +1,21 @@
+# KoadOS EndOfWatch (EoW) Schema
+# Version: 1.0
+
+[metadata]
+agent = "string (Required: Tyr, Scribe, Sky, Vigil, etc.)"
+session_id = "string (Required: UUID or Session Trace ID)"
+task_id = "string (Required: TRC-XXX format)"
+timestamp = "datetime (Required: ISO 8601)"
+status = "string (Required: completed, pending, blocked, degraded)"
+
+[content]
+summary = "string (Required: High-level overview of work)"
+completed_items = "array of strings (Required)"
+pending_items = "array of strings (Required)"
+blockers = "array of strings (Optional)"
+learnings = "array of strings (Optional: Captured for Saveup)"
+decisions = "array of strings (Optional: Significant architectural choices)"
+
+[navigation]
+next_steps = "array of strings (Required: Directives for the next agent)"
+relevant_files = "array of strings (Optional: Absolute paths to modified/critical files)"

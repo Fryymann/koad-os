@@ -7,6 +7,7 @@
 ## Quick Reference — Most Accessed Paths
 | Path | What It Is | When You Need It |
 | :--- | :--- | :--- |
+| `MISSION.md` | Core Mission & Vision | Strategic Orientation |
 | `AGENTS.md` | Root onboarding portal | Boot / New session |
 | `.agents/CITADEL.md` | Core mission & mission brief | Strategic orientation |
 | `.agents/CREW.md` | Agent personnel manifest | Inter-agent coordination |
@@ -23,6 +24,7 @@
 ├── .admiral/          # [UNKNOWN — needs annotation] Admiral-specific state?
 ├── .agents/           # Shared agent artifacts and personnel docs
 │   ├── .scribe/       # Scribe personal vault (PRIVATE)
+│   ├── .cid/          # Cid personal vault (PRIVATE)
 │   ├── .tyr/          # Tyr personal vault (PRIVATE)
 │   ├── .vigil/        # Vigil personal vault (PRIVATE)
 │   ├── CITADEL.md     # Project core definition
@@ -49,6 +51,7 @@
 ├── new_world/         # Strategic planning and architectural blueprints
 ├── proto/             # Raw protobuf definitions (.proto files)
 ├── AGENTS.md          # Primary onboarding portal
+├── MISSION.md         # Core mission statement
 ├── Cargo.toml         # Rust workspace manifest
 └── SYSTEM_MAP.md      # You are here.
 ```
@@ -64,6 +67,7 @@
 | :--- | :--- | :--- |
 | **Tyr** | `.agents/.tyr/` | Active |
 | **Scribe** | `.agents/.scribe/` | Active (This Vault) |
+| **Cid** | `.agents/.cid/` | Initialized |
 | **Vigil** | `.agents/.vigil/` | Initialized |
 | **Sky** | `/mnt/c/data/skylinks/` | Remote / Active |
 
