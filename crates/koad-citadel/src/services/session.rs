@@ -4,10 +4,11 @@
 //! the "One Body, One Ghost" policy.
 
 use crate::auth::session_cache::{ActiveSessions, SessionRecord};
-use crate::auth::hierarchy::HierarchyManager;
+use koad_core::hierarchy::HierarchyManager;
 use crate::state::bay_store::BayStore;
 use crate::state::docking::DockingState;
 use crate::state::storage_bridge::CitadelStorageBridge;
+use koad_core::signal::SignalCorps;
 use chrono::Utc;
 use fred::interfaces::HashesInterface;
 use koad_proto::citadel::v5::citadel_session_server::CitadelSession;
@@ -21,6 +22,7 @@ use tracing::{info, warn};
 /// Service implementation for the `CitadelSession` gRPC interface.
 #[derive(Clone)]
 pub struct CitadelSessionService {
+    signal_corps: Arc<SignalCorps>,
     storage: Arc<CitadelStorageBridge>,
     bay_store: Arc<BayStore>,
     hierarchy: Arc<HierarchyManager>,
@@ -29,13 +31,16 @@ pub struct CitadelSessionService {
 }
 
 impl CitadelSessionService {
+    /// Creates a new `CitadelSessionService`.
     pub fn new(
+        signal_corps: Arc<SignalCorps>,
         storage: Arc<CitadelStorageBridge>,
         bay_store: Arc<BayStore>,
         hierarchy: Arc<HierarchyManager>,
         lease_duration_secs: u64,
     ) -> Self {
         Self {
+            signal_corps,
             storage,
             bay_store,
             hierarchy,
@@ -44,10 +49,12 @@ impl CitadelSessionService {
         }
     }
 
+    /// Provides a handle to the active sessions map for monitoring or reaper tasks.
     pub fn sessions_handle(&self) -> ActiveSessions {
         self.sessions.clone()
     }
 
+    /// The automated reaper task that transitions stale sessions to `DARK` or `TEARDOWN`.
     pub async fn reap(&self, dark_timeout_secs: u64, purge_timeout_secs: u64) {
         let now = Utc::now();
         let mut sessions = self.sessions.lock().await;
@@ -211,11 +218,20 @@ impl CitadelSession for CitadelSessionService {
         let req = request.into_inner();
         let sid = &req.session_id;
 
+        // Broadcast session_closed event for CASS EoW Pipeline
         let mut sessions = self.sessions.lock().await;
         if let Some(record) = sessions.remove(sid) {
+            let _ = self.signal_corps.broadcast(
+                "system",
+                &format!("{{\"event_type\": \"session_closed\", \"session_id\": \"{}\", \"agent_name\": \"{}\"}}", sid, record.agent_name),
+                "EOW-TRIGGER",
+                "citadel",
+            ).await;
+
             let lease_key = format!("koad:kai:{}:lease", record.agent_name);
             let session_key = format!("koad:session:{}", sid);
             let _: Result<(), _> = self.storage.redis.pool.hdel("koad:state", vec![lease_key, session_key]).await;
+
             info!("CloseSession: Session {} terminated.", sid);
             Ok(Response::new(StatusResponse { success: true, message: "Session closed".to_string(), context: None }))
         } else {

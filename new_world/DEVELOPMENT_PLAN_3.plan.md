@@ -61,9 +61,11 @@ KoadOS adoption of the **Game Map Metaphor** for information topology:
 - **Protocol**: EoW Schema locked at `~/.koad-os/docs/protocols/EOW_SCHEMA.toml`.
 - **Status**: 🟢 COMPLETE (2026-03-14)
 
-### Phase 1 — Citadel Core (Control Plane)
+### Phase 1 — Citadel Core (Control Plane) — [COMPLETE]
 <aside>
 🔵 **Goal: Replace the Spine with a stable gRPC kernel.**
+- **Status**: 🟢 COMPLETE (2026-03-14)
+- **Outcome**: Level-aware kernel, Zero-Trust Interceptor, and Proto v5.1 active.
 
 </aside>
 

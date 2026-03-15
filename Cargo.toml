@@ -6,7 +6,8 @@ members = [
     "crates/koad-citadel",
     "crates/koad-cli",
     "crates/koad-board",
-    "crates/koad-bridge-notion"
+    "crates/koad-bridge-notion",
+    "crates/koad-cass"
 ]
 resolver = "2"
 
@@ -56,3 +57,4 @@ async-stream = "0.3"
 futures = "0.3"
 config = { version = "0.14", features = ["toml"] }
 toml = "0.8"
+tiktoken-rs = "0.5"

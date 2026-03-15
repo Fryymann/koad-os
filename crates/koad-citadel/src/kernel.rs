@@ -3,14 +3,14 @@
 //! The Kernel is the central orchestration engine of the Citadel.
 
 use crate::auth::interceptor::build_citadel_interceptor;
-use crate::auth::hierarchy::HierarchyManager;
+use koad_core::hierarchy::HierarchyManager;
 use crate::services::bay::PersonalBayService;
 use crate::services::sector::SectorService;
 use crate::services::session::CitadelSessionService;
 use crate::services::signal::SignalService;
 use crate::signal_corps::quota::QuotaValidator;
 use koad_core::storage::StorageBridge;
-use crate::signal_corps::streams::SignalCorps;
+use koad_core::signal::SignalCorps;
 use crate::state::bay_store::BayStore;
 use crate::state::storage_bridge::CitadelStorageBridge;
 use crate::workspace::manager::WorkspaceManager;
@@ -114,6 +114,7 @@ impl KernelBuilder {
         let workspace_mgr = Arc::new(WorkspaceManager::new(home_dir.join("workspaces"), home_dir.clone()));
 
         let session_svc_impl = CitadelSessionService::new(
+            signal_corps.clone(),
             storage.clone(), 
             bay_store.clone(), 
             hierarchy.clone(),

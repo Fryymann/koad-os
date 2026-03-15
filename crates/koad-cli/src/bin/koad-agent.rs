@@ -13,6 +13,8 @@ use tokio::process::Command;
 
 use koad_proto::citadel::v5::citadel_session_client::CitadelSessionClient;
 use koad_proto::citadel::v5::{LeaseRequest, TraceContext, WorkspaceLevel};
+use koad_proto::cass::v1::hydration_service_client::HydrationServiceClient;
+use koad_proto::cass::v1::HydrationRequest;
 
 #[derive(Parser)]
 #[command(name = "koad-agent")]
@@ -122,7 +124,7 @@ async fn main() -> Result<()> {
                                 level: WorkspaceLevel::LevelUnspecified as i32,
                             }),
                             agent_name: agent.clone(),
-                            project_root,
+                            project_root: project_root.clone(),
                             force: true,
                             body_id: cache_hash.to_string(),
                             driver_id: "cli".to_string(),
@@ -139,11 +141,33 @@ async fn main() -> Result<()> {
                     println!("/home/ideans/.koad-os/scripts/koad-telemetry.sh boot {} {};", agent, cache_hash);
                     println!("trap \"/home/ideans/.koad-os/scripts/koad-telemetry.sh shutdown {} {}\" EXIT;", agent, cache_hash);
 
+                    // --- [CASS TCH Hydration (Phase 2)] ---
+                    let mut cass_packet = String::new();
+                    // Assuming CASS is on port 50052
+                    if let Ok(mut cass_client) = HydrationServiceClient::connect("http://127.0.0.1:50052").await {
+                        let hydration_req = tonic::Request::new(HydrationRequest {
+                            agent_name: agent.clone(),
+                            project_root: project_root.clone(),
+                            level: WorkspaceLevel::LevelUnspecified as i32,
+                            token_budget: 4000,
+                        });
+
+                        if let Ok(hydration_res) = cass_client.hydrate(hydration_req).await {
+                            cass_packet = hydration_res.into_inner().markdown_packet;
+                        }
+                    }
+
                     // --- AI Anchor Generation ---
-                    let anchor_content = format!(
+                    let mut anchor_content = format!(
                         "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`eval $(koad-agent boot {})`\n",
                         timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, agent_key
                     );
+
+                    if !cass_packet.is_empty() {
+                        anchor_content.push_str("\n## 🧠 Temporal Context Packet (CASS)\n");
+                        anchor_content.push_str(&cass_packet);
+                    }
+
                     let _ = fs::write(home.join(".gemini/GEMINI.md"), &anchor_content).await;
                     let _ = fs::write(home.join(".claude/CLAUDE.md"), &anchor_content).await;
                 }
