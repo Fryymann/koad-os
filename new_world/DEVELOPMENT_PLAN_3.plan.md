@@ -74,9 +74,11 @@ KoadOS adoption of the **Game Map Metaphor** for information topology:
 3. **Hierarchy-Based Authorization (Sanctuary Rule)** — Enforce gRPC-layer auth based on level depth.
 4. **Stable Session Lifecycle** — Hardened boot/heartbeat/drain/purge cycle.
 
-### Phase 2 — CASS Core (Agent Support Layer)
+### Phase 2 — CASS Core (Agent Support Layer) — [COMPLETE]
 <aside>
 🟣 **Goal: Stand up cognitive support infrastructure.**
+- **Status**: 🟢 COMPLETE (2026-03-14)
+- **Outcome**: Memory Service, Hierarchy-Aware TCH, and Notion Stream Bridge active.
 
 </aside>
 
