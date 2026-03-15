@@ -38,8 +38,8 @@ All incoming requests are first processed by a `tonic` gRPC interceptor (`auth/i
   - **Element**: `main()` function
   - **Purpose**: The binary entry point. It loads the `KoadConfig`, initializes all the manager and service structs (e.g., `RedisClient`, `Sandbox`, `CitadelSessionService`), and starts the gRPC server.
 - **File**: `crates/koad-citadel/src/kernel.rs`
-  - **Element**: `KernelBuilder`
-  - **Purpose**: Provides a fluent interface for constructing and launching the Citadel. This is used by `main.rs` and allows for easier testing and configuration.
+  - **Element**: `Kernel` struct and `KernelBuilder` struct
+  - **Purpose**: `KernelBuilder` provides a fluent interface for assembling all Citadel services. Its `start()` method consumes the builder and returns a running `Kernel` instance, which manages the server lifecycle and graceful shutdown.
 - **File**: `crates/koad-citadel/src/auth/interceptor.rs`
   - **Element**: `build_citadel_interceptor()`
   - **Purpose**: This is the heart of the Zero-Trust security model. It creates a `tonic::service::Interceptor` that checks the `KOAD_SESSION_ID` from the gRPC metadata against the active session cache in Redis *before* the request is passed to the actual service logic.
