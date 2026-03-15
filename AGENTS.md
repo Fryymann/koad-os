@@ -84,6 +84,7 @@ The **Koad Spine is retired.** It is archived in `legacy/`. We are building **Th
 
 **Discovery Hierarchy:**
 1. **`SYSTEM_MAP.md`** — Primary workspace index.
+2. **Domain Indices** — Specialized maps for [Crates](crates/AGENTS.md), [Protocols](proto/AGENTS.md), and [Docs](docs/AGENTS.md).** — Primary workspace index.
 2. **`AGENTS.md`** — Core mission and onboarding details.
 3. **`DRAFT_PLAN_3.md`** — Current implementation roadmap.
 4. **`ls / find`** — Use only if the map is stale or missing the target.
@@ -113,6 +114,7 @@ The **Koad Spine is retired.** It is archived in `legacy/`. We are building **Th
 | **Claude** | Contractor | Foundation Builder | Implementation, Tests, Boilerplate Reduction |
 | **Sky** | Specialist | CASS Architect | Memory Stack, MCP Tool Design (Future Phase) |
 | **Scribe** | Crew | Scout & Scribe | Context Distillation, Map Maintenance, Vault Scaffolding |
+| **Cid** | Engineer | Engineer (Systems & Infrastructure) | Crate Architect, CI/CD, Rust Modules |
 | **Dood** | Admin | Operator (Ian) | Final Approval Gate, Security Oversight |
 
 > **Note (Claude):** Claude Code works exclusively in isolated git worktrees (`claude/<branch-name>`).

@@ -71,6 +71,7 @@ impl Signal for SignalService {
                                         seconds: chrono::Utc::now().timestamp(),
                                         nanos: 0,
                                     }),
+                                    level: WorkspaceLevel::LevelCitadel as i32,
                                 }),
                             });
 

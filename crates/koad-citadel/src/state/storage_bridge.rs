@@ -1,13 +1,12 @@
 //! Citadel Storage Bridge
 //!
 //! Implements the CQRS dual-store pattern for the Citadel.
-//! All state mutations are written to Redis (L1 hot path) and asynchronously
-//! drained to SQLite (L2 cold path) for long-term persistence.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
-use fred::interfaces::HashesInterface;
+use fred::interfaces::{HashesInterface, ClientLike};
+use fred::types::{CustomCommand, ClusterHash};
 use koad_core::storage::StorageBridge;
 use koad_core::utils::redis::RedisClient;
 use rusqlite::params;
@@ -22,18 +21,12 @@ use crate::auth::sanctuary;
 
 /// Citadel storage bridge implementing the CQRS dual-store pattern.
 pub struct CitadelStorageBridge {
-    /// Hot-state Redis client.
     pub redis: Arc<RedisClient>,
-    /// Cold-state SQLite connection.
     pub sqlite: Arc<Mutex<rusqlite::Connection>>,
     drain_interval: Duration,
 }
 
 impl CitadelStorageBridge {
-    /// Creates a new `CitadelStorageBridge`.
-    ///
-    /// # Errors
-    /// Returns an error if the SQLite database cannot be opened or initialized.
     pub fn new(
         redis: Arc<RedisClient>,
         sqlite_path: &str,
@@ -42,12 +35,9 @@ impl CitadelStorageBridge {
         let conn = rusqlite::Connection::open(sqlite_path)
             .with_context(|| format!("Failed to open Citadel DB at {}", sqlite_path))?;
 
-        // Enable WAL mode for concurrent reads
-        let _: String = conn
-            .query_row("PRAGMA journal_mode=WAL;", [], |row| row.get(0))
+        let _: String = conn.query_row("PRAGMA journal_mode=WAL;", [], |row| row.get(0))
             .context("Failed to enable WAL mode")?;
 
-        // Core state ledger
         conn.execute(
             "CREATE TABLE IF NOT EXISTS state_ledger (
                 key TEXT PRIMARY KEY,
@@ -55,8 +45,7 @@ impl CitadelStorageBridge {
                 updated_at INTEGER NOT NULL
             )",
             [],
-        )
-        .context("Failed to create state_ledger table")?;
+        ).context("Failed to create state_ledger table")?;
 
         Ok(Self {
             redis,
@@ -65,12 +54,8 @@ impl CitadelStorageBridge {
         })
     }
 
-    /// Start the background drain loop: periodically sync Redis → SQLite.
     pub async fn start_drain_loop(&self) {
-        info!(
-            "StorageBridge: Drain loop started (interval: {:?})",
-            self.drain_interval
-        );
+        info!("StorageBridge: Drain loop started (interval: {:?})", self.drain_interval);
         loop {
             if let Err(e) = self.drain_all().await {
                 error!("StorageBridge: Drain failed: {}", e);
@@ -79,15 +64,11 @@ impl CitadelStorageBridge {
         }
     }
 
-    /// Enable Redis keyspace notifications for lease expiry tracking.
-    ///
-    /// # Errors
-    /// Returns an error if the Redis `CONFIG SET` command fails.
     pub async fn enable_keyspace_notifications(&self) -> Result<()> {
-        self.redis
-            .pool
-            .config_set("notify-keyspace-events", "KEA")
-            .await
+        // Use ClusterHash::Random as a safe default for non-key-specific command
+        let cmd = CustomCommand::new("CONFIG", ClusterHash::Random, false);
+        let args = vec!["SET", "notify-keyspace-events", "KEA"];
+        let _: () = self.redis.pool.custom(cmd, args).await
             .context("Failed to enable Redis keyspace notifications")?;
         info!("StorageBridge: Keyspace notifications enabled (KEA)");
         Ok(())
@@ -96,142 +77,74 @@ impl CitadelStorageBridge {
 
 #[async_trait]
 impl StorageBridge for CitadelStorageBridge {
-    /// Sets a value in the hot state (Redis).
-    ///
-    /// # Errors
-    /// Returns an error if the key access violates sanctuary rules or Redis write fails.
     async fn set_state(&self, key: &str, value: Value, caller_tier: Option<i32>) -> Result<()> {
-        // Check protected key access
         sanctuary::check_protected_key(key, caller_tier)
             .map_err(|e| anyhow::anyhow!("Permission denied: {}", e.message()))?;
 
         let payload = serde_json::to_string(&value).context("Failed to serialize state value")?;
-
-        let _: () = self
-            .redis
-            .pool
-            .hset("koad:state", (key, &payload))
-            .await
+        let _: () = self.redis.pool.hset("koad:state", (key, &payload)).await
             .context("Redis HSET failed")?;
         Ok(())
     }
 
-    /// Retrieves a value from the state store, with L1/L2 read-through.
-    ///
-    /// # Errors
-    /// Returns an error if Redis or SQLite queries fail.
     async fn get_state(&self, key: &str) -> Result<Option<Value>> {
-        // L1: Try Redis first
-        let cached: Option<String> = self
-            .redis
-            .pool
-            .hget("koad:state", key)
-            .await
+        let cached: Option<String> = self.redis.pool.hget("koad:state", key).await
             .context("Redis HGET failed")?;
 
         if let Some(data) = cached {
-            return Ok(Some(
-                serde_json::from_str(&data).context("Failed to parse L1 state")?,
-            ));
+            return Ok(Some(serde_json::from_str(&data).context("Failed to parse L1 state")?));
         }
 
-        // L2: Fall back to SQLite (read-through)
         let sqlite = self.sqlite.lock().await;
-        let key_owned = key.to_string();
-        let result: Option<String> = sqlite
-            .query_row(
+        let result: Option<String> = sqlite.query_row(
                 "SELECT value FROM state_ledger WHERE key = ?1",
-                params![key_owned],
+                params![key.to_string()],
                 |row| row.get(0),
-            )
-            .ok();
+            ).ok();
 
         if let Some(ref data) = result {
-            // Repopulate Redis cache
-            let _: () = self
-                .redis
-                .pool
-                .hset("koad:state", (key, data))
-                .await
+            let _: () = self.redis.pool.hset("koad:state", (key, data)).await
                 .context("Failed to repopulate L1 cache")?;
-            return Ok(Some(
-                serde_json::from_str(data).context("Failed to parse L2 state")?,
-            ));
+            return Ok(Some(serde_json::from_str(data).context("Failed to parse L2 state")?));
         }
-
         Ok(None)
     }
 
-    /// Drains all hot state from Redis to the cold store (SQLite).
-    ///
-    /// # Errors
-    /// Returns an error if Redis retrieval or SQLite transaction fails.
     async fn drain_all(&self) -> Result<()> {
-        let all_state: std::collections::HashMap<String, String> = self
-            .redis
-            .pool
-            .hgetall("koad:state")
-            .await
+        let all_state: std::collections::HashMap<String, String> = self.redis.pool.hgetall("koad:state").await
             .context("Redis HGETALL failed during drain")?;
 
-        if all_state.is_empty() {
-            return Ok(());
-        }
+        if all_state.is_empty() { return Ok(()); }
 
         let sqlite = self.sqlite.lock().await;
         let now = Utc::now().timestamp();
-
-        let tx = sqlite
-            .unchecked_transaction()
-            .context("Failed to start L2 drain transaction")?;
+        let tx = sqlite.unchecked_transaction().context("Failed to start L2 drain transaction")?;
 
         for (key, value) in &all_state {
             tx.execute(
                 "INSERT OR REPLACE INTO state_ledger (key, value, updated_at) VALUES (?1, ?2, ?3)",
                 params![key, value, now],
-            )
-            .context("L2 drain insert failed")?;
+            ).context("L2 drain insert failed")?;
         }
         tx.commit().context("Failed to commit L2 drain")?;
-
         Ok(())
     }
 
-    /// Hydrates the hot state (Redis) from the cold store (SQLite).
-    ///
-    /// # Errors
-    /// Returns an error if SQLite query or Redis batch write fails.
     async fn hydrate_all(&self) -> Result<()> {
         info!("StorageBridge: Full hydration from SQLite...");
-
         let data = {
             let sqlite = self.sqlite.lock().await;
-            let mut stmt = sqlite
-                .prepare("SELECT key, value FROM state_ledger")
-                .context("Failed to prepare hydration statement")?;
-
-            let rows = stmt
-                .query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })
-                .context("Hydration query failed")?;
-
+            let mut stmt = sqlite.prepare("SELECT key, value FROM state_ledger").context("Failed to prepare hydration statement")?;
+            let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).context("Hydration query failed")?;
             let mut collected = Vec::new();
-            for row in rows {
-                collected.push(row.context("Failed to read hydration row")?);
-            }
+            for row in rows { collected.push(row.context("Failed to read hydration row")?); }
             collected
         };
 
         for (key, value) in data {
-            let _: () = self
-                .redis
-                .pool
-                .hset("koad:state", (&key, &value))
-                .await
+            let _: () = self.redis.pool.hset("koad:state", (&key, &value)).await
                 .context("Redis HSET failed during hydration")?;
         }
-
         info!("StorageBridge: Hydration complete.");
         Ok(())
     }

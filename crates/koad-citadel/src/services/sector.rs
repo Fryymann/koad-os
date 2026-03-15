@@ -30,11 +30,7 @@ impl Sector for SectorService {
         let lock_id = uuid::Uuid::new_v4().to_string();
         let lock_key = format!("koad:lock:{}", sector_id);
 
-        // Try to acquire with NX (set if not exists)
-        let acquired: bool = self
-            .redis
-            .pool
-            .set(
+        let acquired: bool = self.redis.pool.set(
                 &lock_key,
                 &lock_id,
                 Some(fred::types::Expiration::PX(ttl_ms as i64)),
@@ -52,6 +48,7 @@ impl Sector for SectorService {
                 seconds: chrono::Utc::now().timestamp(),
                 nanos: 0,
             }),
+            level: WorkspaceLevel::LevelCitadel as i32,
         });
 
         if acquired {
@@ -73,25 +70,14 @@ impl Sector for SectorService {
         let sector_id = &req.sector_id;
         let lock_key = format!("koad:lock:{}", sector_id);
 
-        let deleted: i64 = self
-            .redis
-            .pool
-            .del(&lock_key)
-            .await
+        let deleted: i64 = self.redis.pool.del(&lock_key).await
             .map_err(|e| Status::internal(format!("Lock release failed: {}", e)))?;
 
-        info!(
-            "Sector: Lock released on '{}' (deleted: {})",
-            sector_id, deleted
-        );
+        info!("Sector: Lock released on '{}' (deleted: {})", sector_id, deleted);
 
         Ok(Response::new(StatusResponse {
             success: deleted > 0,
-            message: if deleted > 0 {
-                "Lock released".to_string()
-            } else {
-                "Lock not found (may have expired)".to_string()
-            },
+            message: if deleted > 0 { "Lock released".to_string() } else { "Lock not found (may have expired)".to_string() },
             context: None,
         }))
     }

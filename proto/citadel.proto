@@ -5,12 +5,28 @@ import "google/protobuf/timestamp.proto";
 
 // --- Core Primitives ---
 
+enum WorkspaceLevel {
+  LEVEL_UNSPECIFIED = 0;
+  LEVEL_OUTPOST = 1;   // Repository scope
+  LEVEL_STATION = 2;   // Domain/Project Hub scope
+  LEVEL_CITADEL = 3;   // KoadOS platform scope
+  LEVEL_SYSTEM = 4;    // Machine scope
+}
+
 // Mandatory context for every request across the Tri-Tier model.
 message TraceContext {
   string trace_id = 1;     // TRC-{actor}-{uuid-short}
   string origin = 2;       // CLI | Citadel | CASS | Agent
   string actor = 3;        // agent name or "admiral"
   google.protobuf.Timestamp timestamp = 4;
+  WorkspaceLevel level = 5; // NEW: Hierarchical context
+}
+
+message TurnMetrics {
+  uint32 input_tokens = 1;
+  uint32 output_tokens = 2;
+  uint32 thinking_tokens = 3;
+  uint32 tool_calls = 4;
 }
 
 message StatusResponse {
@@ -73,6 +89,7 @@ message LeaseResponse {
 message HeartbeatRequest {
   TraceContext context = 1;
   string session_id = 2;
+  TurnMetrics metrics = 3; // NEW: Native telemetry
 }
 
 message CloseRequest {
