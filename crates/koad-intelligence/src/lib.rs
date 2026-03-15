@@ -1,7 +1,7 @@
 //! # KoadOS Intelligence (L4 Cognition)
-//! 
-//! This crate provides the "Brain" interface for the Citadel. It abstracts LLM 
-//! interactions into a unified [`InferenceClient`] trait and provides a task-based 
+//!
+//! This crate provides the "Brain" interface for the Citadel. It abstracts LLM
+//! interactions into a unified [`InferenceClient`] trait and provides a task-based
 //! [`InferenceRouter`] to balance between local (Ollama) and cloud (Gemini) providers.
 //!
 //! ## Core Components

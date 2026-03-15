@@ -1,8 +1,8 @@
 //! # KoadOS Code Knowledge Graph
 //!
 //! Provides AST-based symbol indexing and querying using tree-sitter.
-//! This tool enables agents to perform high-fidelity codebase navigation 
-//! (e.g., "Find Definition", "List Traits") without the token cost of 
+//! This tool enables agents to perform high-fidelity codebase navigation
+//! (e.g., "Find Definition", "List Traits") without the token cost of
 //! reading raw source files.
 //!
 //! ## Architecture
