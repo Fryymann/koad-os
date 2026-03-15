@@ -7,6 +7,7 @@ use crate::services::bay::PersonalBayService;
 use crate::services::sector::SectorService;
 use crate::services::session::CitadelSessionService;
 use crate::services::signal::SignalService;
+use crate::services::admin::AdminService;
 use crate::signal_corps::quota::QuotaValidator;
 use crate::state::bay_store::BayStore;
 use crate::state::storage_bridge::CitadelStorageBridge;
@@ -21,12 +22,14 @@ use koad_proto::citadel::v5::citadel_session_server::CitadelSessionServer;
 use koad_proto::citadel::v5::personal_bay_server::PersonalBayServer;
 use koad_proto::citadel::v5::sector_server::SectorServer;
 use koad_proto::citadel::v5::signal_server::SignalServer;
+use koad_proto::citadel::v5::admin_server::AdminServer;
 use koad_sandbox::Sandbox;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
+use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 use tracing::{error, info};
 
@@ -134,6 +137,7 @@ impl KernelBuilder {
         let bay_svc_impl = PersonalBayService::new(bay_store.clone(), workspace_mgr.clone());
         let sector_svc_impl = SectorService::new(redis.clone(), sandbox.clone());
         let signal_svc_impl = SignalService::new(signal_corps.clone(), quota.clone());
+        let admin_svc_impl = AdminService::new(shutdown_tx.clone());
 
         let drain_storage = storage.clone();
         let mut rx_drain = shutdown_rx.clone();
@@ -159,10 +163,11 @@ impl KernelBuilder {
             }
         });
 
+        // 1. Standard TCP Listener (with Auth Interceptor)
         let tcp_addr_parsed: std::net::SocketAddr = tcp_addr.parse()?;
         let auth_interceptor = build_citadel_interceptor(session_svc_impl.sessions_handle());
 
-        let router = Server::builder()
+        let tcp_router = Server::builder()
             .add_service(CitadelSessionServer::with_interceptor(
                 session_svc_impl.clone(),
                 auth_interceptor.clone(),
@@ -183,7 +188,7 @@ impl KernelBuilder {
         let mut rx_tcp = shutdown_rx.clone();
         tokio::spawn(async move {
             info!("Kernel: TCP listener active at {}", tcp_addr_parsed);
-            if let Err(e) = router
+            if let Err(e) = tcp_router
                 .serve_with_shutdown(tcp_addr_parsed, async move {
                     let _ = rx_tcp.changed().await;
                 })
@@ -192,6 +197,36 @@ impl KernelBuilder {
                 error!("Kernel: TCP listener error: {}", e);
             }
         });
+
+        // 2. Admin UDS Listener (Emergency Bypass)
+        if let Some(admin_uds_path) = self.admin_uds_path {
+            // Remove existing socket if any
+            if admin_uds_path.exists() {
+                let _ = std::fs::remove_file(&admin_uds_path);
+            }
+
+            let uds = tokio::net::UnixListener::bind(&admin_uds_path)?;
+            let uds_stream = UnixListenerStream::new(uds);
+            
+            let admin_router = Server::builder()
+                .add_service(AdminServer::new(admin_svc_impl))
+                // Also serve core services on UDS without interceptor for emergency maintenance
+                .add_service(CitadelSessionServer::new(session_svc_impl))
+                .add_service(SectorServer::new(sector_svc_impl));
+
+            let mut rx_admin = shutdown_rx.clone();
+            tokio::spawn(async move {
+                info!("Kernel: Admin UDS listener active at {}", admin_uds_path.display());
+                if let Err(e) = admin_router
+                    .serve_with_incoming_shutdown(uds_stream, async move {
+                        let _ = rx_admin.changed().await;
+                    })
+                    .await
+                {
+                    error!("Kernel: Admin UDS listener error: {}", e);
+                }
+            });
+        }
 
         Ok(Kernel { shutdown_tx })
     }

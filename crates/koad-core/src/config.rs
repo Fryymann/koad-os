@@ -44,6 +44,7 @@ fn default_network() -> NetworkConfig {
         spine_grpc_addr: DEFAULT_SPINE_GRPC_ADDR.to_string(),
         redis_socket: DEFAULT_REDIS_SOCK.to_string(),
         spine_socket: DEFAULT_SPINE_SOCK.to_string(),
+        admin_socket: DEFAULT_ADMIN_SOCK.to_string(),
     }
 }
 
@@ -145,6 +146,12 @@ pub struct NetworkConfig {
     pub spine_grpc_addr: String,
     pub redis_socket: String,
     pub spine_socket: String,
+    #[serde(default = "default_admin_socket")]
+    pub admin_socket: String,
+}
+
+fn default_admin_socket() -> String {
+    DEFAULT_ADMIN_SOCK.to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -468,6 +475,10 @@ impl KoadConfig {
 
     pub fn get_spine_socket(&self) -> PathBuf {
         self.home.join(&self.network.spine_socket)
+    }
+
+    pub fn get_admin_socket(&self) -> PathBuf {
+        self.home.join(&self.network.admin_socket)
     }
 
     pub fn get_agent_name(&self) -> String {

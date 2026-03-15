@@ -34,6 +34,9 @@ pub const DEFAULT_REDIS_SOCK: &str = "koad.sock";
 /// Default Spine socket filename
 pub const DEFAULT_SPINE_SOCK: &str = "kspine.sock";
 
+/// Default Admin socket filename
+pub const DEFAULT_ADMIN_SOCK: &str = "kadmin.sock";
+
 /// Default PID filenames
 pub const DEFAULT_SPINE_PID: &str = "kspine.pid";
 pub const DEFAULT_GATEWAY_PID: &str = "kgateway.pid";
