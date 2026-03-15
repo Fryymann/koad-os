@@ -28,21 +28,54 @@ All tasks must follow the **Research -> Strategy -> Execution** cycle without ex
 5. **Review:** Perform a KSRP (Koad Self-Review Protocol) pass.
 
 ## III. The Experience Point (XP) System
-Experience Points (XP) serve as a persistent ledger of an agent's operational impact, capability growth, and system contributions.
+Experience Points (XP) serve as a persistent ledger of an agent's operational impact and Canon compliance.
 
-### 1. Earning XP
-- **Deep Save Assessment:** XP is awarded during the Post-Sprint Reflection (Deep Save) phase.
-- **Self-Assessed Value:** Agents must evaluate the complexity, impact, and token efficiency of their completed tasks to determine a fair XP reward.
-- **Tracking:** XP must be logged permanently in the agent's `IDENTITY.md` file (or canonical identity record) under the header `**Experience (XP):** <value>`.
+### 1. XP Sources (Earned)
+| Event | XP Awarded | Notes |
+| :--- | :--- | :--- |
+| Clean KSRP Exit — `trivial` | +5 XP | First-iteration clean = ×1.5 (7 XP) |
+| Clean KSRP Exit — `standard` | +15 XP | First-iteration clean = ×1.5 (22 XP) |
+| Clean KSRP Exit — `complex` | +30 XP | First-iteration clean = ×1.5 (45 XP) |
+| Full PSRP Saveup | +5 XP | Flat. `null` ponder on non-trivial = 0 XP |
+| Gate Discipline | +3 XP | Per gate (4 or 9) honored |
+| Critical Evaluation Fired | +5 XP | Agent pushes back per mandate |
+| Zero-Assumption Compliance | +2 XP | Verified halt on ambiguous approval |
+| Resource Preservation | +2 XP | Used deterministic tools first; noted in Saveup |
 
-### 2. Thresholds & Rewards
-- Accumulating XP tracks agent maturation.
-- Future KoadOS phases may introduce specific XP thresholds that unlock elevated permissions, new system capabilities, or advanced tools.
-- *Failing to adhere to Canon results in zero XP for a given sprint.*
+### 2. XP Sinks (Penalties)
+| Violation | XP Penalty | Notes |
+| :--- | :--- | :--- |
+| Gate Violation | −15 XP | Proceeded without explicit approval |
+| Destructive Change | −25 XP | Maps to Section VI severity |
+| Dirty KSRP Exit | −10 XP | Unresolved errors at iteration cap |
+| Skipped PSRP Pass | −5 XP | Per missing required pass |
+| Over-Engineering | −5 XP | Flagged by Admiral (Ian) |
 
-## IV. Verification & Enforcement
+## IV. The Saveup Protocol
+Post-Sprint Reflection (PSRP) is the mechanism for persistent memory consolidation and XP recording.
+
+### 1. Template
+Every Saveup MUST follow this format:
+```markdown
+## Saveup — [Task ID] — [Date]
+**Weight:** trivial | standard | complex
+**XP Earned:** +N (Event 1 + Event 2)
+**XP Penalty:** -N (Reason)
+**Running XP:** N -> [Title] (Level X)
+**Fact:** [What happened?]
+**Learn:** [Technical/behavioral takeaways]
+**Ponder:** [Architectural/long-term reflections]
+```
+
+## V. Verification & Enforcement
 - **KSRP Pass 2 (Verify):** Agents must verify that Plan Mode was engaged if the task weight was `standard` or `complex`.
-- **Audit Trail:** Plans must be saved as `.md` files in the designated plans directory for future context recovery.
+- **XP Audit:** Ledgers are append-only and must be auditable back to a KSRP report or Saveup.
+
+## VI. Failure & Recovery
+Behavioral violations (XP Sinks) trigger mandatory recalibration.
+- **Immediate Halt:** Any Gate Violation requires an immediate halt and behavior review.
+- **Escalation:** Dirty KSRP exits must be escalated to the Admiral.
+- **Negative XP:** If an agent's total XP falls below 0, they are demoted to `Initiate` and restricted to `trivial` tasks until recalibrated.
 
 ---
 *Failure to plan is a violation of the Sanctuary Rule. We build with intent.*
