@@ -156,3 +156,91 @@ impl SignalCorps {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::signal_corps::monitor::StreamMonitor;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    async fn make_redis(
+        dir: &tempfile::TempDir,
+    ) -> anyhow::Result<Arc<koad_core::utils::redis::RedisClient>> {
+        let client =
+            koad_core::utils::redis::RedisClient::new(dir.path().to_str().unwrap(), true).await?;
+        Ok(Arc::new(client))
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_appends_to_stream() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let redis = make_redis(&dir).await?;
+        let corps = SignalCorps::new(redis.clone(), "koad:stream:", 100);
+        let monitor = StreamMonitor::new(redis, "koad:stream:");
+
+        corps
+            .broadcast("test:broadcast", "payload-1", "trace-1", "agent-alpha")
+            .await?;
+
+        let info = monitor.stream_info("test:broadcast").await?;
+        assert_eq!(info.length, 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_consumer_group_is_idempotent() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let redis = make_redis(&dir).await?;
+        let corps = SignalCorps::new(redis, "koad:stream:", 100);
+        let topics = vec!["test:idempotent".to_string()];
+
+        // Seed the stream so XGROUP CREATE has a key to operate on
+        corps
+            .broadcast("test:idempotent", "seed", "trace-0", "setup")
+            .await?;
+
+        // First call creates the group
+        corps.ensure_consumer_groups("agent-beta", &topics).await?;
+        // Second call must not error (BUSYGROUP is swallowed)
+        corps.ensure_consumer_groups("agent-beta", &topics).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_two_agents_can_exchange_signal() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let redis = make_redis(&dir).await?;
+        let corps = SignalCorps::new(redis, "koad:stream:", 100);
+        let topics = vec!["test:exchange".to_string()];
+
+        // agent-beta subscribes first so it receives the message
+        corps
+            .broadcast("test:exchange", "seed", "trace-0", "setup")
+            .await?;
+        corps.ensure_consumer_groups("agent-beta", &topics).await?;
+
+        // agent-alpha broadcasts a real signal
+        corps
+            .broadcast("test:exchange", "greet-beta", "trace-xyz", "agent-alpha")
+            .await?;
+
+        // agent-beta reads from its consumer group
+        let messages = corps
+            .read_messages("agent-beta", &topics, Some(10), None)
+            .await?;
+
+        assert!(!messages.is_empty(), "agent-beta should receive at least one message");
+        let (topic, _entry_id, fields) = messages
+            .iter()
+            .find(|(_, _, f)| f.get("actor").map(|a| a == "agent-alpha").unwrap_or(false))
+            .expect("should find message from agent-alpha");
+
+        assert_eq!(topic, "test:exchange");
+        assert_eq!(fields.get("payload").map(String::as_str), Some("greet-beta"));
+        assert_eq!(fields.get("trace_id").map(String::as_str), Some("trace-xyz"));
+        assert_eq!(fields.get("actor").map(String::as_str), Some("agent-alpha"));
+        Ok(())
+    }
+}

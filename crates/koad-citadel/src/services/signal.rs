@@ -1,3 +1,8 @@
+//! Signal Service
+//!
+//! gRPC service wrapping [`SignalCorps`] for broadcast and subscribe operations,
+//! with per-agent quota enforcement via [`QuotaValidator`].
+
 use crate::signal_corps::quota::QuotaValidator;
 use crate::signal_corps::streams::SignalCorps;
 use koad_proto::citadel::v5::signal_server::Signal;
