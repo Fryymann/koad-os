@@ -1,3 +1,8 @@
+//! State machine for the agent docking lifecycle.
+//!
+//! Defines the seven-state [`DockingState`] enum and the [`DockingEvent`]
+//! transitions that drive it from `Dormant` through to `Teardown`.
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -25,13 +30,21 @@ pub enum DockingState {
 /// Events that trigger state transitions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DockingEvent {
+    /// A new session lease has been created for the agent.
     LeaseCreated,
+    /// The hydration process (loading identity/context) has begun.
     HydrationStart,
+    /// Hydration completed successfully; agent is fully initialised.
     HydrationDone,
+    /// A heartbeat was received from the agent.
     HeartbeatReceived,
+    /// A heartbeat was missed; agent may be degraded.
     HeartbeatMiss,
+    /// A worktree has been assigned and the agent is executing a task.
     WorktreeAssigned,
+    /// The agent's current task has completed.
     WorkComplete,
+    /// The session is closing or a purge timeout has been exceeded.
     SessionClosed,
 }
 
@@ -55,6 +68,7 @@ impl DockingState {
         }
     }
 
+    /// Returns `true` if the agent is in an active-equivalent state (Active, Working, or Dark).
     pub fn is_alive(self) -> bool {
         matches!(self, Self::Active | Self::Working | Self::Dark)
     }

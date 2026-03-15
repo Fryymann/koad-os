@@ -45,11 +45,13 @@ impl QuotaValidator {
         let now = chrono::Utc::now().timestamp() as f64;
         let window_start = now - self.window_secs as f64;
 
-        // Remove entries outside the window
+        // Remove entries outside the window.
+        // Pass f64 values directly so fred converts them to ZRangeBound::Score,
+        // which is required for the BYSCORE validation in fred v9.
         let _: i64 = self
             .redis
             .pool
-            .zremrangebyscore(&key, "-inf", window_start.to_string())
+            .zremrangebyscore(&key, f64::NEG_INFINITY, window_start)
             .await
             .map_err(|e| Status::internal(format!("Quota check failed: {}", e)))?;
 
@@ -107,11 +109,11 @@ impl QuotaValidator {
         let now = chrono::Utc::now().timestamp() as f64;
         let window_start = now - self.window_secs as f64;
 
-        // Remove expired entries
+        // Remove expired entries (f64 values required for fred v9 BYSCORE validation).
         let _: i64 = self
             .redis
             .pool
-            .zremrangebyscore(&key, "-inf", window_start.to_string())
+            .zremrangebyscore(&key, f64::NEG_INFINITY, window_start)
             .await
             .context("Failed to clear expired quota entries")?;
 
@@ -122,5 +124,65 @@ impl QuotaValidator {
             .await
             .context("Failed to get quota card")?;
         Ok((count as u64, self.max_signals))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    async fn make_validator(
+        dir: &tempfile::TempDir,
+        max_signals: u64,
+        window_secs: u64,
+    ) -> anyhow::Result<QuotaValidator> {
+        let client =
+            koad_core::utils::redis::RedisClient::new(dir.path().to_str().unwrap(), true).await?;
+        Ok(QuotaValidator::new(Arc::new(client), max_signals, window_secs))
+    }
+
+    #[tokio::test]
+    async fn test_within_quota_allows_signals() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let validator = make_validator(&dir, 3, 60).await?;
+
+        validator.check_and_record("agent-alpha", "sig-1").await?;
+        validator.check_and_record("agent-alpha", "sig-2").await?;
+        validator.check_and_record("agent-alpha", "sig-3").await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_quota_exhausted_returns_resource_exhausted() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let validator = make_validator(&dir, 3, 60).await?;
+
+        validator.check_and_record("agent-beta", "sig-1").await?;
+        validator.check_and_record("agent-beta", "sig-2").await?;
+        validator.check_and_record("agent-beta", "sig-3").await?;
+
+        let result = validator.check_and_record("agent-beta", "sig-4").await;
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code(), tonic::Code::ResourceExhausted);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_utilization_reflects_recorded_signals() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let validator = make_validator(&dir, 3, 60).await?;
+
+        validator.check_and_record("agent-gamma", "sig-1").await?;
+        validator.check_and_record("agent-gamma", "sig-2").await?;
+
+        let (used, max) = validator.get_utilization("agent-gamma").await?;
+
+        assert_eq!(used, 2);
+        assert_eq!(max, 3);
+        Ok(())
     }
 }
