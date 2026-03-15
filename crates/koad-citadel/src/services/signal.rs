@@ -1,5 +1,5 @@
 use crate::signal_corps::quota::QuotaValidator;
-use crate::signal_corps::streams::SignalCorps;
+use koad_core::signal::SignalCorps;
 use koad_proto::citadel::v5::signal_server::Signal;
 use koad_proto::citadel::v5::*;
 use std::pin::Pin;

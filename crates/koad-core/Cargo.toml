@@ -19,3 +19,5 @@ fred = { workspace = true, features = ["unix-sockets", "subscriber-client", "i-s
 tokio.workspace = true
 config = { workspace = true, features = ["toml"] }
 toml.workspace = true
+koad-proto = { path = "../koad-proto" }
+tiktoken-rs.workspace = true
