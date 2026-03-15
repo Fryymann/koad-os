@@ -135,6 +135,6 @@ The **Koad Spine is retired.** It is archived in `legacy/`. We are building **Th
   - `new_world/` -> Planning, reviews, and blueprints.
 
 **Condition:** 🟢 GREEN
-**Current Phase:** 1 — Citadel MVP Construction
-**Gate:** Body/Bay/Session primitives passing integration tests → Dood approval → Phase 2 unlock.
-The Spine era is closed. The Citadel era begins now.
+**Current Phase:** 4 — Dynamic Tool Loading & Code Execution Sandbox
+**Gate:** MCP Registry / Sandbox Containerization passing integration tests → Dood approval → Phase 5 unlock.
+The Citadel is stable. Intelligence layer active. Phase 4 ignition.

@@ -4,8 +4,8 @@
 //! based on the Citadel configuration.
 
 use crate::config::KoadConfig;
-use std::path::Path;
 use koad_proto::citadel::v5::WorkspaceLevel;
+use std::path::Path;
 
 /// Manages the resolution and validation of Workspace Levels.
 pub struct HierarchyManager {
@@ -21,14 +21,14 @@ impl HierarchyManager {
     /// Resolves an absolute path to its corresponding [`WorkspaceLevel`].
     pub fn resolve_level(&self, path: &Path) -> WorkspaceLevel {
         let home = &self.config.home;
-        
+
         if path.starts_with(home) {
             return WorkspaceLevel::LevelCitadel;
         }
 
         let mut best_match: Option<(usize, WorkspaceLevel)> = None;
 
-        for (_, project) in &self.config.projects {
+        for project in self.config.projects.values() {
             let project_path = Path::new(&project.path);
             if path.starts_with(project_path) {
                 let depth = project_path.components().count();
@@ -56,7 +56,9 @@ impl HierarchyManager {
     pub fn validate_access(&self, agent_rank: &str, requested_level: WorkspaceLevel) -> bool {
         match requested_level {
             WorkspaceLevel::LevelSystem => agent_rank == "Admiral" || agent_rank == "Captain",
-            WorkspaceLevel::LevelCitadel => agent_rank == "Admiral" || agent_rank == "Captain" || agent_rank == "Officer",
+            WorkspaceLevel::LevelCitadel => {
+                agent_rank == "Admiral" || agent_rank == "Captain" || agent_rank == "Officer"
+            }
             WorkspaceLevel::LevelStation => agent_rank != "Crew",
             WorkspaceLevel::LevelOutpost => true,
             WorkspaceLevel::LevelUnspecified => false,

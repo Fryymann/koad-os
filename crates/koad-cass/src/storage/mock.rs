@@ -1,7 +1,7 @@
-use async_trait::async_trait;
-use koad_proto::cass::v1::{FactCard, EpisodicMemory};
 use crate::storage::Storage;
 use anyhow::Result;
+use async_trait::async_trait;
+use koad_proto::cass::v1::{EpisodicMemory, FactCard};
 use std::sync::Mutex;
 
 #[derive(Default)]
@@ -17,9 +17,18 @@ impl Storage for MockStorage {
         Ok(())
     }
 
-    async fn query_facts(&self, domain: &str, _tags: &[String], _limit: u32) -> Result<Vec<FactCard>> {
+    async fn query_facts(
+        &self,
+        domain: &str,
+        _tags: &[String],
+        _limit: u32,
+    ) -> Result<Vec<FactCard>> {
         let facts = self.facts.lock().unwrap();
-        Ok(facts.iter().filter(|f| f.domain == domain).cloned().collect())
+        Ok(facts
+            .iter()
+            .filter(|f| f.domain == domain)
+            .cloned()
+            .collect())
     }
 
     async fn record_episode(&self, episode: EpisodicMemory) -> Result<()> {

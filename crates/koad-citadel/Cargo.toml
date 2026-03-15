@@ -24,10 +24,12 @@ fred.workspace = true
 tower.workspace = true
 hyper.workspace = true
 async-stream.workspace = true
+tracing-subscriber.workspace = true
 
 # Internal
 koad-core = { path = "../koad-core" }
 koad-proto = { path = "../koad-proto" }
+koad-sandbox = { path = "../koad-sandbox" }
 
 [dev-dependencies]
 tempfile = "3.8"

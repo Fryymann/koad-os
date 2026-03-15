@@ -1,59 +1,73 @@
-//! KoadOS Citadel Binary
-//!
-//! Entry point for the persistent Citadel gRPC service.
+//! Citadel Kernel Entry Point
 
-use anyhow::Result;
-use koad_citadel::KernelBuilder;
+use anyhow::{Context, Result};
+use koad_citadel::services::bay::PersonalBayService;
+use koad_citadel::services::sector::SectorService;
+use koad_citadel::services::session::CitadelSessionService;
+use koad_citadel::services::signal::SignalService;
+use koad_citadel::signal_corps::quota::QuotaValidator;
+use koad_citadel::state::bay_store::BayStore;
+use koad_citadel::state::storage_bridge::CitadelStorageBridge;
+use koad_citadel::workspace::manager::WorkspaceManager;
 use koad_core::config::KoadConfig;
-use koad_core::logging::init_logging;
-use koad_core::utils::pid::PidGuard;
+use koad_core::hierarchy::HierarchyManager;
+use koad_core::signal::SignalCorps;
+use koad_core::utils::redis::RedisClient;
+use koad_sandbox::Sandbox;
+
+use koad_proto::citadel::v5::citadel_session_server::CitadelSessionServer;
+use koad_proto::citadel::v5::personal_bay_server::PersonalBayServer;
+use koad_proto::citadel::v5::sector_server::SectorServer;
+use koad_proto::citadel::v5::signal_server::SignalServer;
+
+use std::sync::Arc;
+use tonic::transport::Server;
 use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config = KoadConfig::load()?;
-    let koad_home = config.home.to_string_lossy().to_string();
-    std::env::set_var("KOAD_HOME", &koad_home);
+    tracing_subscriber::fmt::init();
+    info!("Citadel: Igniting Kernel...");
 
-    // Acquire PID lock to prevent multiple instances
-    let pid_path = config.home.join("kcitadel.pid");
-    let _pid_guard = PidGuard::new(pid_path)?;
+    let config = KoadConfig::load().context("Failed to load Citadel config")?;
+    let redis = Arc::new(RedisClient::new(&config.home.to_string_lossy(), true).await?);
+    let storage = Arc::new(CitadelStorageBridge::new(
+        redis.clone(),
+        &config.home.join("koad.db").to_string_lossy(),
+        30,
+    )?);
+    let hierarchy = Arc::new(HierarchyManager::new(config.clone()));
+    let signal_corps = Arc::new(SignalCorps::new(redis.clone(), "koad:stream:", 1000));
+    let bay_store = Arc::new(BayStore::new(config.home.join("bays")));
+    let workspace_manager = Arc::new(WorkspaceManager::new(
+        config.home.join("workspaces"),
+        config.home.clone(),
+    ));
+    let quota = Arc::new(QuotaValidator::new(redis.clone(), 100, 60));
+    let sandbox = Arc::new(Sandbox::new(config.clone()));
 
-    // Initialize structured logging
-    let _guard = init_logging("koad-citadel", Some(config.home.clone()));
+    // Services
+    let session_svc = CitadelSessionService::new(
+        signal_corps.clone(),
+        storage.clone(),
+        bay_store.clone(),
+        hierarchy.clone(),
+        90,
+    );
+    let sector_svc = SectorService::new(redis.clone(), sandbox.clone());
+    let signal_svc = SignalService::new(signal_corps.clone(), quota.clone());
+    let bay_svc = PersonalBayService::new(bay_store.clone(), workspace_manager.clone());
 
-    info!("KoadOS Citadel starting up...");
+    let addr = "127.0.0.1:50051".parse()?;
+    info!("Citadel: gRPC server listening on {}", addr);
 
-    // Build and start the kernel
-    let kernel = KernelBuilder::new()
-        .with_home(config.home.clone())
-        .with_tcp("127.0.0.1:50051")
-        .with_uds(config.home.join("kcitadel.sock"))
-        .with_admin_uds(std::path::PathBuf::from("/tmp/koad.admin.sock"))
-        .with_config(config)
-        .start()
+    Server::builder()
+        .add_service(CitadelSessionServer::new(session_svc))
+        .add_service(SectorServer::new(sector_svc))
+        .add_service(SignalServer::new(signal_svc))
+        .add_service(PersonalBayServer::new(bay_svc))
+        .serve(addr)
         .await?;
-
-    info!("KoadOS Citadel: Engine Room energized and stable.");
-
-    // Shutdown signal handler for graceful teardown
-    let shutdown_signal = async {
-        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("Failed to register SIGTERM handler");
-        let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
-            .expect("Failed to register SIGINT handler");
-
-        tokio::select! {
-            _ = sigterm.recv() => { info!("Citadel: SIGTERM received."); },
-            _ = sigint.recv() => { info!("Citadel: SIGINT (Ctrl+C) received."); },
-        }
-        info!("Citadel: Commencing graceful teardown...");
-    };
-
-    shutdown_signal.await;
-
-    info!("Citadel: Server stopping. Cleaning up...");
-    kernel.shutdown().await;
 
     Ok(())
 }

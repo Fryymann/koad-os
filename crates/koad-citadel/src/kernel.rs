@@ -3,17 +3,17 @@
 //! The Kernel is the central orchestration engine of the Citadel.
 
 use crate::auth::interceptor::build_citadel_interceptor;
-use koad_core::hierarchy::HierarchyManager;
 use crate::services::bay::PersonalBayService;
 use crate::services::sector::SectorService;
 use crate::services::session::CitadelSessionService;
 use crate::services::signal::SignalService;
 use crate::signal_corps::quota::QuotaValidator;
-use koad_core::storage::StorageBridge;
-use koad_core::signal::SignalCorps;
 use crate::state::bay_store::BayStore;
 use crate::state::storage_bridge::CitadelStorageBridge;
 use crate::workspace::manager::WorkspaceManager;
+use koad_core::hierarchy::HierarchyManager;
+use koad_core::signal::SignalCorps;
+use koad_core::storage::StorageBridge;
 
 use koad_core::config::KoadConfig;
 use koad_core::utils::redis::RedisClient;
@@ -21,6 +21,7 @@ use koad_proto::citadel::v5::citadel_session_server::CitadelSessionServer;
 use koad_proto::citadel::v5::personal_bay_server::PersonalBayServer;
 use koad_proto::citadel::v5::sector_server::SectorServer;
 use koad_proto::citadel::v5::signal_server::SignalServer;
+use koad_sandbox::Sandbox;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -84,9 +85,15 @@ impl KernelBuilder {
     }
 
     pub async fn start(self) -> anyhow::Result<Kernel> {
-        let home_dir = self.home_dir.ok_or_else(|| anyhow::anyhow!("Home directory not specified"))?;
-        let config = self.config.ok_or_else(|| anyhow::anyhow!("Config not specified"))?;
-        let tcp_addr = self.tcp_addr.ok_or_else(|| anyhow::anyhow!("TCP address not specified"))?;
+        let home_dir = self
+            .home_dir
+            .ok_or_else(|| anyhow::anyhow!("Home directory not specified"))?;
+        let config = self
+            .config
+            .ok_or_else(|| anyhow::anyhow!("Config not specified"))?;
+        let tcp_addr = self
+            .tcp_addr
+            .ok_or_else(|| anyhow::anyhow!("TCP address not specified"))?;
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
@@ -111,17 +118,21 @@ impl KernelBuilder {
 
         let signal_corps = Arc::new(SignalCorps::new(redis.clone(), "koad:stream:", 1000));
         let quota = Arc::new(QuotaValidator::new(redis.clone(), 60, 60));
-        let workspace_mgr = Arc::new(WorkspaceManager::new(home_dir.join("workspaces"), home_dir.clone()));
+        let workspace_mgr = Arc::new(WorkspaceManager::new(
+            home_dir.join("workspaces"),
+            home_dir.clone(),
+        ));
+        let sandbox = Arc::new(Sandbox::new(config.clone()));
 
         let session_svc_impl = CitadelSessionService::new(
             signal_corps.clone(),
-            storage.clone(), 
-            bay_store.clone(), 
+            storage.clone(),
+            bay_store.clone(),
             hierarchy.clone(),
-            config.sessions.lease_duration_secs
+            config.sessions.lease_duration_secs,
         );
         let bay_svc_impl = PersonalBayService::new(bay_store.clone(), workspace_mgr.clone());
-        let sector_svc_impl = SectorService::new(redis.clone());
+        let sector_svc_impl = SectorService::new(redis.clone(), sandbox.clone());
         let signal_svc_impl = SignalService::new(signal_corps.clone(), quota.clone());
 
         let drain_storage = storage.clone();
@@ -152,17 +163,32 @@ impl KernelBuilder {
         let auth_interceptor = build_citadel_interceptor(session_svc_impl.sessions_handle());
 
         let router = Server::builder()
-            .add_service(CitadelSessionServer::with_interceptor(session_svc_impl.clone(), auth_interceptor.clone()))
-            .add_service(PersonalBayServer::with_interceptor(bay_svc_impl.clone(), auth_interceptor.clone()))
-            .add_service(SectorServer::with_interceptor(sector_svc_impl.clone(), auth_interceptor.clone()))
-            .add_service(SignalServer::with_interceptor(signal_svc_impl.clone(), auth_interceptor));
+            .add_service(CitadelSessionServer::with_interceptor(
+                session_svc_impl.clone(),
+                auth_interceptor.clone(),
+            ))
+            .add_service(PersonalBayServer::with_interceptor(
+                bay_svc_impl.clone(),
+                auth_interceptor.clone(),
+            ))
+            .add_service(SectorServer::with_interceptor(
+                sector_svc_impl.clone(),
+                auth_interceptor.clone(),
+            ))
+            .add_service(SignalServer::with_interceptor(
+                signal_svc_impl.clone(),
+                auth_interceptor,
+            ));
 
         let mut rx_tcp = shutdown_rx.clone();
         tokio::spawn(async move {
             info!("Kernel: TCP listener active at {}", tcp_addr_parsed);
-            if let Err(e) = router.serve_with_shutdown(tcp_addr_parsed, async move {
-                let _ = rx_tcp.changed().await;
-            }).await {
+            if let Err(e) = router
+                .serve_with_shutdown(tcp_addr_parsed, async move {
+                    let _ = rx_tcp.changed().await;
+                })
+                .await
+            {
                 error!("Kernel: TCP listener error: {}", e);
             }
         });

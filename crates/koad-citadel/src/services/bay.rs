@@ -37,7 +37,9 @@ impl PersonalBay for PersonalBayService {
         let req = request.into_inner();
         let agent_name = &req.agent_name;
 
-        self.bay_store.provision(agent_name).await
+        self.bay_store
+            .provision(agent_name)
+            .await
             .map_err(|e| Status::internal(format!("Bay provisioning failed: {}", e)))?;
 
         info!("PersonalBay: Provisioned bay for '{}'", agent_name);
@@ -61,7 +63,10 @@ impl PersonalBay for PersonalBayService {
             return Err(Status::invalid_argument("task_id is required"));
         }
 
-        let worktree_path = self.workspace_manager.create_worktree(agent_name, task_id, &self.bay_store).await
+        let worktree_path = self
+            .workspace_manager
+            .create_worktree(agent_name, task_id, &self.bay_store)
+            .await
             .map_err(|e| Status::internal(format!("Worktree creation failed: {}", e)))?;
 
         let now = Utc::now();
@@ -86,7 +91,10 @@ impl PersonalBay for PersonalBayService {
         let req = request.into_inner();
         let agent_name = &req.agent_name;
 
-        let health = self.bay_store.get_health(agent_name).await
+        let health = self
+            .bay_store
+            .get_health(agent_name)
+            .await
             .map_err(|e| Status::not_found(format!("Bay not found: {}", e)))?;
 
         let now = Utc::now();

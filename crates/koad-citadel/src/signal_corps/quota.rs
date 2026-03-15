@@ -140,7 +140,11 @@ mod tests {
     ) -> anyhow::Result<QuotaValidator> {
         let client =
             koad_core::utils::redis::RedisClient::new(dir.path().to_str().unwrap(), true).await?;
-        Ok(QuotaValidator::new(Arc::new(client), max_signals, window_secs))
+        Ok(QuotaValidator::new(
+            Arc::new(client),
+            max_signals,
+            window_secs,
+        ))
     }
 
     #[tokio::test]

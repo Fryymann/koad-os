@@ -16,7 +16,9 @@ use tonic::{Request, Status};
 /// # Errors
 /// Returns `UNAUTHENTICATED` if any header is missing or validation fails.
 /// Returns `UNAVAILABLE` if the session exists but is in a `DARK` or `TEARDOWN` state.
-pub fn build_citadel_interceptor(sessions: ActiveSessions) -> impl Fn(Request<()>) -> Result<Request<()>, Status> + Clone {
+pub fn build_citadel_interceptor(
+    sessions: ActiveSessions,
+) -> impl Fn(Request<()>) -> Result<Request<()>, Status> + Clone {
     move |req: Request<()>| {
         // 1. Admin bypass (for internal maintenance UDS)
         if req.metadata().get("x-admin-override").is_some() {
@@ -24,15 +26,21 @@ pub fn build_citadel_interceptor(sessions: ActiveSessions) -> impl Fn(Request<()
         }
 
         // 2. Extract mandatory headers
-        let actor = req.metadata().get("x-actor")
+        let actor = req
+            .metadata()
+            .get("x-actor")
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| Status::unauthenticated("Missing x-actor header"))?;
 
-        let session_id = req.metadata().get("x-session-id")
+        let session_id = req
+            .metadata()
+            .get("x-session-id")
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| Status::unauthenticated("Missing x-session-id header"))?;
 
-        let session_token = req.metadata().get("x-session-token")
+        let session_token = req
+            .metadata()
+            .get("x-session-token")
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| Status::unauthenticated("Missing x-session-token header"))?;
 
@@ -64,23 +72,26 @@ pub fn build_citadel_interceptor(sessions: ActiveSessions) -> impl Fn(Request<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::session_cache::{SessionRecord, ActiveSessions};
+    use crate::auth::session_cache::{ActiveSessions, SessionRecord};
     use crate::state::docking::DockingState;
+    use chrono::Utc;
     use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::Mutex;
-    use chrono::Utc;
 
     fn setup_test_sessions() -> ActiveSessions {
         let mut map = HashMap::new();
-        map.insert("SID-test-123".to_string(), SessionRecord {
-            agent_name: "Tyr".to_string(),
-            state: DockingState::Active,
-            last_heartbeat: Utc::now(),
-            body_id: "body-1".to_string(),
-            session_token: "secret-token".to_string(),
-            level: "OUTPOST".to_string(),
-        });
+        map.insert(
+            "SID-test-123".to_string(),
+            SessionRecord {
+                agent_name: "Tyr".to_string(),
+                state: DockingState::Active,
+                last_heartbeat: Utc::now(),
+                body_id: "body-1".to_string(),
+                session_token: "secret-token".to_string(),
+                level: "OUTPOST".to_string(),
+            },
+        );
         Arc::new(Mutex::new(map))
     }
 
@@ -88,11 +99,13 @@ mod tests {
     fn test_interceptor_valid_request() {
         let sessions = setup_test_sessions();
         let interceptor = build_citadel_interceptor(sessions);
-        
+
         let mut req = Request::new(());
         req.metadata_mut().insert("x-actor", "Tyr".parse().unwrap());
-        req.metadata_mut().insert("x-session-id", "SID-test-123".parse().unwrap());
-        req.metadata_mut().insert("x-session-token", "secret-token".parse().unwrap());
+        req.metadata_mut()
+            .insert("x-session-id", "SID-test-123".parse().unwrap());
+        req.metadata_mut()
+            .insert("x-session-token", "secret-token".parse().unwrap());
 
         assert!(interceptor(req).is_ok());
     }
@@ -101,7 +114,7 @@ mod tests {
     fn test_interceptor_rejects_missing_headers() {
         let sessions = setup_test_sessions();
         let interceptor = build_citadel_interceptor(sessions);
-        
+
         let req = Request::new(());
         let res = interceptor(req);
         assert!(res.is_err());
@@ -112,11 +125,13 @@ mod tests {
     fn test_interceptor_rejects_invalid_token() {
         let sessions = setup_test_sessions();
         let interceptor = build_citadel_interceptor(sessions);
-        
+
         let mut req = Request::new(());
         req.metadata_mut().insert("x-actor", "Tyr".parse().unwrap());
-        req.metadata_mut().insert("x-session-id", "SID-test-123".parse().unwrap());
-        req.metadata_mut().insert("x-session-token", "wrong-token".parse().unwrap());
+        req.metadata_mut()
+            .insert("x-session-id", "SID-test-123".parse().unwrap());
+        req.metadata_mut()
+            .insert("x-session-token", "wrong-token".parse().unwrap());
 
         let res = interceptor(req);
         assert!(res.is_err());
@@ -127,11 +142,14 @@ mod tests {
     fn test_interceptor_allows_boot_handshake() {
         let sessions = setup_test_sessions();
         let interceptor = build_citadel_interceptor(sessions);
-        
+
         let mut req = Request::new(());
-        req.metadata_mut().insert("x-actor", "Scribe".parse().unwrap());
-        req.metadata_mut().insert("x-session-id", "BOOT".parse().unwrap());
-        req.metadata_mut().insert("x-session-token", "NONE".parse().unwrap());
+        req.metadata_mut()
+            .insert("x-actor", "Scribe".parse().unwrap());
+        req.metadata_mut()
+            .insert("x-session-id", "BOOT".parse().unwrap());
+        req.metadata_mut()
+            .insert("x-session-token", "NONE".parse().unwrap());
 
         assert!(interceptor(req).is_ok());
     }

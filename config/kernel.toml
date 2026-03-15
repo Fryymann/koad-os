@@ -24,3 +24,8 @@ reaper_interval_secs = 10
 check_interval_secs = 10
 max_failures = 3
 monitor_asm = true
+
+[sandbox]
+enabled = true
+blacklist = ["sudo ", "su ", "rm -rf /", "koad boot"]
+sanctuary = [".koad-os", "/etc", "/var", "/root"]
