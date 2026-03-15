@@ -20,6 +20,7 @@ pub struct PersonalBayService {
 }
 
 impl PersonalBayService {
+    /// Creates a new `PersonalBayService`.
     pub fn new(bay_store: Arc<BayStore>, workspace_manager: Arc<WorkspaceManager>) -> Self {
         Self {
             bay_store,
@@ -30,6 +31,7 @@ impl PersonalBayService {
 
 #[tonic::async_trait]
 impl PersonalBay for PersonalBayService {
+    /// Provision a Personal Bay for an agent.
     async fn provision(
         &self,
         request: Request<ProvisionRequest>,
@@ -44,7 +46,10 @@ impl PersonalBay for PersonalBayService {
 
         if req.initial_xp > 0 {
             // Seed XP if provided (usually for first-time migration or manual sync)
-            let _ = self.bay_store.update_xp_and_level(agent_name, req.initial_xp, 1).await;
+            let _ = self
+                .bay_store
+                .update_xp_and_level(agent_name, req.initial_xp, 1)
+                .await;
         }
 
         info!("PersonalBay: Provisioned bay for '{}'", agent_name);
@@ -56,6 +61,7 @@ impl PersonalBay for PersonalBayService {
         }))
     }
 
+    /// Provision a workspace (git worktree) for a task.
     async fn provision_workspace(
         &self,
         request: Request<WorkspaceRequest>,
@@ -92,6 +98,7 @@ impl PersonalBay for PersonalBayService {
         }))
     }
 
+    /// Query the health and status of a bay.
     async fn get_status(&self, request: Request<BayQuery>) -> Result<Response<BayStatus>, Status> {
         let req = request.into_inner();
         let agent_name = &req.agent_name;

@@ -1,6 +1,7 @@
 //! Citadel Storage Bridge
 //!
-//! Implements the CQRS dual-store pattern for the Citadel.
+//! Implements the CQRS dual-store pattern for the Citadel, providing a high-performance
+//! Redis-backed L1 cache and a durable SQLite-backed L2 ledger.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -21,12 +22,19 @@ use crate::auth::sanctuary;
 
 /// Citadel storage bridge implementing the CQRS dual-store pattern.
 pub struct CitadelStorageBridge {
+    /// Redis client for L1 hot storage.
     pub redis: Arc<RedisClient>,
+    /// SQLite connection for L2 durable storage.
     pub sqlite: Arc<Mutex<rusqlite::Connection>>,
+    /// Interval at which L1 state is drained to L2.
     drain_interval: Duration,
 }
 
 impl CitadelStorageBridge {
+    /// Creates a new `CitadelStorageBridge`.
+    ///
+    /// # Errors
+    /// Returns an error if the SQLite database cannot be opened or initialized.
     pub fn new(
         redis: Arc<RedisClient>,
         sqlite_path: &str,
@@ -56,6 +64,7 @@ impl CitadelStorageBridge {
         })
     }
 
+    /// Starts the background drain loop.
     pub async fn start_drain_loop(&self) {
         info!(
             "StorageBridge: Drain loop started (interval: {:?})",
@@ -69,6 +78,10 @@ impl CitadelStorageBridge {
         }
     }
 
+    /// Enables Redis keyspace notifications for state synchronization.
+    ///
+    /// # Errors
+    /// Returns an error if the Redis command fails.
     pub async fn enable_keyspace_notifications(&self) -> Result<()> {
         // Use ClusterHash::Random as a safe default for non-key-specific command
         let cmd = CustomCommand::new("CONFIG", ClusterHash::Random, false);

@@ -16,14 +16,17 @@ const PROTECTED_KEYS: &[&str] = &[
 ];
 
 /// Check if a state key is protected and whether the caller has sufficient tier.
-pub fn check_protected_key(key: &str, caller_tier: Option<i32>) -> Result<(), Status> {
+///
+/// # Errors
+/// Returns `PERMISSION_DENIED` if the key is protected and the caller is not tier 1.
+pub fn check_protected_key(key: &str, caller_tier: Option<i32>) -> Result<(), Box<Status>> {
     if PROTECTED_KEYS.iter().any(|k| key.contains(k)) {
         let tier = caller_tier.unwrap_or(3);
         if tier > 1 {
-            return Err(Status::permission_denied(format!(
-                "Key '''{}''' is protected: Admin (tier 1) only. Caller tier: {}",
+            return Err(Box::new(Status::permission_denied(format!(
+                "Key '{}' is protected: Admin (tier 1) only. Caller tier: {}",
                 key, tier
-            )));
+            ))));
         }
     }
     Ok(())
@@ -54,16 +57,19 @@ fn normalize_path(path: &Path) -> PathBuf {
     ret
 }
 
-/// Validate that a file path is securely contained within the agent'''s workspace root.
-pub fn validate_path(path: &str, workspace_root: &str) -> Result<(), Status> {
+/// Validate that a file path is securely contained within the agent's workspace root.
+///
+/// # Errors
+/// Returns `PERMISSION_DENIED` if the path is absolute and outside the workspace root.
+pub fn validate_path(path: &str, workspace_root: &str) -> Result<(), Box<Status>> {
     let root = Path::new(workspace_root);
     let target = normalize_path(Path::new(path));
 
     if target.is_absolute() && !target.starts_with(root) {
-        return Err(Status::permission_denied(format!(
-            "Path '''{}''' is outside KOAD_WORKSPACE_ROOT '''{}'''",
+        return Err(Box::new(Status::permission_denied(format!(
+            "Path '{}' is outside KOAD_WORKSPACE_ROOT '{}'",
             path, workspace_root
-        )));
+        ))));
     }
 
     Ok(())

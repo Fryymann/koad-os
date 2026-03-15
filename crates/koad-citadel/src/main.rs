@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
     info!("Citadel: Igniting Kernel...");
 
     let config = KoadConfig::load().context("Failed to load Citadel config")?;
-    
+
     let _kernel = KernelBuilder::new()
         .with_home(config.home.clone())
         .with_tcp(&format!("127.0.0.1:{}", config.network.spine_grpc_port))
