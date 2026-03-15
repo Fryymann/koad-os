@@ -103,6 +103,8 @@ bin/
 /.claude/log.md
 /.claude/*.json
 /.claude/*.md
+# Worktree checkouts inside agent bays are git-managed, never committed.
+.agents/.claude/worktrees/
 
 # --- Personal Agent Bays & Admiral Commands ---
 .admiral/

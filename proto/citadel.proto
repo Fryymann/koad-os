@@ -13,6 +13,14 @@ enum WorkspaceLevel {
   LEVEL_SYSTEM = 4;    // Machine scope
 }
 
+enum AgentRole {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_CREW = 1;
+  ROLE_CAPTAIN = 2;
+  ROLE_ADMIRAL = 3;
+  ROLE_ADMIN_OVERRIDE = 4; // Emergency UDS bypass role
+}
+
 // Mandatory context for every request across the Tri-Tier model.
 message TraceContext {
   string trace_id = 1;     // TRC-{actor}-{uuid-short}
@@ -71,7 +79,38 @@ service PersonalBay {
   rpc GetStatus(BayQuery) returns (BayStatus);
 }
 
+service Admin {
+  // Gracefully shutdown the Citadel kernel.
+  rpc Shutdown(ShutdownRequest) returns (StatusResponse);
+  // Retrieve high-level system health and metrics.
+  rpc GetSystemStatus(SystemStatusRequest) returns (SystemStatusResponse);
+  // Forcefully terminate a session by ID.
+  rpc ForcePurgeSession(PurgeRequest) returns (StatusResponse);
+}
+
 // --- Message Definitions ---
+
+message ShutdownRequest {
+  TraceContext context = 1;
+  string reason = 2;
+}
+
+message SystemStatusRequest {
+  TraceContext context = 1;
+}
+
+message SystemStatusResponse {
+  string version = 1;
+  uint32 active_sessions = 2;
+  uint32 total_bays = 3;
+  string uptime = 4;
+  TraceContext context = 5;
+}
+
+message PurgeRequest {
+  TraceContext context = 1;
+  string session_id = 2;
+}
 
 message LeaseRequest {
   TraceContext context = 1;

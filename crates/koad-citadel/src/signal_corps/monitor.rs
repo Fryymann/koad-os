@@ -91,7 +91,7 @@ pub struct StreamEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::signal_corps::streams::SignalCorps;
+    use koad_core::signal::SignalCorps;
     use std::sync::Arc;
     use tempfile::tempdir;
 

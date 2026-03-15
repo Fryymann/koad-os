@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::info;
 
+/// Service implementation for the `Sector` gRPC interface.
 #[derive(Clone)]
 pub struct SectorService {
     redis: Arc<RedisClient>,
@@ -18,6 +19,7 @@ pub struct SectorService {
 }
 
 impl SectorService {
+    /// Creates a new `SectorService`.
     pub fn new(redis: Arc<RedisClient>, sandbox: Arc<Sandbox>) -> Self {
         Self { redis, sandbox }
     }
@@ -25,6 +27,7 @@ impl SectorService {
 
 #[tonic::async_trait]
 impl Sector for SectorService {
+    /// Acquire a lock on a shared resource/sector.
     async fn acquire_lock(
         &self,
         request: Request<LockRequest>,
@@ -71,6 +74,7 @@ impl Sector for SectorService {
         }))
     }
 
+    /// Release a lock on a shared resource/sector.
     async fn release_lock(
         &self,
         request: Request<LockRequest>,
@@ -102,6 +106,7 @@ impl Sector for SectorService {
         }))
     }
 
+    /// Validate an agent command or intent against sandbox policies.
     async fn validate_intent(
         &self,
         request: Request<IntentRequest>,
