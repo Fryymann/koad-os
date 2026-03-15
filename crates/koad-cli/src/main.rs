@@ -160,6 +160,7 @@ async fn main() -> Result<()> {
             project,
             task,
             compact,
+            budget,
             force,
         } => {
             // Pre-boot sovereign check
@@ -179,7 +180,7 @@ async fn main() -> Result<()> {
                 );
             }
 
-            handle_boot_command(agent, project, task, compact, force, role, &config).await?;
+            handle_boot_command(agent, project, task, compact, budget, force, role, &config).await?;
         }
         Commands::System { action } => match action {
             SystemAction::Import {
