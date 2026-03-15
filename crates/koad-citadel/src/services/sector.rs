@@ -1,3 +1,7 @@
+//! Sector Service
+//!
+//! gRPC service for managing workspace sectors and Redis-backed sector state.
+
 use fred::interfaces::KeysInterface;
 use koad_core::utils::redis::RedisClient;
 use koad_proto::citadel::v5::sector_server::Sector;
