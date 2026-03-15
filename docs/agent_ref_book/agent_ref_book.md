@@ -99,6 +99,22 @@ These are internal Notion pages — agents must have Notion access to read them.
 
 ---
 
+## 🎖️ Agent Levels & Trust
+
+XP defines an agent's trust tier and eligibility for complex operations.
+
+| Level | Title | XP Threshold | Trust Descriptor |
+| :--- | :--- | :--- | :--- |
+| 1 | Initiate | 0 XP | Base Canon access; full gate oversight |
+| 2 | Operative | 50 XP | Trusted for `trivial` tasks with lighter check-in cadence |
+| 3 | Sentinel | 150 XP | Eligible to propose Canon amendments in `ponder` passes |
+| 4 | Architect | 350 XP | Eligible for `complex` task leads |
+| 5 | Sovereign | 600 XP | Full trust tier; advisory role on Canon evolution |
+
+> **Note:** Levels are descriptive, not prescriptive. They never bypass Canon gates or override Admiral (Ian) authority.
+
+---
+
 ## 🚀 KoadOS Boot & Hydration
 
 | **Topic** | **Source** | **Notes** |

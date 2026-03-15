@@ -42,6 +42,11 @@ impl PersonalBay for PersonalBayService {
             .await
             .map_err(|e| Status::internal(format!("Bay provisioning failed: {}", e)))?;
 
+        if req.initial_xp > 0 {
+            // Seed XP if provided (usually for first-time migration or manual sync)
+            let _ = self.bay_store.update_xp_and_level(agent_name, req.initial_xp, 1).await;
+        }
+
         info!("PersonalBay: Provisioned bay for '{}'", agent_name);
 
         Ok(Response::new(StatusResponse {
@@ -97,6 +102,12 @@ impl PersonalBay for PersonalBayService {
             .await
             .map_err(|e| Status::not_found(format!("Bay not found: {}", e)))?;
 
+        let (xp, level) = self
+            .bay_store
+            .get_xp_and_level(agent_name)
+            .await
+            .unwrap_or((0, 1));
+
         let now = Utc::now();
         let context = req.context.map(|c| TraceContext {
             trace_id: c.trace_id,
@@ -113,6 +124,8 @@ impl PersonalBay for PersonalBayService {
             agent_name: agent_name.clone(),
             health,
             last_sync: now.to_rfc3339(),
+            xp,
+            level,
             context,
         }))
     }

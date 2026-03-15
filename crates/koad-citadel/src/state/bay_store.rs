@@ -89,6 +89,23 @@ impl BayStore {
         )
         .context("Failed to create session_history table")?;
 
+        // Agent Metadata: Tracks XP, Level, and other permanent stats
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_metadata (
+                agent_name TEXT PRIMARY KEY,
+                xp INTEGER NOT NULL DEFAULT 0,
+                level INTEGER NOT NULL DEFAULT 1
+            )",
+            [],
+        )
+        .context("Failed to create agent_metadata table")?;
+
+        // Initial metadata seed if not exists
+        conn.execute(
+            "INSERT OR IGNORE INTO agent_metadata (agent_name, xp, level) VALUES (?1, 0, 1)",
+            params![agent_name],
+        )?;
+
         let mut conns = self.connections.lock().await;
         conns.insert(agent_name.to_string(), conn);
 
@@ -118,6 +135,14 @@ impl BayStore {
                     if !bay_dir.exists() {
                         info!("BayStore: Auto-provisioning bay for '{}'", stem);
                         self.provision(stem).await?;
+                    } else {
+                        // Ensure we have a connection even if directory already exists
+                        let db_path = bay_dir.join("state.db");
+                        if db_path.exists() {
+                            let conn = rusqlite::Connection::open(&db_path)?;
+                            let mut conns = self.connections.lock().await;
+                            conns.insert(stem.to_string(), conn);
+                        }
                     }
                 }
             }
@@ -246,6 +271,37 @@ impl BayStore {
             Some("TEARDOWN") => Ok("RED".to_string()),
             _ => Ok("GREEN".to_string()), // No logs yet = fresh bay
         }
+    }
+
+    /// Get the XP and Level for an agent.
+    pub async fn get_xp_and_level(&self, agent_name: &str) -> Result<(u32, u32)> {
+        let conns = self.connections.lock().await;
+        let conn = conns
+            .get(agent_name)
+            .ok_or_else(|| anyhow::anyhow!("Bay not provisioned for '{}'", agent_name))?;
+
+        let (xp, level): (u32, u32) = conn.query_row(
+            "SELECT xp, level FROM agent_metadata WHERE agent_name = ?1",
+            params![agent_name],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        Ok((xp, level))
+    }
+
+    /// Update the XP and Level for an agent.
+    pub async fn update_xp_and_level(&self, agent_name: &str, xp: u32, level: u32) -> Result<()> {
+        let conns = self.connections.lock().await;
+        let conn = conns
+            .get(agent_name)
+            .ok_or_else(|| anyhow::anyhow!("Bay not provisioned for '{}'", agent_name))?;
+
+        conn.execute(
+            "UPDATE agent_metadata SET xp = ?1, level = ?2 WHERE agent_name = ?3",
+            params![xp, level, agent_name],
+        )?;
+
+        Ok(())
     }
 }
 

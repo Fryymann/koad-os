@@ -139,6 +139,7 @@ message Event {
 message ProvisionRequest {
   TraceContext context = 1;
   string agent_name = 2;
+  uint32 initial_xp = 3;
 }
 
 message BayQuery {
@@ -150,7 +151,9 @@ message BayStatus {
   string agent_name = 1;
   string health = 2; // GREEN | YELLOW | RED
   string last_sync = 3;
-  TraceContext context = 4;
+  uint32 xp = 4;
+  uint32 level = 5;
+  TraceContext context = 6;
 }
 
 message WorkspaceRequest {
