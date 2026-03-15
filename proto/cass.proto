@@ -25,6 +25,13 @@ service StreamService {
   rpc PostSignal(SignalRequest) returns (koad.citadel.v5.StatusResponse);
 }
 
+service SymbolService {
+  // Query the project's code knowledge graph for a symbol.
+  rpc Query(SymbolQuery) returns (SymbolResponse);
+  // Trigger a re-index of the project code graph.
+  rpc IndexProject(IndexRequest) returns (koad.citadel.v5.StatusResponse);
+}
+
 // --- Data Structures ---
 
 message FactCard {
@@ -77,4 +84,28 @@ message SignalRequest {
   string topic = 2;
   string content = 3;
   string priority = 4; // LOW | MEDIUM | HIGH | URGENT
+}
+
+message Symbol {
+  string name = 1;
+  string kind = 2;
+  string path = 3;
+  uint32 start_line = 4;
+  uint32 end_line = 5;
+}
+
+message SymbolQuery {
+  koad.citadel.v5.TraceContext context = 1;
+  string name = 2;
+  string kind = 3; // Optional filter: func | struct | trait
+}
+
+message SymbolResponse {
+  repeated Symbol symbols = 1;
+  koad.citadel.v5.TraceContext context = 2;
+}
+
+message IndexRequest {
+  koad.citadel.v5.TraceContext context = 1;
+  string project_root = 2;
 }

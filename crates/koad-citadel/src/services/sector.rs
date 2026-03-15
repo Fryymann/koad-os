@@ -6,6 +6,7 @@ use fred::interfaces::KeysInterface;
 use koad_core::utils::redis::RedisClient;
 use koad_proto::citadel::v5::sector_server::Sector;
 use koad_proto::citadel::v5::*;
+use koad_sandbox::{PolicyResult, Sandbox};
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::info;
@@ -13,11 +14,12 @@ use tracing::info;
 #[derive(Clone)]
 pub struct SectorService {
     redis: Arc<RedisClient>,
+    sandbox: Arc<Sandbox>,
 }
 
 impl SectorService {
-    pub fn new(redis: Arc<RedisClient>) -> Self {
-        Self { redis }
+    pub fn new(redis: Arc<RedisClient>, sandbox: Arc<Sandbox>) -> Self {
+        Self { redis, sandbox }
     }
 }
 
@@ -34,7 +36,10 @@ impl Sector for SectorService {
         let lock_id = uuid::Uuid::new_v4().to_string();
         let lock_key = format!("koad:lock:{}", sector_id);
 
-        let acquired: bool = self.redis.pool.set(
+        let acquired: bool = self
+            .redis
+            .pool
+            .set(
                 &lock_key,
                 &lock_id,
                 Some(fred::types::Expiration::PX(ttl_ms as i64)),
@@ -74,15 +79,48 @@ impl Sector for SectorService {
         let sector_id = &req.sector_id;
         let lock_key = format!("koad:lock:{}", sector_id);
 
-        let deleted: i64 = self.redis.pool.del(&lock_key).await
+        let deleted: i64 = self
+            .redis
+            .pool
+            .del(&lock_key)
+            .await
             .map_err(|e| Status::internal(format!("Lock release failed: {}", e)))?;
 
-        info!("Sector: Lock released on '{}' (deleted: {})", sector_id, deleted);
+        info!(
+            "Sector: Lock released on '{}' (deleted: {})",
+            sector_id, deleted
+        );
 
         Ok(Response::new(StatusResponse {
             success: deleted > 0,
-            message: if deleted > 0 { "Lock released".to_string() } else { "Lock not found (may have expired)".to_string() },
+            message: if deleted > 0 {
+                "Lock released".to_string()
+            } else {
+                "Lock not found (may have expired)".to_string()
+            },
             context: None,
+        }))
+    }
+
+    async fn validate_intent(
+        &self,
+        request: Request<IntentRequest>,
+    ) -> Result<Response<IntentResponse>, Status> {
+        let req = request.into_inner();
+
+        let result = self
+            .sandbox
+            .evaluate(&req.agent_name, &req.agent_rank, &req.command);
+
+        let (allowed, reason) = match result {
+            PolicyResult::Allowed => (true, "Command permitted".to_string()),
+            PolicyResult::Denied(r) => (false, r),
+        };
+
+        Ok(Response::new(IntentResponse {
+            allowed,
+            reason,
+            context: req.context,
         }))
     }
 }

@@ -74,9 +74,11 @@ KoadOS adoption of the **Game Map Metaphor** for information topology:
 3. **Hierarchy-Based Authorization (Sanctuary Rule)** — Enforce gRPC-layer auth based on level depth.
 4. **Stable Session Lifecycle** — Hardened boot/heartbeat/drain/purge cycle.
 
-### Phase 2 — CASS Core (Agent Support Layer)
+### Phase 2 — CASS Core (Agent Support Layer) — [COMPLETE]
 <aside>
 🟣 **Goal: Stand up cognitive support infrastructure.**
+- **Status**: 🟢 COMPLETE (2026-03-14)
+- **Outcome**: Memory services, TCH, and EoW pipeline active.
 
 </aside>
 
@@ -84,6 +86,28 @@ KoadOS adoption of the **Game Map Metaphor** for information topology:
 2. **EndOfWatch Pipeline** — Automated EoW generation on session close.
 3. **Hierarchy-Aware TCH** — Load context according to Citadel → Station → Outpost depth.
 4. **Dark Mode Persistence** — Standardized offline-to-online reconciliation format.
+
+### Phase 3 — Agent Tools Layer (Stability & HARDENING) — [COMPLETE]
+<aside>
+🛡️ **Goal: Advanced intelligence and security tools.**
+- **Status**: 🟢 COMPLETE (2026-03-15)
+- **Outcome**: Local Ollama distillation, Config-driven Sandbox, and AST CodeGraph active.
+
+</aside>
+
+1. **Intelligence Layer (`koad-intelligence`)** — Unified `InferenceRouter` for task-based model selection.
+2. **Security Sandbox (`koad-sandbox`)** — Config-driven sanctuary and blacklist enforcement.
+3. **Code Knowledge Graph (`koad-codegraph`)** — AST-based symbol indexing using `tree-sitter`.
+
+### Phase 4 — Dynamic Tools & Containerized Sandboxes
+<aside>
+🚀 **Goal: Externalize tool execution and dynamic loading.**
+
+</aside>
+
+1. **MCP Tool Registry** — CASS service for registering and invoking Model Context Protocol (MCP) tools.
+2. **Code Execution Sandbox** — Docker/Podman isolation for running arbitrary agent code.
+3. **Dynamic Library Loading** — Allow CASS to load custom tool implementations at runtime.
 
 ---
 

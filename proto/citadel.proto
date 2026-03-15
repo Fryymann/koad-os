@@ -51,6 +51,8 @@ service Sector {
   rpc AcquireLock(LockRequest) returns (LockResponse);
   // Release a lock.
   rpc ReleaseLock(LockRequest) returns (StatusResponse);
+  // Validate an agent command or intent against sandbox policies.
+  rpc ValidateIntent(IntentRequest) returns (IntentResponse);
 }
 
 service Signal {
@@ -107,6 +109,19 @@ message LockRequest {
 message LockResponse {
   bool acquired = 1;
   string lock_id = 2;
+  TraceContext context = 3;
+}
+
+message IntentRequest {
+  TraceContext context = 1;
+  string agent_name = 2;
+  string agent_rank = 3;
+  string command = 4;
+}
+
+message IntentResponse {
+  bool allowed = 1;
+  string reason = 2;
   TraceContext context = 3;
 }
 

@@ -18,7 +18,7 @@ const PROTECTED_KEYS: &[&str] = &[
 /// Check if a state key is protected and whether the caller has sufficient tier.
 pub fn check_protected_key(key: &str, caller_tier: Option<i32>) -> Result<(), Status> {
     if PROTECTED_KEYS.iter().any(|k| key.contains(k)) {
-        let tier = caller_tier.unwrap_or(3); 
+        let tier = caller_tier.unwrap_or(3);
         if tier > 1 {
             return Err(Status::permission_denied(format!(
                 "Key '''{}''' is protected: Admin (tier 1) only. Caller tier: {}",

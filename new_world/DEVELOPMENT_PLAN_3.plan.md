@@ -16,9 +16,10 @@ This page is the planning and research ground for a major KoadOS architectural r
 **Build sequence (top-level):**
 
 1. **Phase 0: Diagnostic Harness & Documentation Shield** → [COMPLETE] High-ROI pre-Citadel wins.
-2. **Phase 1: Citadel Core (Control Plane)** → Stabilize the kernel, gRPC service, and **Level-Aware Authorization**.
-3. **Phase 2: CASS Core (Agent Support)** → Build memory hydration, context management, and **Hierarchy-Aware TCH**.
-4. **Phase 3: Agent Tools Layer** → Advanced code knowledge graphs and execution sandboxes.
+2. **Phase 1: Citadel Core (Control Plane)** → [COMPLETE] Stabilize the kernel, gRPC service, and **Level-Aware Authorization**.
+3. **Phase 2: CASS Core (Agent Support)** → [COMPLETE] Build memory hydration, context management, and **Hierarchy-Aware TCH**.
+4. **Phase 3: Agent Tools Layer** → [COMPLETE] Advanced code knowledge graphs and execution sandboxes.
+5. **Phase 4: Dynamic Tools & Containerized Sandboxes** → [NEXT] MCP Registry and isolated tool runs.
 
 ---
 
@@ -33,60 +34,37 @@ KoadOS adoption of the **Game Map Metaphor** for information topology:
 | **Station** | Project Hub | Shared domain resources (e.g., ~/skylinks) | Sky (Specialist) |
 | **Outpost** | Single Repo | Local code, task-specific state (.agents/) | Crew / Scouts |
 
-### Key Principles
-- **Locality of Reference**: Most work is local (Outpost).
-- **Inheritance vs. Isolation**: Lower levels benefit from higher standards but remain jail-safe.
-- **The .agents/ Interface**: Universal entry point for agent data at every level.
-
----
-
-## Proposed Architecture
-
-### 🏰 The Citadel (OS Layer)
-- **Hierarchy Manager**: Detects and validates current Workspace Level (Outpost vs Station).
-- Agent connectivity and session brokering.
-- **Zero-Trust gRPC Enforcement**: Mandatory security at the Control Plane from day one.
-
-### 🧬 CASS (Agent Support Layer)
-- **Temporal Context Hydrator (TCH)**: Selective loading based on level (Outpost Local + Station Pointers).
-- **Context Compactor**: Flash-Lite distillation service.
-
 ---
 
 ## Refactor Sequencing (v3.2 — Prioritized Roadmap)
 
 ### Phase 0 — Diagnostic Harness & Documentation Shield (RESULTS)
-- **Token ROI**: 30-40% reduction achieved via Domain Indices.
-- **Observability**: Telemetry active at `~/.koad-os/logs/telemetry.log`.
-- **Protocol**: EoW Schema locked at `~/.koad-os/docs/protocols/EOW_SCHEMA.toml`.
 - **Status**: 🟢 COMPLETE (2026-03-14)
 
 ### Phase 1 — Citadel Core (Control Plane) — [COMPLETE]
-<aside>
-🔵 **Goal: Replace the Spine with a stable gRPC kernel.**
 - **Status**: 🟢 COMPLETE (2026-03-14)
 - **Outcome**: Level-aware kernel, Zero-Trust Interceptor, and Proto v5.1 active.
 
-</aside>
+### Phase 2 — CASS Core (Agent Support Layer) — [COMPLETE]
+- **Status**: 🟢 COMPLETE (2026-03-14)
+- **Outcome**: Memory services, TCH, and EoW pipeline active.
 
-1. **New `koad-citadel` crate** — Design `citadel.proto` with level-awareness.
-2. **Configuration-First Architecture** — Zero hardcoded values. 
-3. **Hierarchy-Based Authorization (Sanctuary Rule)** — Enforce gRPC-layer auth based on level depth.
-4. **Stable Session Lifecycle** — Hardened boot/heartbeat/drain/purge cycle.
+### Phase 3 — Agent Tools Layer (Stability & HARDENING) — [COMPLETE]
+- **Status**: 🟢 COMPLETE (2026-03-15)
+- **Outcome**: Local Ollama distillation, Config-driven Sandbox, and AST CodeGraph active.
 
-### Phase 2 — CASS Core (Agent Support Layer)
+### Phase 4 — Dynamic Tools & Containerized Sandboxes
 <aside>
-🟣 **Goal: Stand up cognitive support infrastructure.**
+🚀 **Goal: Externalize tool execution and dynamic loading.**
 
 </aside>
 
-1. **Memory Query Interface** — RPC interface for FactCard retrieval.
-2. **EndOfWatch Pipeline** — Automated EoW generation on session close.
-3. **Hierarchy-Aware TCH** — Load context according to Citadel → Station → Outpost depth.
-4. **Dark Mode Persistence** — Standardized offline-to-online reconciliation format.
+1. **MCP Tool Registry** — CASS service for registering and invoking Model Context Protocol (MCP) tools.
+2. **Code Execution Sandbox** — Docker/Podman isolation for running arbitrary agent code.
+3. **Dynamic Library Loading** — Allow CASS to load custom tool implementations at runtime.
 
 ---
 
 **Prepared by:** Tyr, Captain (KAI Officer)
-**Revision:** v3.2 (2026-03-14)
+**Revision:** v3.2 (2026-03-15)
 **Approved by:** Ian [APPROVED]

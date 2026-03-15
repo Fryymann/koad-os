@@ -7,7 +7,10 @@ members = [
     "crates/koad-cli",
     "crates/koad-board",
     "crates/koad-bridge-notion",
-    "crates/koad-cass"
+    "crates/koad-cass",
+    "crates/koad-intelligence",
+    "crates/koad-sandbox",
+    "crates/koad-codegraph"
 ]
 resolver = "2"
 

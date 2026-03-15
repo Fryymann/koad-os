@@ -20,6 +20,8 @@ pub struct KoadConfig {
     pub sessions: SessionsConfig,
     #[serde(default = "default_watchdog")]
     pub watchdog: WatchdogConfig,
+    #[serde(default = "default_sandbox")]
+    pub sandbox: SandboxConfig,
     #[serde(default)]
     pub integrations: IntegrationsConfig,
     #[serde(default)]
@@ -68,6 +70,31 @@ fn default_watchdog() -> WatchdogConfig {
         max_failures: 3,
         monitor_asm: true,
     }
+}
+
+fn default_sandbox() -> SandboxConfig {
+    SandboxConfig {
+        enabled: true,
+        blacklist: vec![
+            "sudo ".to_string(),
+            "su ".to_string(),
+            "rm -rf /".to_string(),
+            "koad boot".to_string(),
+        ],
+        sanctuary: vec![
+            ".koad-os".to_string(),
+            "/etc".to_string(),
+            "/var".to_string(),
+            "/root".to_string(),
+        ],
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SandboxConfig {
+    pub enabled: bool,
+    pub blacklist: Vec<String>,
+    pub sanctuary: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

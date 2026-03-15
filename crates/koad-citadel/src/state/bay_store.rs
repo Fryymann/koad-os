@@ -112,7 +112,7 @@ impl BayStore {
         for entry in std::fs::read_dir(identities_dir).context("Failed to read identities dir")? {
             let entry = entry.context("Failed to read directory entry")?;
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "toml") {
+            if path.extension().is_some_and(|e| e == "toml") {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                     let bay_dir = self.base_path.join(stem);
                     if !bay_dir.exists() {

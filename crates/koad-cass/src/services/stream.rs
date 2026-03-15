@@ -19,7 +19,10 @@ pub struct CassStreamService {
 impl CassStreamService {
     /// Creates a new `CassStreamService`.
     pub fn new(notion: Arc<NotionClient>, database_id: String) -> Self {
-        Self { notion, database_id }
+        Self {
+            notion,
+            database_id,
+        }
     }
 }
 
@@ -29,10 +32,15 @@ impl StreamService for CassStreamService {
     ///
     /// # Errors
     /// Returns `INTERNAL` if the Notion API request fails.
-    async fn post_signal(&self, request: Request<SignalRequest>) -> Result<Response<StatusResponse>, Status> {
+    async fn post_signal(
+        &self,
+        request: Request<SignalRequest>,
+    ) -> Result<Response<StatusResponse>, Status> {
         let req = request.into_inner();
-        
-        let actor = req.context.as_ref()
+
+        let actor = req
+            .context
+            .as_ref()
             .map(|c| c.actor.clone())
             .unwrap_or_else(|| "CASS".to_string());
 
@@ -45,13 +53,16 @@ impl StreamService for CassStreamService {
 
         // TODO: In a full implementation, the NotionClient would be a trait to allow mocking.
         // For now, we wrap the call in a Result map.
-        self.notion.post_to_stream(
-            &self.database_id,
-            &actor,
-            &req.target_agent,
-            &req.topic,
-            &req.priority,
-        ).await.map_err(|e| Status::internal(e.to_string()))?;
+        self.notion
+            .post_to_stream(
+                &self.database_id,
+                &actor,
+                &req.target_agent,
+                &req.topic,
+                &req.priority,
+            )
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(StatusResponse {
             success: true,

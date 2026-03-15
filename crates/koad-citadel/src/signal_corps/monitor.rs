@@ -37,12 +37,7 @@ impl StreamMonitor {
 
     /// Tail a stream from a given entry ID (or "0" for all).
     /// Returns up to `count` entries.
-    pub async fn tail(
-        &self,
-        topic: &str,
-        from_id: &str,
-        count: u64,
-    ) -> Result<Vec<StreamEntry>> {
+    pub async fn tail(&self, topic: &str, from_id: &str, count: u64) -> Result<Vec<StreamEntry>> {
         let key = format!("{}{}", self.stream_prefix, topic);
 
         let results: Vec<(String, Vec<(String, String)>)> = self
