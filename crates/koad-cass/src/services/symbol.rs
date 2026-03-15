@@ -31,8 +31,12 @@ impl SymbolService for CassSymbolService {
         request: Request<SymbolQuery>,
     ) -> Result<Response<SymbolResponse>, Status> {
         let req = request.into_inner();
-        let trace_id = req.context.as_ref().map(|c| c.trace_id.as_str()).unwrap_or("UNKNOWN");
-        
+        let trace_id = req
+            .context
+            .as_ref()
+            .map(|c| c.trace_id.as_str())
+            .unwrap_or("UNKNOWN");
+
         info!(trace_id = %trace_id, symbol = %req.name, "SymbolService: Querying graph");
 
         let symbols = self
@@ -74,7 +78,11 @@ impl SymbolService for CassSymbolService {
         request: Request<IndexRequest>,
     ) -> Result<Response<StatusResponse>, Status> {
         let req = request.into_inner();
-        let trace_id = req.context.as_ref().map(|c| c.trace_id.as_str()).unwrap_or("UNKNOWN");
+        let trace_id = req
+            .context
+            .as_ref()
+            .map(|c| c.trace_id.as_str())
+            .unwrap_or("UNKNOWN");
         let root = Path::new(&req.project_root);
 
         info!(trace_id = %trace_id, path = ?root, "CASS: Starting project re-index");
