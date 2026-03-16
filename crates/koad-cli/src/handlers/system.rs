@@ -104,16 +104,16 @@ pub async fn spawn_issue(
             if parts.len() == 2 {
                 (parts[0].to_string(), parts[1].to_string())
             } else {
-                (config.get_github_owner(None), config.get_github_repo(None))
+                (config.get_github_owner(None::<&str>), config.get_github_repo(None::<&str>))
             }
         } else {
-            (config.get_github_owner(None), config.get_github_repo(None))
+            (config.get_github_owner(None::<&str>), config.get_github_repo(None::<&str>))
         }
     } else {
-        (config.get_github_owner(None), config.get_github_repo(None))
+        (config.get_github_owner(None::<&str>), config.get_github_repo(None::<&str>))
     };
 
-    let token = config.resolve_gh_token(project, None)?;
+    let token = config.resolve_gh_token(project.as_ref().map(|s| s.as_str()), None)?;
     let client = koad_board::GitHubClient::new(token, owner.clone(), repo.clone())?;
 
     let body = if let Some(rb) = raw_body {

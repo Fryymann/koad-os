@@ -22,6 +22,10 @@ pub const BACKUP_DIR_SYSTEM: &str = "backups/system";
 pub const DEFAULT_SPINE_GRPC_PORT: u32 = 50051;
 pub const DEFAULT_SPINE_GRPC_ADDR: &str = "http://127.0.0.1:50051";
 
+/// Default address for the KoadOS CASS gRPC service
+pub const DEFAULT_CASS_GRPC_PORT: u32 = 50052;
+pub const DEFAULT_CASS_GRPC_ADDR: &str = "http://127.0.0.1:50052";
+
 /// API Base URLs
 pub const GITHUB_API_BASE: &str = "https://api.github.com";
 pub const NOTION_API_BASE: &str = "https://api.notion.com/v1";

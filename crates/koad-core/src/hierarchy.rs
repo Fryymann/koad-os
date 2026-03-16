@@ -39,9 +39,13 @@ impl HierarchyManager {
                     _ => WorkspaceLevel::LevelOutpost,
                 };
 
-                if best_match.is_none() || depth > best_match.unwrap().0 {
+            if let Some(ref best) = best_match {
+                if depth > best.0 {
                     best_match = Some((depth, level));
                 }
+            } else {
+                best_match = Some((depth, level));
+            }
             }
         }
 

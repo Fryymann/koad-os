@@ -17,16 +17,21 @@ pub struct OllamaClient {
 
 impl OllamaClient {
     /// Create a new Ollama client with the specified model (default: "mistral").
-    pub fn new(model: Option<&str>, base_url: Option<&str>) -> Self {
-        Self {
-            client: Client::builder()
-                .timeout(Duration::from_secs(60))
-                .connect_timeout(Duration::from_secs(1))
-                .build()
-                .unwrap_or_default(),
+    ///
+    /// # Errors
+    /// Returns an error if the HTTP client cannot be built.
+    pub fn new(model: Option<&str>, base_url: Option<&str>) -> Result<Self> {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(60))
+            .connect_timeout(Duration::from_secs(1))
+            .build()
+            .context("Failed to build Ollama reqwest client")?;
+
+        Ok(Self {
+            client,
             model: model.unwrap_or("mistral").to_string(),
             base_url: base_url.unwrap_or("http://localhost:11434").to_string(),
-        }
+        })
     }
 }
 

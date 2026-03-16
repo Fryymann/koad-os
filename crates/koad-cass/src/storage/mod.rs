@@ -13,7 +13,13 @@ pub trait Storage: Send + Sync {
     async fn commit_fact(&self, fact: FactCard) -> Result<()>;
     async fn query_facts(&self, domain: &str, tags: &[String], limit: u32)
         -> Result<Vec<FactCard>>;
+    async fn query_agent_facts(&self, agent_name: &str, limit: u32) -> Result<Vec<FactCard>>;
     async fn record_episode(&self, episode: EpisodicMemory) -> Result<()>;
+    async fn query_recent_episodes(
+        &self,
+        agent_name: &str,
+        limit: u32,
+    ) -> Result<Vec<EpisodicMemory>>;
 }
 
 pub struct CassStorage {
@@ -48,8 +54,34 @@ impl Storage for CassStorage {
         limit: u32,
     ) -> Result<Vec<FactCard>> {
         let conn = self.conn.lock().await;
-        let mut stmt = conn.prepare("SELECT id, source_agent, session_id, domain, content, confidence, tags, created_at FROM fact_cards WHERE domain = ?1 LIMIT ?2")?;
+        let mut stmt = conn.prepare("SELECT id, source_agent, session_id, domain, content, confidence, tags, created_at FROM fact_cards WHERE domain = ?1 ORDER BY confidence DESC LIMIT ?2")?;
         let rows = stmt.query_map(params![domain, limit], |row| {
+            Ok(FactCard {
+                id: row.get(0)?,
+                source_agent: row.get(1)?,
+                session_id: row.get(2)?,
+                domain: row.get(3)?,
+                content: row.get(4)?,
+                confidence: row.get(5)?,
+                tags: row
+                    .get::<_, String>(6)?
+                    .split(',')
+                    .map(|s| s.to_string())
+                    .collect(),
+                created_at: None,
+            })
+        })?;
+        let mut facts = Vec::new();
+        for row in rows {
+            facts.push(row?);
+        }
+        Ok(facts)
+    }
+
+    async fn query_agent_facts(&self, agent_name: &str, limit: u32) -> Result<Vec<FactCard>> {
+        let conn = self.conn.lock().await;
+        let mut stmt = conn.prepare("SELECT id, source_agent, session_id, domain, content, confidence, tags, created_at FROM fact_cards WHERE source_agent = ?1 ORDER BY confidence DESC LIMIT ?2")?;
+        let rows = stmt.query_map(params![agent_name, limit], |row| {
             Ok(FactCard {
                 id: row.get(0)?,
                 source_agent: row.get(1)?,
@@ -78,6 +110,34 @@ impl Storage for CassStorage {
         let timestamp = Utc::now().to_rfc3339();
         conn.execute("INSERT OR REPLACE INTO episodic_memories (session_id, project_path, summary, turn_count, timestamp, task_ids) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![episode.session_id, episode.project_path, episode.summary, episode.turn_count, timestamp, task_ids])?;
         Ok(())
+    }
+
+    async fn query_recent_episodes(
+        &self,
+        _agent_name: &str,
+        limit: u32,
+    ) -> Result<Vec<EpisodicMemory>> {
+        let conn = self.conn.lock().await;
+        let mut stmt = conn.prepare("SELECT session_id, project_path, summary, turn_count, timestamp, task_ids FROM episodic_memories ORDER BY timestamp DESC LIMIT ?1")?;
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(EpisodicMemory {
+                session_id: row.get(0)?,
+                project_path: row.get(1)?,
+                summary: row.get(2)?,
+                turn_count: row.get(3)?,
+                timestamp: None,
+                task_ids: row
+                    .get::<_, String>(5)?
+                    .split(',')
+                    .map(|s| s.to_string())
+                    .collect(),
+            })
+        })?;
+        let mut episodes = Vec::new();
+        for row in rows {
+            episodes.push(row?);
+        }
+        Ok(episodes)
     }
 }
 pub mod mock;

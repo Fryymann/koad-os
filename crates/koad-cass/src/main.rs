@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
         .cloned()
         .unwrap_or_default();
 
-    let intelligence = Arc::new(InferenceRouter::default());
+    let intelligence = Arc::new(InferenceRouter::new_default()?);
 
     // Services
     let memory_svc = CassMemoryService::new(storage.clone(), intelligence.clone());

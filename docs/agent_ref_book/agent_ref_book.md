@@ -99,6 +99,18 @@ These are internal Notion pages — agents must have Notion access to read them.
 
 ---
 
+## 🛠️ Agent Tools (Phase 3+)
+
+The Citadel provides specialized tools to enhance agent intelligence and security.
+
+| **Tool** | **Service** | **Usage Pattern** | **Notes** |
+| :--- | :--- | :--- | :--- |
+| **Inference Router** | `koad-intelligence` | Automatic delegation between local (Ollama) and cloud (Gemini). | Used for distillation and semantic scoring. |
+| **Command Sandbox** | `koad-sandbox` | gRPC: `Sector.ValidateIntent` | Enforces blacklists and the Sanctuary Rule. |
+| **Code Knowledge Graph** | `koad-codegraph` | gRPC: `Symbol.Query` | AST-based lookup for definitions and traits. |
+
+---
+
 ## 🎖️ Agent Levels & Trust
 
 XP defines an agent's trust tier and eligibility for complex operations.

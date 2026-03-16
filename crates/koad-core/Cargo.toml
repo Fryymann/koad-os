@@ -21,6 +21,7 @@ config = { workspace = true, features = ["toml"] }
 toml.workspace = true
 koad-proto = { path = "../koad-proto" }
 tiktoken-rs.workspace = true
+dirs = "5.0"
 
 [dev-dependencies]
 tempfile = "3.8"

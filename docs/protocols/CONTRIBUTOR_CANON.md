@@ -70,6 +70,7 @@ Every Saveup MUST follow this format:
 ## V. Verification & Enforcement
 - **KSRP Pass 2 (Verify):** Agents must verify that Plan Mode was engaged if the task weight was `standard` or `complex`.
 - **XP Audit:** Ledgers are append-only and must be auditable back to a KSRP report or Saveup.
+- **AUTHORITATIVE XP:** The `XP_LEDGER.md` file in an agent's vault is the absolute source of truth for their Experience Point total. Values in `IDENTITY.md` or session briefs are non-authoritative caches. Agents must verify arithmetic against the ledger before reporting totals.
 
 ## VI. Failure & Recovery
 Behavioral violations (XP Sinks) trigger mandatory recalibration.

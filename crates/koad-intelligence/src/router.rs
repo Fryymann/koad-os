@@ -29,6 +29,15 @@ impl InferenceRouter {
         Self { local_client }
     }
 
+    /// Create a new router with default clients (Local Ollama).
+    /// 
+    /// # Errors
+    /// Returns an error if the default Ollama client cannot be built.
+    pub fn new_default() -> Result<Self> {
+        info!("InferenceRouter: Initializing with default Ollama client.");
+        Ok(Self::new(Arc::new(OllamaClient::new(None, None)?)))
+    }
+
     /// Select a client for the given task.
     /// Currently defaults to Ollama for all tasks until Gemini is wired.
     pub fn select(&self, _task: InferenceTask) -> Arc<dyn InferenceClient> {
@@ -47,12 +56,5 @@ impl InferenceRouter {
         self.select(InferenceTask::Evaluation)
             .score_significance(text)
             .await
-    }
-}
-
-impl Default for InferenceRouter {
-    fn default() -> Self {
-        info!("InferenceRouter: Initializing with default Ollama client.");
-        Self::new(Arc::new(OllamaClient::new(None, None)))
     }
 }

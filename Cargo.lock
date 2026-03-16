@@ -1765,6 +1765,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "config",
+ "dirs",
  "fred",
  "koad-proto",
  "rusqlite",

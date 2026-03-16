@@ -41,6 +41,10 @@ pub enum Commands {
         #[arg(short, long)]
         compact: bool,
 
+        /// Token budget for initial context hydration. [default: 4000]
+        #[arg(short, long, default_value_t = 4000)]
+        budget: u32,
+
         /// Force boot: take over an existing session for the same agent (Sovereign agents only).
         /// Use when a prior session is orphaned and cannot be cleanly logged out.
         #[arg(long)]
