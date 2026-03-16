@@ -30,7 +30,7 @@ impl InferenceRouter {
     }
 
     /// Create a new router with default clients (Local Ollama).
-    /// 
+    ///
     /// # Errors
     /// Returns an error if the default Ollama client cannot be built.
     pub fn new_default() -> Result<Self> {

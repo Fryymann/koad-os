@@ -104,13 +104,22 @@ pub async fn spawn_issue(
             if parts.len() == 2 {
                 (parts[0].to_string(), parts[1].to_string())
             } else {
-                (config.get_github_owner(None::<&str>), config.get_github_repo(None::<&str>))
+                (
+                    config.get_github_owner(None::<&str>),
+                    config.get_github_repo(None::<&str>),
+                )
             }
         } else {
-            (config.get_github_owner(None::<&str>), config.get_github_repo(None::<&str>))
+            (
+                config.get_github_owner(None::<&str>),
+                config.get_github_repo(None::<&str>),
+            )
         }
     } else {
-        (config.get_github_owner(None::<&str>), config.get_github_repo(None::<&str>))
+        (
+            config.get_github_owner(None::<&str>),
+            config.get_github_repo(None::<&str>),
+        )
     };
 
     let token = config.resolve_gh_token(project.as_ref().map(|s| s.as_str()), None)?;

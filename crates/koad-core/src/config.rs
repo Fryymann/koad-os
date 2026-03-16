@@ -179,7 +179,8 @@ impl KoadConfig {
             .add_source(config::Environment::with_prefix("KOAD").separator("__"))
             .build()?;
 
-        s.try_deserialize().context("Failed to deserialize KoadConfig")
+        s.try_deserialize()
+            .context("Failed to deserialize KoadConfig")
     }
 
     pub fn from_json(json: &str) -> Result<Self> {
@@ -221,7 +222,9 @@ impl KoadConfig {
                 }
             }
         }
-        self.integrations.github.as_ref()
+        self.integrations
+            .github
+            .as_ref()
             .map(|g| g.default_owner.clone())
             .unwrap_or_else(|| DEFAULT_GITHUB_OWNER.to_string())
     }
@@ -234,7 +237,9 @@ impl KoadConfig {
                 }
             }
         }
-        self.integrations.github.as_ref()
+        self.integrations
+            .github
+            .as_ref()
             .map(|g| g.default_repo.clone())
             .unwrap_or_else(|| DEFAULT_GITHUB_REPO.to_string())
     }

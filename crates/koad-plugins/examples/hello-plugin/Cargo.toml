@@ -1,0 +1,18 @@
+[package]
+name = "hello-plugin"
+version = "0.1.0"
+edition = "2021"
+
+# This crate is a standalone guest WASM binary — intentionally excluded from the
+# koad-os workspace so it can have its own lockfile and target directory.
+[workspace]
+
+# Compiled as a cdylib so Cargo produces a .wasm binary for the component model.
+# Build target: wasm32-unknown-unknown (no WASI — guest only uses the host `log` import)
+# Post-build: wasm-tools component new <out.wasm> -o <out.component.wasm>
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# wit-bindgen generates the guest-side component model glue from the WIT world.
+wit-bindgen = "0.35"

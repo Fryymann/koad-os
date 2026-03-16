@@ -21,10 +21,7 @@ pub struct BootOptions {
     pub role: String,
 }
 
-pub async fn handle_boot_command(
-    opts: BootOptions,
-    config: &KoadConfig,
-) -> Result<()> {
+pub async fn handle_boot_command(opts: BootOptions, config: &KoadConfig) -> Result<()> {
     let agent = opts.agent;
     let force = opts.force;
     let budget = opts.budget;
@@ -102,6 +99,7 @@ pub async fn handle_boot_command(
                 output_tokens: packet.estimated_tokens, // Reporting hydration cost as tokens_out
                 thinking_tokens: 0,
                 tool_calls: 0,
+                ..Default::default()
             }),
         })
         .await

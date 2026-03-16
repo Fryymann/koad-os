@@ -1,0 +1,19 @@
+    Checking koad-plugins v0.1.0 (/home/ideans/.koad-os/crates/koad-plugins)
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `koad`
+  --> crates/koad-plugins/src/lib.rs:18:6
+   |
+18 | impl koad::hooks::citadel_hooks::Host for MyHostState {
+   |      ^^^^ use of unresolved module or unlinked crate `koad`
+   |
+   = help: if you wanted to use a crate named `koad`, use `cargo add koad` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `koad`
+  --> crates/koad-plugins/src/lib.rs:42:9
+   |
+42 |         koad::hooks::citadel_hooks::add_to_linker(&mut linker, |state: &mut MyHostState| state)?;
+   |         ^^^^ use of unresolved module or unlinked crate `koad`
+   |
+   = help: if you wanted to use a crate named `koad`, use `cargo add koad` to add it to your `Cargo.toml`
+
+For more information about this error, try `rustc --explain E0433`.
+error: could not compile `koad-plugins` (lib) due to 2 previous errors
