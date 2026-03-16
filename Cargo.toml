@@ -10,7 +10,8 @@ members = [
     "crates/koad-cass",
     "crates/koad-intelligence",
     "crates/koad-sandbox",
-    "crates/koad-codegraph"
+    "crates/koad-codegraph",
+    "crates/koad-plugins"
 ]
 resolver = "2"
 

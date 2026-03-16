@@ -1,0 +1,11 @@
+[package]
+name = "koad-plugins"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+wasmtime = { version = "22.0", features = ["component-model", "async"] }
+async-trait = "0.1"
