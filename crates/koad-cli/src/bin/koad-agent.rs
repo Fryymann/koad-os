@@ -1,6 +1,8 @@
-//! KoadOS Agent Bootstrap Tool
+//! # KoadOS Agent Bootstrap Tool
 //!
-//! This binary provides the foundational "Ghost-Body Hydration" flow.
+//! Provides the foundational "Ghost-Body Hydration" flow for KoadOS agents.
+//! This tool coordinates with the Citadel for session leasing and CASS for 
+//! context hydration, ensuring a secure and informed boot process.
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -46,6 +48,10 @@ enum Commands {
     },
 }
 
+/// The main entry point for the agent bootstrap process.
+/// 
+/// # Errors
+/// Returns an error if the configuration cannot be loaded or if any hydration step fails.
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -181,7 +187,7 @@ async fn main() -> Result<()> {
 
                 // --- AI Anchor Generation ---
                 let mut anchor_content = format!(
-                    "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`eval $(koad-agent boot {})`\n",
+                    "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`eval $(koad-agent boot {})`\n\n## ⚡ Efficiency Policy: The 'No-Read' Rule\nTo minimize token burn, you are STRICTLY FORBIDDEN from reading entire source files unless they are under 50 lines. \n1. **Use your Context Packet:** Structural maps of relevant crates are provided in the CASS section below. Use them first.\n2. **Discovery:** Use `grep_search` to locate specific logic or patterns.\n3. **Targeted Reading:** Use `read_file` ONLY with `start_line` and `end_line` parameters for surgical extraction.\n",
                     timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, agent_key
                 );
 
@@ -279,4 +285,14 @@ fn verify_kapv(path: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vault_dirs_exist() {
+        // Placeholder for KAPV logic tests
+    }
 }

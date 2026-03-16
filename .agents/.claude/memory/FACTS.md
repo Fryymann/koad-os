@@ -110,6 +110,26 @@ Source: saveup_2026-03-15_130000.
 
 ---
 
+## Phase 4 / WASM / Container
+
+**F-18 — wasmtime 22.x `Component::from_file` re-compiles on every call.**
+No caching of compiled `Component` objects. Each `run_plugin` invocation re-parses and JIT-compiles the WASM binary (~50–200ms). Future optimization: cache `Arc<Component>` in `PluginRegistry` keyed by path.
+Source: KSRP Pass 6, saveup 2026-03-15 Phase 4.
+
+**F-19 — `tokio::process::Command::output()` does NOT kill the child on drop.**
+When `tokio::time::timeout` fires and the future is dropped, the child process continues running. To kill: `Command::spawn()` with `kill_on_drop(true)` or explicit `child.kill()` in the error arm.
+Source: KSRP Pass 2/5, saveup 2026-03-15 Phase 4.
+
+**F-20 — ContainerSandbox timeout → named container provides cleanup handle.**
+`ContainerSandbox` assigns a UUID name before launch (`koad-sandbox-{uuid}`). On timeout, `docker stop <name>` can reclaim the orphaned container. Cleanup not implemented in Phase 4 — deferred to Phase 5 hardening.
+Source: KSRP Pass 5, saveup 2026-03-15 Phase 4.
+
+**F-21 — RUST_CANON Ⅳ/Ⅴ gaps in Phase 4 crates (`koad-plugins`, `koad-sandbox`).**
+`#[instrument(skip(self))]` missing on all public async fns. `#![warn(missing_docs)]` absent from both lib.rs files. `# Errors` doc sections absent from `Result`-returning public fns.
+Source: KSRP RUST_CANON Compliance Pass, saveup 2026-03-15 Phase 4.
+
+---
+
 ## Session Status (as of 2026-03-15 EOD)
 
 - nightly: `32eceb1` (post-merge of #178 + gitignore/memory fix `83f92c0`)

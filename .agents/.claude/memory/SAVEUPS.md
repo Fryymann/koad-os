@@ -13,6 +13,14 @@
 
 ---
 
+## [2026-03-15] — Issue #173: Phase 4 — WASM Plugin Host, PluginRegistry, ContainerSandbox — PR #185
+
+- **Fact:** Fixed 3 wasmtime 22.x `bindgen!` bugs in `koad-plugins` (wrong trait name `Host` → `CitadelHooksImports`, wrong linker fn, wrong async impl pattern). Added `hello-plugin` WASM guest built for `wasm32-unknown-unknown` (no WASI adapter). Added `PluginRegistry` (thread-safe in-memory, `tokio::sync::RwLock`). Added `ContainerSandbox` via `docker run`/`podman run` subprocess (avoids bollard rustc 1.93.1 ICE). Extended `TurnMetrics` proto with `execution_duration_ms` (field 5) and `execution_memory_bytes` (field 6). Fixed pre-existing sandbox test regression (stale mock KoadConfig JSON missing `system`/`network`/`storage` fields). All CI green: fmt ✓ clippy ✓ test 14/14 ✓. PR #185 open.
+- **Learn:** Tokio `Command::output()` does NOT kill the child on drop — `tokio::time::timeout` firing causes a container orphan. Fix: `kill_on_drop(true)` or explicit cleanup. `Component::from_file` in wasmtime re-JIT-compiles on every call — cache `Arc<Component>` for hot paths. `wasm32-unknown-unknown` + `wasm-tools component new` is the correct guest target when the guest has no WASI deps. `cargo expand` is the definitive oracle for wasmtime `bindgen!` generated API names.
+- **Ponder:** The gRPC wrapper for `PluginRegistry` is deferred to the next phase. The in-memory registry is ready, but the Phase 4 "via gRPC" criterion is technically half-satisfied. RUST_CANON Ⅳ (`#[instrument]`) and Ⅴ (`#![warn(missing_docs)]`, `# Errors`) gaps remain in the new Phase 4 crates — a canon compliance sweep issue should be filed before Phase 5 hardens the API surface.
+
+---
+
 ## [2026-03-15] — Issue #163: Diagnostic Harness (Signal Corps/Streams Testing) — MERGED PR #170
 - **Fact:** Completed 8-test harness for Signal Corps async messaging layer. Fixed silent production bug in `quota.rs` (fred v9 ZRange API). Wired orphaned `monitor.rs`. Resolved merge conflict after Phase 2 moved `SignalCorps` to `koad-core` — ported 3 stream tests to `koad-core/src/signal.rs` and used `xlen` directly instead of `StreamMonitor`. PR #170 merged into nightly.
 - **Learn:** When rebasing after a file-move conflict (`DU` status): `git rm <old>`, port tests to new crate, verify dev-deps in new `Cargo.toml`. Cross-crate rule: `koad-core` cannot import from `koad-citadel`. Fetch origin before final push to anticipate structural refactors landing from other PRs.

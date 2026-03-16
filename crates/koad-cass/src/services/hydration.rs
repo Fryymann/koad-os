@@ -1,7 +1,9 @@
-//! Hydration Service Implementation
+//! # Hydration Service Implementation
 //!
 //! Performs the Temporal Context Hydration (TCH) walk to bundle
 //! relevant facts and episodes for agent boot.
+//! This service integrates structural code maps and intelligent history 
+//! distillation into a single, high-density markdown packet.
 
 use koad_codegraph::CodeGraph;
 use koad_core::hierarchy::HierarchyManager;
@@ -42,6 +44,9 @@ impl CassHydrationService {
 #[tonic::async_trait]
 impl HydrationService for CassHydrationService {
     /// Bundles context for an agent based on their workspace level and token budget.
+    ///
+    /// # Errors
+    /// Returns a `tonic::Status` if storage queries or intelligence distillation fail.
     async fn hydrate(
         &self,
         request: Request<HydrationRequest>,
@@ -129,7 +134,7 @@ Date: {}
             }
             if let Some(parent) = temp_path.parent() {
                 temp_path = parent.to_path_buf();
-                if temp_path == Path::new("/") {
+                if current_path == Path::new("/") {
                     break;
                 }
             } else {
@@ -183,5 +188,36 @@ Date: {}
             estimated_tokens: tokens as u32,
             source_files,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::mock::MockStorage;
+
+    #[tokio::test]
+    async fn test_hydration_bundles_sections() -> anyhow::Result<()> {
+        let storage = Arc::new(MockStorage::new());
+        let config = koad_core::config::KoadConfig::load()?;
+        let hierarchy = Arc::new(HierarchyManager::new(config));
+        let codegraph = Arc::new(CodeGraph::new_with_memory()?);
+        let intelligence = Arc::new(InferenceRouter::new_default()?);
+
+        let service = CassHydrationService::new(storage, hierarchy, codegraph, intelligence);
+        
+        let request = Request::new(HydrationRequest {
+            agent_name: "test-agent".to_string(),
+            project_root: "/tmp".to_string(),
+            level: 0,
+            token_budget: 10000,
+            task_id: "".to_string(),
+        });
+
+        let response = service.hydrate(request).await?;
+        let packet = response.into_inner().markdown_packet;
+
+        assert!(packet.contains("# Temporal Context Hydration"));
+        Ok(())
     }
 }
