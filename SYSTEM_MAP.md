@@ -93,4 +93,5 @@
 - **If you need an agent's identity:** Look in `config/identities/`, not `personas/`.
 - **If you are implementing a service:** Start with the `.proto` in `proto/`, then check `crates/koad-proto/`.
 - **If you need to know the mission status:** Read `AGENTS.md` and `new_world/DRAFT_PLAN_3.md`.
+- **ROOT DOCUMENTATION:** Always use the root `/docs/` folder for canon protocols. Files found in `/.agents/.claude/worktrees/` are isolated clones and should be ignored for canonical discovery.
 - **If you find yourself in `legacy/`:** STOP. Verify why you are there. Do not copy logic.
