@@ -163,9 +163,8 @@ async fn main() -> Result<()> {
 
                 // --- [CASS TCH Hydration (Phase 2)] ---
                 let mut cass_packet = String::new();
-                // Assuming CASS is on port 50052
                 if let Ok(mut cass_client) =
-                    HydrationServiceClient::connect("http://127.0.0.1:50052").await
+                    HydrationServiceClient::connect(config.network.cass_grpc_addr.clone()).await
                 {
                     let hydration_req = tonic::Request::new(HydrationRequest {
                         agent_name: agent.clone(),

@@ -1,6 +1,6 @@
 //! Citadel Kernel
 //!
-//! The Kernel is the central orchestration engine of the Citadel, managing the lifecycle 
+//! The Kernel is the central orchestration engine of the Citadel, managing the lifecycle
 //! of gRPC services, background tasks (reapers, drain loops), and network listeners.
 
 use crate::auth::interceptor::build_citadel_interceptor;
@@ -98,7 +98,7 @@ impl KernelBuilder {
     /// Starts the Citadel kernel, initializing all services and listeners.
     ///
     /// # Errors
-    /// Returns an error if any required parameters are missing or if service 
+    /// Returns an error if any required parameters are missing or if service
     /// initialization fails.
     pub async fn start(self) -> anyhow::Result<Kernel> {
         let home_dir = self

@@ -53,32 +53,43 @@ Date: {}
         let mut source_files = Vec::new();
 
         // 1. Agent History (Episodes)
-        let episodes = self.storage.query_recent_episodes(agent, 3).await
+        let episodes = self
+            .storage
+            .query_recent_episodes(agent, 3)
+            .await
             .map_err(|e| Status::internal(e.to_string()))?;
-        
+
         if !episodes.is_empty() {
-            let mut ep_section = "## Ⅰ. Recent Agent History (End of Watch Summaries)\n".to_string();
+            let mut ep_section =
+                "## Ⅰ. Recent Agent History (End of Watch Summaries)\n".to_string();
             for ep in episodes {
-                ep_section.push_str(&format!("- **Session {}** (Project: {}):\n  {}\n\n", 
-                    ep.session_id, ep.project_path, ep.summary));
+                ep_section.push_str(&format!(
+                    "- **Session {}** (Project: {}):\n  {}\n\n",
+                    ep.session_id, ep.project_path, ep.summary
+                ));
             }
-            
+
             if count_tokens(&packet) + count_tokens(&ep_section) < budget {
                 packet.push_str(&ep_section);
             }
         }
 
         // 2. High-Signal Facts
-        let facts = self.storage.query_agent_facts(agent, 10).await
+        let facts = self
+            .storage
+            .query_agent_facts(agent, 10)
+            .await
             .map_err(|e| Status::internal(e.to_string()))?;
-        
+
         if !facts.is_empty() {
             let mut fact_section = "## Ⅱ. Active Fact Cards\n".to_string();
             for fact in facts {
-                fact_section.push_str(&format!("- [{}] (Conf: {:.2}): {}\n", 
-                    fact.domain, fact.confidence, fact.content));
+                fact_section.push_str(&format!(
+                    "- [{}] (Conf: {:.2}): {}\n",
+                    fact.domain, fact.confidence, fact.content
+                ));
             }
-            
+
             if count_tokens(&packet) + count_tokens(&fact_section) < budget {
                 packet.push_str(&fact_section);
             }
@@ -105,11 +116,7 @@ Date: {}
             packet.push_str("## Ⅲ. Workspace Hierarchy\n");
             for layer in layers.iter().rev() {
                 let level = self.hierarchy.resolve_level(layer);
-                let layer_info = format!(
-                    "### Level: {:?}\nPath: {}\n\n",
-                    level,
-                    layer.display()
-                );
+                let layer_info = format!("### Level: {:?}\nPath: {}\n\n", level, layer.display());
                 if count_tokens(&packet) + count_tokens(&layer_info) < budget {
                     packet.push_str(&layer_info);
                     source_files.push(layer.to_string_lossy().to_string());

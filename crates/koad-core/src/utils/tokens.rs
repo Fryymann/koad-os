@@ -2,8 +2,13 @@
 
 use tiktoken_rs::cl100k_base;
 
-/// Estimates the token count of a string using the cl100k_base encoder (Gemma/GPT-4 compatible).
+/// Counts the approximate number of tokens in a string using cl100k_base.
+/// Falls back to a character-based estimation (len / 4) if the tokenizer fails.
 pub fn count_tokens(text: &str) -> usize {
-    let bpe = cl100k_base().unwrap();
-    bpe.encode_with_special_tokens(text).len()
+    if let Ok(bpe) = cl100k_base() {
+        bpe.encode_with_special_tokens(text).len()
+    } else {
+        // Fallback: ~4 chars per token
+        text.len() / 4
+    }
 }

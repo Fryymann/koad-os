@@ -18,7 +18,12 @@ impl Storage for MockStorage {
         Ok(())
     }
 
-    async fn query_facts(&self, domain: &str, _tags: &[String], limit: u32) -> Result<Vec<FactCard>> {
+    async fn query_facts(
+        &self,
+        domain: &str,
+        _tags: &[String],
+        limit: u32,
+    ) -> Result<Vec<FactCard>> {
         let facts = self.facts.lock().unwrap();
         let result: Vec<FactCard> = facts
             .iter()
@@ -46,7 +51,11 @@ impl Storage for MockStorage {
         Ok(())
     }
 
-    async fn query_recent_episodes(&self, _agent_name: &str, limit: u32) -> Result<Vec<EpisodicMemory>> {
+    async fn query_recent_episodes(
+        &self,
+        _agent_name: &str,
+        limit: u32,
+    ) -> Result<Vec<EpisodicMemory>> {
         let episodes = self.episodes.lock().unwrap();
         let result: Vec<EpisodicMemory> = episodes
             .iter()

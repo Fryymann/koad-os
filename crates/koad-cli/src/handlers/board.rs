@@ -12,17 +12,16 @@ pub async fn handle_board(action: BoardAction, config: &KoadConfig) -> Result<()
     let project = project_ctx.as_ref().map(|(_, p)| p);
 
     // 2. Resolve GitHub credentials and metadata
-    let token = config.resolve_gh_token(project, None)?;
-    let owner = config.get_github_owner(project);
-    let repo = config.get_github_repo(project);
-    let project_num = project.and_then(|p| p.default_project).unwrap_or_else(|| {
-        config
-            .integrations
-            .github
-            .as_ref()
-            .map(|g| g.default_project_number)
-            .unwrap_or(2)
-    }) as i32;
+    let project = project.as_ref();
+    let token = config.resolve_gh_token(project.map(|s| s.as_str()), None)?;
+    let owner = config.get_github_owner(project.map(|s| s.as_str()));
+    let repo = config.get_github_repo(project.map(|s| s.as_str()));
+    let project_num = config
+        .integrations
+        .github
+        .as_ref()
+        .map(|g| g.default_project_number)
+        .unwrap_or(2) as i32;
 
     let client = GitHubClient::new(token, owner, repo)?;
 

@@ -11,10 +11,15 @@ use tokio::sync::Mutex;
 #[async_trait]
 pub trait Storage: Send + Sync {
     async fn commit_fact(&self, fact: FactCard) -> Result<()>;
-    async fn query_facts(&self, domain: &str, tags: &[String], limit: u32) -> Result<Vec<FactCard>>;
+    async fn query_facts(&self, domain: &str, tags: &[String], limit: u32)
+        -> Result<Vec<FactCard>>;
     async fn query_agent_facts(&self, agent_name: &str, limit: u32) -> Result<Vec<FactCard>>;
     async fn record_episode(&self, episode: EpisodicMemory) -> Result<()>;
-    async fn query_recent_episodes(&self, agent_name: &str, limit: u32) -> Result<Vec<EpisodicMemory>>;
+    async fn query_recent_episodes(
+        &self,
+        agent_name: &str,
+        limit: u32,
+    ) -> Result<Vec<EpisodicMemory>>;
 }
 
 pub struct CassStorage {
@@ -107,7 +112,11 @@ impl Storage for CassStorage {
         Ok(())
     }
 
-    async fn query_recent_episodes(&self, _agent_name: &str, limit: u32) -> Result<Vec<EpisodicMemory>> {
+    async fn query_recent_episodes(
+        &self,
+        _agent_name: &str,
+        limit: u32,
+    ) -> Result<Vec<EpisodicMemory>> {
         let conn = self.conn.lock().await;
         let mut stmt = conn.prepare("SELECT session_id, project_path, summary, turn_count, timestamp, task_ids FROM episodic_memories ORDER BY timestamp DESC LIMIT ?1")?;
         let rows = stmt.query_map(params![limit], |row| {

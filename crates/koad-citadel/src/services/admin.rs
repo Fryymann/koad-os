@@ -116,7 +116,7 @@ mod tests {
 
         let req = Request::new(SystemStatusRequest { context: None });
         let res = service.get_system_status(req).await?;
-        
+
         let status = res.into_inner();
         assert_eq!(status.version, "3.2.0");
         assert!(!status.uptime.is_empty());
