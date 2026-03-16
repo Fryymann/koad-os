@@ -141,6 +141,7 @@ async fn main() -> Result<()> {
                         force: true,
                         body_id: cache_hash.to_string(),
                         driver_id: "cli".to_string(),
+                        metrics: None,
                     });
 
                     if let Ok(response) = client.create_lease(request).await {

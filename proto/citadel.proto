@@ -119,6 +119,7 @@ message LeaseRequest {
   bool force = 4;             // Take over existing lease if true
   string body_id = 5;         // Unique terminal/shell identifier
   string driver_id = 6;       // CLI driver: "claude" | "gemini" | "codex" | "cli"
+  TurnMetrics metrics = 7;    // Optional: Boot-time metrics (e.g. hydration cost)
 }
 
 message LeaseResponse {

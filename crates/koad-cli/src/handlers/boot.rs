@@ -1,11 +1,10 @@
-use crate::utils::get_gh_pat_for_path;
 use anyhow::{Context, Result};
 use fred::interfaces::HashesInterface;
 use koad_core::config::KoadConfig;
 use koad_core::utils::redis::RedisClient;
 use koad_core::hierarchy::HierarchyManager;
 use koad_proto::citadel::v5::citadel_session_client::CitadelSessionClient;
-use koad_proto::citadel::v5::{LeaseRequest, CloseRequest};
+use koad_proto::citadel::v5::{LeaseRequest, CloseRequest, TurnMetrics};
 use koad_proto::cass::v1::hydration_service_client::HydrationServiceClient;
 use koad_proto::cass::v1::HydrationRequest;
 use std::env;
@@ -39,7 +38,6 @@ pub async fn handle_boot_command(
     }
 
     let current_dir = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let (_gh_pat, _) = get_gh_pat_for_path(&current_dir, &role, config);
     let body_id = env::var("KOAD_BODY_ID").unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
 
     // 1. Resolve Level
@@ -50,24 +48,8 @@ pub async fn handle_boot_command(
         0 // Level Unspecified
     };
 
-    // 2. Citadel Handshake (Lease)
-    let mut citadel = CitadelSessionClient::connect(config.network.spine_grpc_addr.clone())
-        .await
-        .context("Failed to connect to Citadel.")?;
-
-    let lease_resp = citadel.create_lease(LeaseRequest {
-        context: None,
-        agent_name: agent.clone(),
-        project_root: current_dir.to_string_lossy().to_string(),
-        force,
-        body_id: body_id.clone(),
-        driver_id: "gemini-cli".to_string(), // Default
-    }).await.map_err(|e| anyhow::anyhow!("Lease Denied: {}", e.message()))?;
-
-    let lease = lease_resp.into_inner();
-    let session_id = lease.session_id;
-
-    // 3. CASS Hydration (Ghost Summary)
+    // 2. Pre-boot Hydration (CASS)
+    // We do this BEFORE the lease so we can report the token cost in the CreateLease call.
     let mut cass = HydrationServiceClient::connect("http://127.0.0.1:50052")
         .await
         .context("Failed to connect to CASS Hydration service.")?;
@@ -83,6 +65,29 @@ pub async fn handle_boot_command(
     let context_file = config.home.join("current_context.md");
     let mut f = std::fs::File::create(&context_file)?;
     f.write_all(packet.markdown_packet.as_bytes())?;
+
+    // 3. Citadel Handshake (Lease + Telemetry)
+    let mut citadel = CitadelSessionClient::connect(config.network.spine_grpc_addr.clone())
+        .await
+        .context("Failed to connect to Citadel.")?;
+
+    let lease_resp = citadel.create_lease(LeaseRequest {
+        context: None,
+        agent_name: agent.clone(),
+        project_root: current_dir.to_string_lossy().to_string(),
+        force,
+        body_id: body_id.clone(),
+        driver_id: "gemini-cli".to_string(),
+        metrics: Some(TurnMetrics {
+            input_tokens: 0,
+            output_tokens: packet.estimated_tokens, // Reporting hydration cost as tokens_out
+            thinking_tokens: 0,
+            tool_calls: 0,
+        }),
+    }).await.map_err(|e| anyhow::anyhow!("Lease Denied: {}", e.message()))?;
+
+    let lease = lease_resp.into_inner();
+    let session_id = lease.session_id;
 
     // 4. Environment Export (The Link)
     if compact {

@@ -241,6 +241,13 @@ impl CitadelSession for CitadelSessionService {
 
         info!(agent = %agent_name, session_id = %session_id, level = ?resolved_level, "CreateLease: Lease granted");
 
+        if let Some(metrics) = req.metrics {
+            info!(
+                "Telemetry [BOOT]: agent={}, tokens_out={}, reason='hydration'",
+                agent_name, metrics.output_tokens
+            );
+        }
+
         Ok(Response::new(LeaseResponse {
             session_id,
             token,
