@@ -21,10 +21,7 @@ pub struct BootOptions {
     pub role: String,
 }
 
-pub async fn handle_boot_command(
-    opts: BootOptions,
-    config: &KoadConfig,
-) -> Result<()> {
+pub async fn handle_boot_command(opts: BootOptions, config: &KoadConfig) -> Result<()> {
     let agent = opts.agent;
     let force = opts.force;
     let budget = opts.budget;

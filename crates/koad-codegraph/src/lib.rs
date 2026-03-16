@@ -103,7 +103,10 @@ impl CodeGraph {
         let mut cursor = QueryCursor::new();
         let matches = cursor.matches(&query, tree.root_node(), content.as_bytes());
 
-        let conn = self.db.lock().map_err(|_| anyhow::anyhow!("DB lock poisoned"))?;
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| anyhow::anyhow!("DB lock poisoned"))?;
         let rel_path = path.to_string_lossy().to_string();
 
         for m in matches {
@@ -134,7 +137,10 @@ impl CodeGraph {
 
     /// Query the graph for a symbol by name.
     pub fn query_symbol(&self, name: &str) -> Result<Vec<Symbol>> {
-        let conn = self.db.lock().map_err(|_| anyhow::anyhow!("DB lock poisoned"))?;
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| anyhow::anyhow!("DB lock poisoned"))?;
         let mut stmt = conn.prepare(
             "SELECT name, kind, path, start_line, end_line FROM symbols WHERE name = ?1",
         )?;

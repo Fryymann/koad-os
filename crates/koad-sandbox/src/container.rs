@@ -53,7 +53,9 @@ pub struct SandboxResult {
 pub struct ContainerConfig {
     /// Docker/Podman image to use (e.g. `"alpine:3.19"`).
     pub image: String,
-    /// Container runtime binary: `"docker"` or `"podman"`.
+    /// Container runtime binary.  **Must be `"docker"` or `"podman"`** — any
+    /// other value is rejected at execution time.  Never accept this field from
+    /// untrusted input.
     pub runtime: String,
     /// Memory limit (e.g. `"64m"`).  Empty string = no limit.
     pub memory_limit: String,
@@ -82,6 +84,7 @@ impl Default for ContainerConfig {
 }
 
 /// Executes agent commands in an isolated Docker/Podman container.
+#[derive(Clone)]
 pub struct ContainerSandbox {
     // `config` is consumed only in the `container` feature impl block.
     #[cfg_attr(not(feature = "container"), allow(dead_code))]
@@ -100,7 +103,28 @@ impl ContainerSandbox {
 
     /// Execute `command` (via `sh -c`) inside an isolated container.
     ///
+    /// `command` is passed as the argument to `sh -c`, so **shell expansion is
+    /// active**: semicolons, pipes, `$(...)`, and other shell metacharacters are
+    /// interpreted by the shell inside the container.  This is intentional —
+    /// agents may need pipelines — but callers expecting raw-exec semantics
+    /// must be aware that the command is a shell script fragment, not a literal
+    /// executable path.
+    ///
+    /// Stdout and stderr are captured as **lossy UTF-8**: non-UTF-8 byte
+    /// sequences are silently replaced with `U+FFFD`.  Commands that emit
+    /// binary output should base64-encode their results inside the container.
+    ///
     /// Returns [`SandboxResult`] with stdout, stderr, exit code, and timing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The `container` cargo feature is not enabled.
+    /// - [`ContainerConfig::runtime`] is not `"docker"` or `"podman"`.
+    /// - A [`read_only_mounts`][ContainerConfig::read_only_mounts] path
+    ///   contains a colon (`:`), which would corrupt the Docker volume spec.
+    /// - The runtime binary cannot be spawned (not in `$PATH`, daemon down).
+    /// - The execution exceeds [`ContainerConfig::timeout`].
     ///
     /// Requires the `container` cargo feature and `docker` or `podman` in `$PATH`.
     pub async fn execute(&self, command: &str) -> Result<SandboxResult> {
@@ -122,6 +146,15 @@ impl ContainerSandbox {
 impl ContainerSandbox {
     async fn run_subprocess(&self, command: &str) -> Result<SandboxResult> {
         use tokio::process::Command;
+
+        // Guard: only allow known-safe runtimes.
+        const ALLOWED_RUNTIMES: &[&str] = &["docker", "podman"];
+        if !ALLOWED_RUNTIMES.contains(&self.config.runtime.as_str()) {
+            bail!(
+                "ContainerSandbox: runtime must be 'docker' or 'podman', got '{}'",
+                self.config.runtime
+            );
+        }
 
         let container_name = format!("koad-sandbox-{}", Uuid::new_v4());
 
@@ -155,8 +188,18 @@ impl ContainerSandbox {
             args.push(self.config.cpu_limit.clone());
         }
 
-        // Read-only bind mounts
+        // Read-only bind mounts.
+        // Docker's volume spec uses ':' as a delimiter; a colon in either path
+        // would silently corrupt the spec, so we reject it eagerly.
         for (host, container) in &self.config.read_only_mounts {
+            if host.contains(':') || container.contains(':') {
+                bail!(
+                    "ContainerSandbox: mount paths must not contain ':': \
+                     host={:?}, container={:?}",
+                    host,
+                    container
+                );
+            }
             args.push("-v".to_string());
             args.push(format!("{}:{}:ro", host, container));
         }
@@ -227,6 +270,34 @@ mod tests {
         assert_eq!(r.duration_ms, 0);
     }
 
+    #[cfg(feature = "container")]
+    #[tokio::test]
+    async fn test_invalid_runtime_returns_error() {
+        let cfg = ContainerConfig {
+            runtime: "bash".to_string(),
+            ..ContainerConfig::default()
+        };
+        let err = ContainerSandbox::new(cfg)
+            .execute("echo hi")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("runtime must be"));
+    }
+
+    #[cfg(feature = "container")]
+    #[tokio::test]
+    async fn test_mount_path_with_colon_returns_error() {
+        let cfg = ContainerConfig {
+            read_only_mounts: vec![("/valid/path".to_string(), "/con:tainer".to_string())],
+            ..ContainerConfig::default()
+        };
+        let err = ContainerSandbox::new(cfg)
+            .execute("echo hi")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("must not contain ':'"));
+    }
+
     /// Docker integration test — skipped unless `KOAD_TEST_DOCKER=1`.
     ///
     /// Run manually:
@@ -246,6 +317,56 @@ mod tests {
         assert_eq!(result.exit_code, 0);
         assert!(result.stdout.contains("hello-sandbox"));
         assert!(result.duration_ms > 0);
+    }
+
+    /// Verifies network isolation: a network-dependent command must fail.
+    ///
+    /// Run manually:
+    ///   KOAD_TEST_DOCKER=1 cargo test -p koad-sandbox --features container \
+    ///     -- container::tests::test_container_network_isolation
+    #[cfg(feature = "container")]
+    #[tokio::test]
+    async fn test_container_network_isolation() {
+        if std::env::var("KOAD_TEST_DOCKER").unwrap_or_default() != "1" {
+            eprintln!("SKIP: set KOAD_TEST_DOCKER=1 to run Docker integration tests");
+            return;
+        }
+        // `ping` requires a network interface; with --network none it must fail.
+        let result = ContainerSandbox::secure()
+            .execute("ping -c 1 8.8.8.8 2>&1; echo exit:$?")
+            .await
+            .expect("container should run");
+        // Either ping fails (non-zero exit) or the word "Network" appears in output.
+        let combined = format!("{}{}", result.stdout, result.stderr);
+        let network_blocked = result.exit_code != 0 || combined.contains("Network");
+        assert!(
+            network_blocked,
+            "network should be unreachable inside the sandbox"
+        );
+    }
+
+    /// Verifies filesystem isolation: writing outside /tmp must fail.
+    ///
+    /// Run manually:
+    ///   KOAD_TEST_DOCKER=1 cargo test -p koad-sandbox --features container \
+    ///     -- container::tests::test_container_filesystem_isolation
+    #[cfg(feature = "container")]
+    #[tokio::test]
+    async fn test_container_filesystem_isolation() {
+        if std::env::var("KOAD_TEST_DOCKER").unwrap_or_default() != "1" {
+            eprintln!("SKIP: set KOAD_TEST_DOCKER=1 to run Docker integration tests");
+            return;
+        }
+        // Writing to the root filesystem must fail because --read-only is set.
+        let result = ContainerSandbox::secure()
+            .execute("echo test > /koad-isolation-probe && echo WROTE || echo BLOCKED")
+            .await
+            .expect("container should run");
+        assert!(
+            result.stdout.contains("BLOCKED"),
+            "write outside /tmp should be denied by --read-only; stdout: {}",
+            result.stdout
+        );
     }
 
     #[cfg(not(feature = "container"))]

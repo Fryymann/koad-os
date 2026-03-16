@@ -42,6 +42,11 @@ struct PluginEntry {
 
 /// Thread-safe, in-memory registry of named WASM plugins.
 ///
+/// `PluginRegistry` is cheaply `Clone`able — the underlying engine and entry
+/// map are both `Arc`-wrapped, so cloning only increments reference counts.
+/// This makes it straightforward to pass to a gRPC service handler without
+/// an additional `Arc` wrapper.
+///
 /// # Example
 /// ```rust,no_run
 /// # use koad_plugins::registry::PluginRegistry;
@@ -55,6 +60,7 @@ struct PluginEntry {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Clone)]
 pub struct PluginRegistry {
     manager: Arc<WasmPluginManager>,
     entries: Arc<RwLock<HashMap<String, PluginEntry>>>,
@@ -140,7 +146,35 @@ mod tests {
             .register("hello", PathBuf::from("dummy.wasm"))
             .await;
         let names = registry.list().await;
-        assert_eq!(names, vec!["hello"]);
+        // Use contains rather than eq: HashMap iteration is non-deterministic.
+        assert_eq!(names.len(), 1);
+        assert!(names.contains(&"hello".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_registry_register_overwrite() {
+        // Re-registering the same name replaces the previous path.
+        let registry = PluginRegistry::new().expect("registry init");
+        registry
+            .register("hello", PathBuf::from("first.wasm"))
+            .await;
+        registry
+            .register("hello", PathBuf::from("second.wasm"))
+            .await;
+        // Name count must still be 1 — no duplicate entry.
+        assert_eq!(registry.list().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_registry_clone_shares_state() {
+        // Cloning the registry gives a handle to the same underlying map.
+        let registry = PluginRegistry::new().expect("registry init");
+        let clone = registry.clone();
+        registry
+            .register("hello", PathBuf::from("dummy.wasm"))
+            .await;
+        // The clone must see the registration made through the original.
+        assert!(clone.list().await.contains(&"hello".to_string()));
     }
 
     #[tokio::test]
