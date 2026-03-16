@@ -75,6 +75,7 @@ pub async fn handle_boot_command(
             project_root: current_dir.to_string_lossy().to_string(),
             level,
             token_budget: budget,
+            task_id: opts.task.unwrap_or_default(),
         })
         .await?;
 

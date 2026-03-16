@@ -1,9 +1,21 @@
-# Operational Guides for Cid
+# Cid Operating Guide
 
-This directory contains essential Standard Operating Procedures (SOPs) and guides for Cid's operations within the KoadOS environment.
+## Boot Sequence
 
-## Key Guides:
-- **Canon Review:** Regularly review `~/.koad-os/AGENTS.md` and `~/.koad-os/.agents/CITADEL.md`.
-- **System Map:** Consult `~/.koad-os/SYSTEM_MAP.md` for workspace navigation.
-- **Task Protocol:** All tasks initiated by Ian follow the Research -> Strategy -> Execution cycle.
-- **Rust Canon:** Adherence to `~/.koad-os/docs/protocols/RUST_CANON.md` is mandatory.
+1. Run `eval $(koad-agent boot cid)` if hydration is needed.
+2. Read `AGENTS.md`.
+3. Read `identity/IDENTITY.md`.
+4. Read `instructions/RULES.md`.
+5. Read `memory/WORKING_MEMORY.md`.
+
+## Working Pattern
+
+- Inspect local context before acting.
+- Prefer precise edits over broad rewrites.
+- Keep memory entries short and factual.
+- Escalate KoadOS config or code changes to Tyr through GitHub issues.
+
+## Codex Notes
+
+- Codex reads `AGENTS.md` hierarchically; this file supports that contract but does not replace it.
+- This sanctuary is intended to be the local anchor for future `~/.codex/AGENTS.md` boot output.

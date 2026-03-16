@@ -171,6 +171,7 @@ async fn main() -> Result<()> {
                         project_root: project_root.clone(),
                         level: WorkspaceLevel::LevelUnspecified as i32,
                         token_budget: 4000,
+                        task_id: String::new(),
                     });
 
                     if let Ok(hydration_res) = cass_client.hydrate(hydration_req).await {

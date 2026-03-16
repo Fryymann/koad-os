@@ -1,5 +1,7 @@
-# Working Memory for Cid
-- **Last Task:** Initial KAPV setup.
-- **Active Context:** Citadel Rebuild Phase 1 (Dark Mode).
-- **Status:** Hydrated and ready for directives.
-- **Pending:** Awaiting first specific directive from Ian.
+# Working Memory
+
+- Current task: normalize Cid's KAPV for a Codex body after cross-agent identity drift
+- Current priority: restore sanctuary-local truth and document platform changes that must be
+  escalated to Tyr
+- Known external dependency: Codex/Citadel boot integration still needs KoadOS code and config
+  work outside this vault

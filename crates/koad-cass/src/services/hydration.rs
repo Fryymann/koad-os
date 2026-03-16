@@ -3,8 +3,10 @@
 //! Performs the Temporal Context Hydration (TCH) walk to bundle
 //! relevant facts and episodes for agent boot.
 
+use koad_codegraph::CodeGraph;
 use koad_core::hierarchy::HierarchyManager;
 use koad_core::utils::tokens::count_tokens;
+use koad_intelligence::router::InferenceRouter;
 use koad_proto::cass::v1::hydration_service_server::HydrationService;
 use koad_proto::cass::v1::{HydrationRequest, HydrationResponse};
 use std::path::{Path, PathBuf};
@@ -16,6 +18,8 @@ use tracing::info;
 pub struct CassHydrationService {
     storage: Arc<dyn crate::storage::Storage>,
     hierarchy: Arc<HierarchyManager>,
+    codegraph: Arc<CodeGraph>,
+    intelligence: Arc<InferenceRouter>,
 }
 
 impl CassHydrationService {
@@ -23,8 +27,15 @@ impl CassHydrationService {
     pub fn new(
         storage: Arc<dyn crate::storage::Storage>,
         hierarchy: Arc<HierarchyManager>,
+        codegraph: Arc<CodeGraph>,
+        intelligence: Arc<InferenceRouter>,
     ) -> Self {
-        Self { storage, hierarchy }
+        Self {
+            storage,
+            hierarchy,
+            codegraph,
+            intelligence,
+        }
     }
 }
 
@@ -36,11 +47,12 @@ impl HydrationService for CassHydrationService {
         request: Request<HydrationRequest>,
     ) -> Result<Response<HydrationResponse>, Status> {
         let req = request.into_inner();
-        let mut current_path = PathBuf::from(&req.project_root);
+        let current_path = PathBuf::from(&req.project_root);
         let budget = req.token_budget as usize;
         let agent = &req.agent_name;
+        let task_id = if req.task_id.is_empty() { None } else { Some(req.task_id.as_str()) };
 
-        info!(agent = %agent, path = %req.project_root, budget = %budget, "TCH: Hydration requested");
+        info!(agent = %agent, path = %req.project_root, budget = %budget, task = ?task_id, "TCH: Hydration requested");
 
         let mut packet = format!(
             "# Temporal Context Hydration: {}
@@ -52,32 +64,44 @@ Date: {}
         );
         let mut source_files = Vec::new();
 
-        // 1. Agent History (Episodes)
+        // 1. Agent History Distillation (Upgrade 2 + 3)
         let episodes = self
             .storage
-            .query_recent_episodes(agent, 3)
+            .query_recent_episodes(agent, 5, task_id)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
         if !episodes.is_empty() {
-            let mut ep_section =
-                "## Ⅰ. Recent Agent History (End of Watch Summaries)\n".to_string();
-            for ep in episodes {
-                ep_section.push_str(&format!(
-                    "- **Session {}** (Project: {}):\n  {}\n\n",
-                    ep.session_id, ep.project_path, ep.summary
-                ));
+            let mut raw_history = String::new();
+            for ep in &episodes {
+                raw_history.push_str(&format!("Session {}: {}\n", ep.session_id, ep.summary));
             }
+
+            // Distill history into a State of the Union paragraph
+            let prompt = format!(
+                "Synthesize the following recent agent session reports into a single, high-density paragraph \
+                 describing the current 'State of the Union' for the project. Focus on completed work, \
+                 active blockers, and next steps. Reports:\n\n{}", 
+                raw_history
+            );
+
+            let distilled = self.intelligence.summarize(&prompt).await
+                .unwrap_or_else(|_| "History distillation failed. Review raw episodes.".to_string());
+
+            let ep_section = format!(
+                "## Ⅰ. State of the Union (Distilled History)\n{}\n\n",
+                distilled
+            );
 
             if count_tokens(&packet) + count_tokens(&ep_section) < budget {
                 packet.push_str(&ep_section);
             }
         }
 
-        // 2. High-Signal Facts
+        // 2. High-Signal Facts (Upgrade 3)
         let facts = self
             .storage
-            .query_agent_facts(agent, 10)
+            .query_agent_facts(agent, 10, task_id)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -97,14 +121,15 @@ Date: {}
 
         // 3. Hierarchy Walk (Layers)
         let mut layers = Vec::new();
+        let mut temp_path = current_path.clone();
         for _ in 0..5 {
-            let agents_dir = current_path.join(".agents");
+            let agents_dir = temp_path.join(".agents");
             if agents_dir.is_dir() {
-                layers.push(agents_dir);
+                layers.push(temp_path.clone());
             }
-            if let Some(parent) = current_path.parent() {
-                current_path = parent.to_path_buf();
-                if current_path == Path::new("/") {
+            if let Some(parent) = temp_path.parent() {
+                temp_path = parent.to_path_buf();
+                if temp_path == Path::new("/") {
                     break;
                 }
             } else {
@@ -124,6 +149,32 @@ Date: {}
                     break;
                 }
             }
+        }
+
+        // 4. Ghost API Summaries (Upgrade 1)
+        let mut api_section = "## Ⅳ. Crate API Maps (Ghost Summaries)\n".to_string();
+        api_section.push_str("The following public items are available in your current workspace members. Use these to find symbols without reading files.\n");
+
+        // We'll summarize the current crate and core
+        let crate_list = vec![
+            current_path.to_string_lossy().to_string(),
+            current_path.join("crates/koad-core").to_string_lossy().to_string(),
+        ];
+
+        for c_path in crate_list {
+            if let Ok(summary) = self.codegraph.get_crate_summary(&c_path) {
+                if !summary.is_empty() {
+                    let c_name = Path::new(&c_path).file_name().and_then(|s| s.to_str()).unwrap_or("unknown");
+                    let block = format!("\n### Crate: {}\n{}\n", c_name, summary);
+                    if count_tokens(&packet) + count_tokens(&api_section) + count_tokens(&block) < budget {
+                        api_section.push_str(&block);
+                    }
+                }
+            }
+        }
+
+        if api_section.len() > 150 { // Only add if we actually found something
+            packet.push_str(&api_section);
         }
 
         let tokens = count_tokens(&packet);
