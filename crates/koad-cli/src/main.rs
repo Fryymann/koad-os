@@ -15,7 +15,7 @@ use koad_core::utils::redis::RedisClient;
 use std::env;
 use std::path::PathBuf;
 
-use crate::cli::{AsmAction, Cli, Commands, SystemAction, WatchdogAction};
+use crate::cli::{Cli, Commands, SystemAction, XpCommands};
 use crate::db::KoadDB;
 use crate::handlers::boot::handle_boot_command;
 use crate::handlers::bridge::handle_bridge_action;
@@ -23,50 +23,9 @@ use crate::handlers::fleet::handle_fleet_action;
 use crate::handlers::intel::handle_intel_action;
 use crate::handlers::status::handle_status_command;
 use crate::handlers::system::handle_system_action;
+use crate::handlers::xp::handle_xp_command;
 use crate::utils::{detect_model_tier, feature_gate, pre_flight, PreFlightStatus};
 use std::collections::HashMap;
-
-async fn handle_asm_action(action: AsmAction, config: &KoadConfig) -> Result<()> {
-    match action {
-        AsmAction::Status => {
-            let redis_client = RedisClient::new(&config.home.to_string_lossy(), false).await?;
-            let sessions: HashMap<String, String> = redis_client.pool.hgetall("koad:state").await?;
-
-            let mut active_count = 0;
-            let mut dark_count = 0;
-
-            println!("\n\x1b[1m--- Agent Session Manager (ASM) Status ---\x1b[0m");
-            for (key, val) in sessions {
-                if key.starts_with("koad:session:") {
-                    if let Ok(session) =
-                        serde_json::from_str::<koad_core::session::AgentSession>(&val)
-                    {
-                        if session.status == "active" {
-                            active_count += 1;
-                        } else if session.status == "dark" {
-                            dark_count += 1;
-                        }
-                    }
-                }
-            }
-
-            println!("Active Sessions: {}", active_count);
-            println!("Dark Sessions:   {}", dark_count);
-            println!("Total Tracked:   {}", active_count + dark_count);
-            println!("\nIntegrated Reaper: \x1b[32mACTIVE\x1b[0m (via Spine)");
-        }
-        AsmAction::Prune => {
-            println!(">>> Triggering manual session prune cycle...");
-            let _client = koad_proto::spine::v1::spine_service_client::SpineServiceClient::connect(
-                config.network.spine_grpc_addr.clone(),
-            )
-            .await?;
-            // Spine reaper is internal, but we can trigger a system-wide health check/refresh
-            println!("\x1b[33m[NOTE]\x1b[0m Spine integrated reaper runs every 10s. Manual trigger not required.");
-        }
-    }
-    Ok(())
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -226,20 +185,23 @@ async fn main() -> Result<()> {
         Commands::Signal { action } => {
             crate::handlers::signal::handle_signal_action(action, &config, &agent_name).await?;
         }
+        Commands::Xp { action } => {
+            handle_xp_command(action, &config).await?;
+        }
         Commands::Version => {
             println!("KoadOS CLI v{}", env!("CARGO_PKG_VERSION"));
-            // Try to query Spine version if possible
+            // Query Citadel version
             if let Ok(mut client) =
-                koad_proto::spine::v1::spine_service_client::SpineServiceClient::connect(
+                koad_proto::citadel::v5::admin_client::AdminClient::connect(
                     config.network.spine_grpc_addr.clone(),
                 )
                 .await
             {
                 if let Ok(resp) = client
-                    .get_system_state(koad_proto::spine::v1::GetSystemStateRequest {})
+                    .get_system_status(koad_proto::citadel::v5::SystemStatusRequest { context: None })
                     .await
                 {
-                    println!("KoadOS Spine v{}", resp.into_inner().version);
+                    println!("KoadOS Citadel v{}", resp.into_inner().version);
                 }
             }
         }
@@ -283,81 +245,8 @@ async fn main() -> Result<()> {
             crate::handlers::cognitive::handle_cognitive_check(&config, &db, &final_agent_name)
                 .await?;
         }
-        Commands::Asm { action } => {
-            handle_asm_action(action, &config).await?;
-        }
         Commands::Logout { session } => {
             crate::handlers::boot::handle_logout_command(session, &config).await?;
-        }
-        Commands::Dash => {
-            crate::handlers::status::handle_status_command(false, true, &config, &db).await?;
-        }
-        Commands::Watchdog { action, daemon } => {
-            let home = config.home.clone();
-            let bin_path = home.join("bin/koad-watchdog");
-
-            match action {
-                Some(WatchdogAction::Start {
-                    daemon: start_daemon,
-                }) => {
-                    if !bin_path.exists() {
-                        anyhow::bail!("Watchdog binary not found at {:?}", bin_path);
-                    }
-                    if start_daemon {
-                        println!(">>> Launching Autonomic Watchdog daemon...");
-                        let _ = std::process::Command::new("nohup")
-                            .arg(bin_path)
-                            .env("KOAD_HOME", &home)
-                            .spawn()?;
-                    } else {
-                        let mut cmd = std::process::Command::new(bin_path);
-                        cmd.env("KOAD_HOME", &home);
-                        cmd.status()?;
-                    }
-                }
-                Some(WatchdogAction::Status) => {
-                    use sysinfo::System;
-                    let mut sys = System::new_all();
-                    sys.refresh_all();
-                    let watchdog_procs: Vec<_> = sys
-                        .processes()
-                        .values()
-                        .filter(|p| p.name().contains("koad-watchdog"))
-                        .collect();
-
-                    if watchdog_procs.is_empty() {
-                        println!("Watchdog: \x1b[31mSTOPPED\x1b[0m");
-                    } else {
-                        println!("Watchdog: \x1b[32mRUNNING\x1b[0m");
-                        for p in watchdog_procs {
-                            println!("  - PID: {} | Uptime: {}s", p.pid(), p.run_time());
-                        }
-                    }
-                }
-                Some(WatchdogAction::Stop) => {
-                    println!(">>> Stopping Autonomic Watchdog...");
-                    let _ = std::process::Command::new("pkill")
-                        .arg("koad-watchdog")
-                        .status()?;
-                }
-                None => {
-                    // Legacy support for 'koad watchdog --daemon'
-                    if !bin_path.exists() {
-                        anyhow::bail!("Watchdog binary not found at {:?}", bin_path);
-                    }
-                    if daemon {
-                        println!(">>> Launching Autonomic Watchdog daemon...");
-                        let _ = std::process::Command::new("nohup")
-                            .arg(bin_path)
-                            .env("KOAD_HOME", &home)
-                            .spawn()?;
-                    } else {
-                        let mut cmd = std::process::Command::new(bin_path);
-                        cmd.env("KOAD_HOME", &home);
-                        cmd.status()?;
-                    }
-                }
-            }
         }
     }
 

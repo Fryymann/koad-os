@@ -20,6 +20,10 @@ pub struct KoadConfig {
     #[serde(default = "default_sandbox")]
     pub sandbox: SandboxConfig,
     #[serde(default)]
+    pub xp: XpConfig,
+    #[serde(default)]
+    pub skills: HashMap<String, SkillDefinition>,
+    #[serde(default)]
     pub integrations: IntegrationsConfig,
     #[serde(default)]
     pub filesystem: FilesystemConfig,
@@ -85,6 +89,32 @@ pub struct SandboxConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemConfig {
     pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XpConfig {
+    pub level_curve_exponent: f32,
+    pub base_xp_per_level: u32,
+    pub grant_cap_per_turn: i32,
+}
+
+impl Default for XpConfig {
+    fn default() -> Self {
+        Self {
+            level_curve_exponent: 1.5,
+            base_xp_per_level: 100,
+            grant_cap_per_turn: 50,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillDefinition {
+    pub name: String,
+    pub description: String,
+    pub xp_multiplier: f32,
+    #[serde(default)]
+    pub max_level: u32,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -179,8 +209,7 @@ impl KoadConfig {
             .add_source(config::Environment::with_prefix("KOAD").separator("__"))
             .build()?;
 
-        s.try_deserialize()
-            .context("Failed to deserialize KoadConfig")
+        s.try_deserialize().context("Failed to deserialize KoadConfig")
     }
 
     pub fn from_json(json: &str) -> Result<Self> {
@@ -222,9 +251,7 @@ impl KoadConfig {
                 }
             }
         }
-        self.integrations
-            .github
-            .as_ref()
+        self.integrations.github.as_ref()
             .map(|g| g.default_owner.clone())
             .unwrap_or_else(|| DEFAULT_GITHUB_OWNER.to_string())
     }
@@ -237,9 +264,7 @@ impl KoadConfig {
                 }
             }
         }
-        self.integrations
-            .github
-            .as_ref()
+        self.integrations.github.as_ref()
             .map(|g| g.default_repo.clone())
             .unwrap_or_else(|| DEFAULT_GITHUB_REPO.to_string())
     }

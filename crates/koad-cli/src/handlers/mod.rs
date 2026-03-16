@@ -10,3 +10,4 @@ pub mod signal;
 pub mod status;
 pub mod system;
 pub mod whoami;
+pub mod xp;

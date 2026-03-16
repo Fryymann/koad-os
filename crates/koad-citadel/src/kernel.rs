@@ -9,6 +9,7 @@ use crate::services::bay::PersonalBayService;
 use crate::services::sector::SectorService;
 use crate::services::session::CitadelSessionService;
 use crate::services::signal::SignalService;
+use crate::services::xp::CitadelXpService;
 use crate::signal_corps::quota::QuotaValidator;
 use crate::state::bay_store::BayStore;
 use crate::state::storage_bridge::CitadelStorageBridge;
@@ -24,6 +25,7 @@ use koad_proto::citadel::v5::citadel_session_server::CitadelSessionServer;
 use koad_proto::citadel::v5::personal_bay_server::PersonalBayServer;
 use koad_proto::citadel::v5::sector_server::SectorServer;
 use koad_proto::citadel::v5::signal_server::SignalServer;
+use koad_proto::citadel::v5::xp_service_server::XpServiceServer;
 use koad_sandbox::Sandbox;
 
 use std::path::PathBuf;
@@ -151,6 +153,7 @@ impl KernelBuilder {
         let sector_svc_impl = SectorService::new(redis.clone(), sandbox.clone());
         let signal_svc_impl = SignalService::new(signal_corps.clone(), quota.clone());
         let admin_svc_impl = AdminService::new(shutdown_tx.clone());
+        let xp_svc_impl = CitadelXpService::new(storage.sqlite.clone(), config.clone()).await?;
 
         let drain_storage = storage.clone();
         let mut rx_drain = shutdown_rx.clone();
@@ -196,7 +199,8 @@ impl KernelBuilder {
             .add_service(SignalServer::with_interceptor(
                 signal_svc_impl.clone(),
                 auth_interceptor,
-            ));
+            ))
+            .add_service(XpServiceServer::new(xp_svc_impl.clone()));
 
         let mut rx_tcp = shutdown_rx.clone();
         tokio::spawn(async move {
@@ -225,7 +229,8 @@ impl KernelBuilder {
                 .add_service(AdminServer::new(admin_svc_impl))
                 // Also serve core services on UDS without interceptor for emergency maintenance
                 .add_service(CitadelSessionServer::new(session_svc_impl))
-                .add_service(SectorServer::new(sector_svc_impl));
+                .add_service(SectorServer::new(sector_svc_impl))
+                .add_service(XpServiceServer::new(xp_svc_impl));
 
             let mut rx_admin = shutdown_rx.clone();
             tokio::spawn(async move {

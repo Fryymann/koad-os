@@ -2,7 +2,6 @@
 members = [
     "crates/koad-core",
     "crates/koad-proto",
-    "crates/koad-watchdog",
     "crates/koad-citadel",
     "crates/koad-cli",
     "crates/koad-board",

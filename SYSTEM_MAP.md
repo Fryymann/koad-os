@@ -21,19 +21,20 @@
 ## Full Directory Tree (Annotated)
 ```text
 ~/.koad-os/
-├── .admiral/          # [UNKNOWN — needs annotation] Admiral-specific state?
-├── .agents/           # Shared agent artifacts and personnel docs
-│   ├── .scribe/       # Scribe personal vault (PRIVATE)
+├── .admiral/          # The Dood's private directories
+├── .agents/           # Shared agent artifacts, documentation, and private vaults
 │   ├── .cid/          # Cid personal vault (PRIVATE)
+│   ├── .claude/       # Claude-specific config/state
+│   ├── .gemini/       # Gemini CLI system artifacts
+│   ├── .helm/         # Kubernetes/Helm deployment artifacts
+│   ├── .scribe/       # Scribe personal vault (PRIVATE)
 │   ├── .tyr/          # Tyr personal vault (PRIVATE)
 │   ├── .vigil/        # Vigil personal vault (PRIVATE)
+│   ├── inbox/         # Shared agent communication inbox
 │   ├── CITADEL.md     # Project core definition
 │   └── CREW.md        # Personnel manifest
-├── .claude/           # Claude-specific config/state
-├── .gemini/           # Gemini CLI system artifacts
 ├── .git/              # Repository history
 ├── .github/           # GitHub workflows and CI
-├── .helm/             # Kubernetes/Helm deployment artifacts
 ├── backups/           # Data and config backups
 ├── config/            # [SANCTUARY] Canonical system and agent configuration
 │   ├── identities/    # Active agent personae (TOML)
@@ -75,7 +76,6 @@
 - `crates/koad-core`: Shared primitives, types, and refactored legacy logic.
 - `crates/koad-proto`: Auto-generated gRPC code (via `tonic`).
 - `crates/koad-watchdog`: Heartbeats, signal checks, and self-healing logic.
-- `crates/koad-cli`: The new `koad` binary (replacement for legacy `k-spine`).
 
 ## Documentation Index
 - `docs/rebuild/DIRECTORY_CLEANUP.md`: Status of the `personas/` -> `config/identities/` move.

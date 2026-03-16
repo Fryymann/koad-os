@@ -4,8 +4,8 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "koad")]
 #[command(
-    about = "The KoadOS Control Plane: Orchestrating the Neural Grid",
-    long_about = "The primary interface for KoadOS agents and the Admiral. Manages session lifecycle, intellectual memory, and system-wide orchestration."
+    about = "The KoadOS Control Plane: Orchestrating the Citadel Grid",
+    long_about = "The primary interface for KoadOS agents and the Admiral. Manages session lifecycle, intellectual memory, and system-wide orchestration within the Citadel environment."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -81,10 +81,16 @@ pub enum Commands {
         action: SignalAction,
     },
 
-    /// Display the version of the KoadOS CLI and connected services.
+    /// Manage agent Experience Points (XP) and Skills.
+    Xp {
+        #[command(subcommand)]
+        action: XpCommands,
+    },
+
+    /// Display the version of the KoadOS CLI and Citadel kernel.
     Version,
 
-    /// Display real-time system telemetry and grid integrity.
+    /// Display real-time system telemetry and Citadel integrity.
     Status {
         /// Output telemetry data as JSON.
         #[arg(short, long)]
@@ -117,33 +123,35 @@ pub enum Commands {
     /// Reveal active agent persona, bio, and authorization rank.
     Whoami,
 
-    /// Launch the terminal-native monitoring dashboard (TUI).
-    Dash,
-
-    /// Start or manage the Autonomic Watchdog.
-    Watchdog {
-        #[command(subcommand)]
-        action: Option<WatchdogAction>,
-
-        /// Run the watchdog as a background daemon (legacy, use 'start --daemon').
-        #[arg(short, long)]
-        daemon: bool,
-    },
-
     /// Perform a deep audit of the agent's internal cognitive layers.
     Cognitive,
-
-    /// Inspect and manage the integrated Agent Session Manager (ASM).
-    Asm {
-        #[command(subcommand)]
-        action: AsmAction,
-    },
 
     /// Gracefully logout and untether the current session.
     Logout {
         /// Explicit session ID to terminate.
         #[arg(short, long)]
         session: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum XpCommands {
+    /// View current XP, level, and trust tier.
+    Status {
+        /// Optional: Name of the agent to query (defaults to self).
+        agent: Option<String>,
+    },
+    /// Programmatically award XP to an agent (Admin/Captain only).
+    Award {
+        /// Target agent name.
+        agent: String,
+        /// Amount of XP to award.
+        amount: i32,
+        /// Reason for the award.
+        reason: String,
+        /// Source type: task | skill | system.
+        #[arg(short, long, default_value = "system")]
+        source: String,
     },
 }
 
@@ -171,7 +179,7 @@ pub enum SystemAction {
 
     /// Rebuild and redeploy the KoadOS core from source.
     Refresh {
-        /// Restart services (Spine, Gateway) after successful build.
+        /// Restart Citadel services after successful build.
         #[arg(short, long)]
         restart: bool,
         /// Explicit confirmation to bypass the safety gate.
@@ -298,7 +306,7 @@ pub enum SystemAction {
 
     /// Tail or filter KoadOS log files.
     Logs {
-        /// The service or component to filter by (e.g., spine, gateway, watchdog).
+        /// The service or component to filter by (e.g., citadel, cass, gateway).
         #[arg(short, long)]
         service: Option<String>,
         /// Number of lines to show from the end. [default: 50]
@@ -309,7 +317,7 @@ pub enum SystemAction {
         follow: bool,
     },
 
-    /// Gracefully stop the Spine kernel and all background services.
+    /// Gracefully stop the Citadel kernel and all background services.
     Stop {
         /// Trigger a full state drain before stopping.
         #[arg(short, long)]
@@ -439,7 +447,7 @@ pub enum IntelAction {
         action: MindAction,
     },
 
-    /// Retrieve a precise line-range snippet from a file (Spine-cached).
+    /// Retrieve a precise line-range snippet from a file.
     Snippet {
         /// Target file path.
         path: PathBuf,
@@ -449,7 +457,7 @@ pub enum IntelAction {
         /// End line (inclusive).
         #[arg(short, long)]
         end: i32,
-        /// Force reload from disk, bypassing Spine cache.
+        /// Force reload from disk.
         #[arg(short, long)]
         bypass: bool,
     },
@@ -673,26 +681,4 @@ pub enum SignalAction {
         /// Signal ID.
         id: String,
     },
-}
-
-#[derive(Subcommand)]
-pub enum WatchdogAction {
-    /// Start the watchdog service.
-    Start {
-        /// Run as a background daemon.
-        #[arg(short, long)]
-        daemon: bool,
-    },
-    /// Display the current status of the autonomic watchdog.
-    Status,
-    /// Gracefully stop the watchdog service.
-    Stop,
-}
-
-#[derive(Subcommand)]
-pub enum AsmAction {
-    /// Display the current status and metrics of the ASM.
-    Status,
-    /// Manually trigger a session prune cycle.
-    Prune,
 }

@@ -35,9 +35,6 @@ message TurnMetrics {
   uint32 output_tokens = 2;
   uint32 thinking_tokens = 3;
   uint32 tool_calls = 4;
-  // Phase 4: Tool execution telemetry (populated by koad-plugins / koad-sandbox).
-  uint64 execution_duration_ms = 5;
-  uint64 execution_memory_bytes = 6;
 }
 
 message StatusResponse {
@@ -91,7 +88,44 @@ service Admin {
   rpc ForcePurgeSession(PurgeRequest) returns (StatusResponse);
 }
 
+service XpService {
+  // Get current XP status for an agent.
+  rpc GetStatus(XpStatusRequest) returns (XpStatusResponse);
+  // Programmatically award XP to an agent.
+  rpc AwardXp(XpAwardRequest) returns (StatusResponse);
+}
+
 // --- Message Definitions ---
+
+enum XpSource {
+  XP_SOURCE_UNSPECIFIED = 0;
+  XP_SOURCE_TASK = 1;
+  XP_SOURCE_SKILL = 2;
+  XP_SOURCE_SYSTEM = 3;
+}
+
+message XpStatusRequest {
+  TraceContext context = 1;
+  string agent_name = 2;
+}
+
+message XpStatusResponse {
+  string agent_name = 1;
+  int32 total_xp = 2;
+  int32 level = 3;
+  string tier_name = 4;
+  int32 next_level_xp = 5;
+  TraceContext context = 6;
+}
+
+message XpAwardRequest {
+  TraceContext context = 1;
+  string agent_name = 2;
+  int32 amount = 3;
+  string reason = 4;
+  XpSource source = 5;
+  string source_id = 6; // e.g., task-id or skill-name
+}
 
 message ShutdownRequest {
   TraceContext context = 1;
