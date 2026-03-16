@@ -4,10 +4,17 @@
 //! The Sandbox is config-driven, replacing the hardcoded legacy Spine logic with
 //! dynamic policies defined in `kernel.toml`.
 //!
+//! ## Modules
+//! - Root: [`Sandbox`] — policy evaluation (blacklist, sanctuary, rank bypass).
+//! - [`container`]: [`ContainerSandbox`] — Docker/Podman execution isolation
+//!   (requires the `container` cargo feature).
+//!
 //! ## Principles
 //! - **Sanctuary Rule**: Protects sensitive system paths from modification.
 //! - **Blacklist Enforcement**: Blocks dangerous primitives (sudo, rm -rf).
 //! - **Identity Awareness**: Allows administrative bypass for Admiral/Captain ranks.
+
+pub mod container;
 
 use koad_core::config::KoadConfig;
 use tracing::warn;
@@ -99,6 +106,18 @@ mod tests {
             serde_json::from_str(
                 r#"{
                 "home": "/tmp/.koad-os",
+                "system": { "version": "test" },
+                "network": {
+                    "gateway_port": 7700,
+                    "gateway_addr": "127.0.0.1",
+                    "spine_grpc_port": 50051,
+                    "spine_grpc_addr": "127.0.0.1",
+                    "cass_grpc_port": 50052,
+                    "cass_grpc_addr": "127.0.0.1",
+                    "redis_socket": "/tmp/redis.sock",
+                    "spine_socket": "/tmp/spine.sock"
+                },
+                "storage": { "db_name": "koad_test.db", "drain_interval_secs": 60 },
                 "sandbox": {
                     "enabled": true,
                     "blacklist": ["sudo ", "su "],

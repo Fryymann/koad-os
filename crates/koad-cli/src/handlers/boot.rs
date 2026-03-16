@@ -101,6 +101,7 @@ pub async fn handle_boot_command(
                 output_tokens: packet.estimated_tokens, // Reporting hydration cost as tokens_out
                 thinking_tokens: 0,
                 tool_calls: 0,
+                ..Default::default()
             }),
         })
         .await

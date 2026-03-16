@@ -1,4 +1,10 @@
 //! KoadOS Dynamic Plugin System (WASM)
+//!
+//! # Modules
+//! - Root: [`WasmPluginManager`] — low-level component loader.
+//! - [`registry`]: [`PluginRegistry`] — named plugin registry with invocation metrics.
+
+pub mod registry;
 
 use anyhow::{Context, Result};
 use std::path::Path;

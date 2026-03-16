@@ -35,6 +35,9 @@ message TurnMetrics {
   uint32 output_tokens = 2;
   uint32 thinking_tokens = 3;
   uint32 tool_calls = 4;
+  // Phase 4: Tool execution telemetry (populated by koad-plugins / koad-sandbox).
+  uint64 execution_duration_ms = 5;
+  uint64 execution_memory_bytes = 6;
 }
 
 message StatusResponse {

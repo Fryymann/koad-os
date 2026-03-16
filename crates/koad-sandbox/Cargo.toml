@@ -15,3 +15,9 @@ anyhow.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 async-trait.workspace = true
+uuid.workspace = true
+
+# Phase 4: container feature gates docker/podman subprocess execution.
+# No extra deps needed — isolation is enforced via `docker run` / `podman run` flags.
+[features]
+container = []
