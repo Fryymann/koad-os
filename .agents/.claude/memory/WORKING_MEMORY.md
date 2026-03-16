@@ -25,9 +25,7 @@
 
 ## Active Worktrees
 
-| Worktree | Branch | Status |
-|---|---|---|
-| `/home/ideans/.koad-os--claude-issue-73` | `agent/claude/issue-73-wasm-plugin-fix` | PR merged — ready to prune |
+*None. All decommissioned and pruned.*
 
 ---
 
@@ -45,7 +43,7 @@
 
 ## Open Items / Follow-ups
 
-- **Worktree cleanup:** Prune `magical-golick` (stale, branch never used for commits) and `--claude-issue-73` after confirmation.
+- **Worktree cleanup:** ✅ Done — `magical-golick` and `--claude-issue-73` removed, local branches deleted.
 - **Pre-push hook not executable** in worktree: `chmod +x /home/ideans/.koad-os/.git/hooks/pre-push` — flag to Tyr.
 - **Pending Tyr review:** Pre-existing clippy failures in `koad-citadel`:
   `kernel.rs`, `sanctuary.rs`, `hierarchy.rs`, `bay.rs`, `session.rs` — undocumented public items.
