@@ -128,6 +128,22 @@ Source: KSRP Pass 5, saveup 2026-03-15 Phase 4.
 `#[instrument(skip(self))]` missing on all public async fns. `#![warn(missing_docs)]` absent from both lib.rs files. `# Errors` doc sections absent from `Result`-returning public fns.
 Source: KSRP RUST_CANON Compliance Pass, saveup 2026-03-15 Phase 4.
 
+**F-22 — `PluginRegistry` must be `Clone` before the gRPC wrapper (issue #193) is built.**
+Both internal fields are `Arc`-wrapped (`Arc<WasmPluginManager>` + `Arc<RwLock<...>>`), so `#[derive(Clone)]` is O(1). Without it, the tonic service wrapper will require an outer `Arc<PluginRegistry>`, adding an unnecessary indirection layer.
+Source: targeted module review, 2026-03-15 Phase 4.
+
+**F-23 — Lock-release-before-await in `PluginRegistry::invoke()` is a critical invariant.**
+The inner block drops the `RwLock` guard BEFORE `run_plugin().await`. Holding an `RwLock` across an `await` would deadlock concurrent invocations. Any future refactor of `invoke()` must preserve this pattern.
+Source: targeted module review, 2026-03-15 Phase 4.
+
+**F-24 — `ContainerConfig::runtime` is an unvalidated free-form string.**
+No whitelist enforced (`"docker"` or `"podman"` expected). Currently only constructed internally (low risk), but must be validated before any user-facing API exposes `ContainerConfig`.
+Source: targeted module review, 2026-03-15 Phase 4.
+
+**F-25 — `read_only_mounts` volume spec is colon-delimited and unsanitized.**
+`format!("{}:{}:ro", host, container)` — a colon in either path silently breaks Docker's volume spec parsing. `String` type does not prevent this. Low probability on Linux, but no guard exists.
+Source: targeted module review, 2026-03-15 Phase 4.
+
 ---
 
 ## Session Status (as of 2026-03-15 EOD)

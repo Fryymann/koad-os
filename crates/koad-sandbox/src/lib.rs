@@ -61,6 +61,25 @@ impl Sandbox {
             return PolicyResult::Denied(reason);
         }
 
+        // 4. Efficiency Sentinel (Token Protection)
+        if let PolicyResult::Denied(reason) = self.check_efficiency(agent_name, command) {
+            return PolicyResult::Denied(reason);
+        }
+
+        PolicyResult::Allowed
+    }
+
+    fn check_efficiency(&self, agent_name: &str, command: &str) -> PolicyResult {
+        // Enforce the "No-Read" Rule: Prevent full file reads of large files.
+        // Heuristic: If read_file is used without start_line/end_line.
+        if command.contains("read_file") && !command.contains("start_line") && !command.contains("end_line") {
+            warn!(agent = %agent_name, command = %command, "Sandbox: Efficiency violation (Full file read)");
+            return PolicyResult::Denied(
+                "AIS ENFORCEMENT: Reading entire files is forbidden. \
+                 Use the Crate API Maps in your Context Packet for discovery, \
+                 or use `read_file` with `start_line` and `end_line` parameters.".to_string()
+            );
+        }
         PolicyResult::Allowed
     }
 
@@ -128,6 +147,20 @@ mod tests {
     fn test_sandbox_allows_safe_command() {
         let sandbox = Sandbox::new(mock_config());
         let res = sandbox.evaluate("test-agent", "Crew", "cargo build");
+        assert_eq!(res, PolicyResult::Allowed);
+    }
+
+    #[test]
+    fn test_sandbox_denies_full_read() {
+        let sandbox = Sandbox::new(mock_config());
+        let res = sandbox.evaluate("test-agent", "Crew", "read_file(file_path: 'main.rs')");
+        assert!(matches!(res, PolicyResult::Denied(_)));
+    }
+
+    #[test]
+    fn test_sandbox_allows_surgical_read() {
+        let sandbox = Sandbox::new(mock_config());
+        let res = sandbox.evaluate("test-agent", "Crew", "read_file(file_path: 'main.rs', start_line: 1, end_line: 10)");
         assert_eq!(res, PolicyResult::Allowed);
     }
 

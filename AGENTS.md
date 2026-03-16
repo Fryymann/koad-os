@@ -30,6 +30,18 @@ This hydration layer aligns your persona, saves orientation tokens, and generate
 4. **SECURE COGNITION:** Zero tolerance for secret leakage. Use the Citadel JIT or ask Dood.
 5. **THE PLAN MODE LAW:** All tasks of **Standard (Medium)** complexity or higher REQUIRE the use of **Plan Mode**. Enter Plan Mode to methodically map solutions and obtain Admiral (Ian) approval before code execution.
 6. **THE RESTORATION RULE:** When performing full `write_file` ops on core config files, you MUST verify all public members are reinstated.
+7. **THE NO-READ RULE (ENFORCED):** AIS enforces token efficiency. You are FORBIDDEN from reading entire files over 50 lines. You MUST use **Ghost API Maps** (found in your context packet) for discovery and `grep_search` or line-range `read_file` for extraction.
+
+---
+
+## Ⅱ. AIS: Tool Optimization & Efficiency
+
+The Agent Information System (AIS) provides specialized tools to reduce your token burn. You are expected to use them in the following order:
+
+1. **Orientation:** Read your **TCH Context Packet** (`KOAD_CONTEXT_FILE`) immediately after boot. It contains distilled history and structural maps of relevant crates.
+2. **Code Discovery:** DO NOT use `ls -R` or `read_file`. Use the **Crate API Maps** in your context packet. If a symbol is missing, use `grep_search`.
+3. **Surgical Inspection:** Use `read_file` ONLY with `start_line` and `end_line`. Reading a full file to find a single function is a **Tier 1 Performance Violation**.
+4. **Distillation:** Use `koad-intelligence` (via CASS) to summarize large blocks of text before processing them yourself.
 
 ---
 
