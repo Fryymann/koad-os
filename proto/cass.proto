@@ -70,6 +70,7 @@ message HydrationRequest {
   string project_root = 2;
   koad.citadel.v5.WorkspaceLevel level = 3;
   uint32 token_budget = 4;
+  string task_id = 5; // Optional task filter for JIT context
 }
 
 message HydrationResponse {

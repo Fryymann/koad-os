@@ -1,7 +1,6 @@
 //! Memory Service Implementation
-//!
-//! Handles RPC calls for committing and querying persistent agent memory.
 
+use crate::storage::Storage;
 use koad_intelligence::router::InferenceRouter;
 use koad_proto::cass::v1::memory_service_server::MemoryService;
 use koad_proto::cass::v1::{EpisodicMemory, FactCard, FactQuery, FactResponse};
@@ -10,18 +9,13 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::info;
 
-/// Service implementation for the `MemoryService` gRPC interface.
 pub struct CassMemoryService {
-    storage: Arc<dyn crate::storage::Storage>,
+    storage: Arc<dyn Storage>,
     intelligence: Arc<InferenceRouter>,
 }
 
 impl CassMemoryService {
-    /// Creates a new `CassMemoryService`.
-    pub fn new(
-        storage: Arc<dyn crate::storage::Storage>,
-        intelligence: Arc<InferenceRouter>,
-    ) -> Self {
+    pub fn new(storage: Arc<dyn Storage>, intelligence: Arc<InferenceRouter>) -> Self {
         Self {
             storage,
             intelligence,
@@ -31,21 +25,9 @@ impl CassMemoryService {
 
 #[tonic::async_trait]
 impl MemoryService for CassMemoryService {
-    /// Commits a fact card to the persistent ledger.
-    async fn commit_fact(
-        &self,
-        request: Request<FactCard>,
-    ) -> Result<Response<StatusResponse>, Status> {
-        let mut fact = request.into_inner();
-
-        // Automated Significance Scoring (Phase 3)
-        // Only re-score if confidence is at default (0.0 or 1.0) and content is present
-        if (fact.confidence == 0.0 || fact.confidence == 1.0) && !fact.content.is_empty() {
-            if let Ok(score) = self.intelligence.score(&fact.content).await {
-                info!("MemoryService: Scored fact significance as {}", score);
-                fact.confidence = score;
-            }
-        }
+    async fn commit_fact(&self, request: Request<FactCard>) -> Result<Response<StatusResponse>, Status> {
+        let fact = request.into_inner();
+        info!(domain = %fact.domain, "Memory: Committing fact");
 
         self.storage
             .commit_fact(fact)
@@ -54,16 +36,12 @@ impl MemoryService for CassMemoryService {
 
         Ok(Response::new(StatusResponse {
             success: true,
-            message: "Fact committed to ledger".to_string(),
+            message: "Fact committed to ledger.".to_string(),
             context: None,
         }))
     }
 
-    /// Queries facts based on domain and tags.
-    async fn query_facts(
-        &self,
-        request: Request<FactQuery>,
-    ) -> Result<Response<FactResponse>, Status> {
+    async fn query_facts(&self, request: Request<FactQuery>) -> Result<Response<FactResponse>, Status> {
         let req = request.into_inner();
         let facts = self
             .storage
@@ -74,20 +52,29 @@ impl MemoryService for CassMemoryService {
         Ok(Response::new(FactResponse { facts }))
     }
 
-    /// Records a summary of a session as an episodic memory.
     async fn record_episode(
         &self,
         request: Request<EpisodicMemory>,
     ) -> Result<Response<StatusResponse>, Status> {
-        let episode = request.into_inner();
+        let ep = request.into_inner();
+        info!(session = %ep.session_id, "Memory: Recording episode");
+
+        // Intelligence: Extract facts from summary
+        let summary = ep.summary.clone();
+        let intelligence = self.intelligence.clone();
+        tokio::spawn(async move {
+            let _ = intelligence.score(&summary).await;
+            // Future: auto-extract FactCards
+        });
+
         self.storage
-            .record_episode(episode)
+            .record_episode(ep)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(StatusResponse {
             success: true,
-            message: "Episode recorded".to_string(),
+            message: "Episode recorded.".to_string(),
             context: None,
         }))
     }

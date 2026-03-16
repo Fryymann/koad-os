@@ -10,22 +10,6 @@
 - **Focus:** Token-efficient scouting, context distillation, scaffolding, file editing, doc maintenance.
 - **Authority:** Direct command only. No autonomous action. No gate approvals. No strategic decisions.
 
----
-
-## ⚡ FIRST LIGHT (MANDATORY BOOT)
-
-**If you have just arrived in this shell, YOU MUST HYDRATE your identity before proceeding.** 
-
-Run this command immediately to inject your role, credentials, and latest session brief:
-```bash
-eval $(koad-agent boot <YourAgentName>)
-```
-*Example for Tyr:* `eval $(koad-agent boot tyr)`
-
-This hydration layer aligns your persona and saves thousands of orientation tokens. **Do not perform work in a dry shell.**
-
----
-
 
 ## II. Dark Mode Operating Rules (Mandatory)
 Until the KoadOS Citadel is back online, the following protocols are in effect:

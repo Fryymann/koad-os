@@ -2,51 +2,52 @@ use super::Storage;
 use anyhow::Result;
 use async_trait::async_trait;
 use koad_proto::cass::v1::{EpisodicMemory, FactCard};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-#[derive(Default)]
 pub struct MockStorage {
-    pub facts: Mutex<Vec<FactCard>>,
-    pub episodes: Mutex<Vec<EpisodicMemory>>,
+    pub facts: Arc<Mutex<Vec<FactCard>>>,
+    pub episodes: Arc<Mutex<Vec<EpisodicMemory>>>,
+}
+
+impl MockStorage {
+    pub fn new() -> Self {
+        Self {
+            facts: Arc::new(Mutex::new(Vec::new())),
+            episodes: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
 }
 
 #[async_trait]
 impl Storage for MockStorage {
     async fn commit_fact(&self, fact: FactCard) -> Result<()> {
-        let mut facts = self.facts.lock().unwrap();
+        let mut facts = self.facts.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         facts.push(fact);
         Ok(())
     }
 
     async fn query_facts(
         &self,
-        domain: &str,
+        _domain: &str,
         _tags: &[String],
-        limit: u32,
+        _limit: u32,
     ) -> Result<Vec<FactCard>> {
-        let facts = self.facts.lock().unwrap();
-        let result: Vec<FactCard> = facts
-            .iter()
-            .filter(|f| f.domain == domain)
-            .take(limit as usize)
-            .cloned()
-            .collect();
-        Ok(result)
+        let facts = self.facts.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        Ok(facts.clone())
     }
 
-    async fn query_agent_facts(&self, agent_name: &str, limit: u32) -> Result<Vec<FactCard>> {
-        let facts = self.facts.lock().unwrap();
-        let result: Vec<FactCard> = facts
-            .iter()
-            .filter(|f| f.source_agent == agent_name)
-            .take(limit as usize)
-            .cloned()
-            .collect();
-        Ok(result)
+    async fn query_agent_facts(
+        &self,
+        _agent_name: &str,
+        _limit: u32,
+        _task_id: Option<&str>,
+    ) -> Result<Vec<FactCard>> {
+        let facts = self.facts.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        Ok(facts.clone())
     }
 
     async fn record_episode(&self, episode: EpisodicMemory) -> Result<()> {
-        let mut episodes = self.episodes.lock().unwrap();
+        let mut episodes = self.episodes.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         episodes.push(episode);
         Ok(())
     }
@@ -54,15 +55,10 @@ impl Storage for MockStorage {
     async fn query_recent_episodes(
         &self,
         _agent_name: &str,
-        limit: u32,
+        _limit: u32,
+        _task_id: Option<&str>,
     ) -> Result<Vec<EpisodicMemory>> {
-        let episodes = self.episodes.lock().unwrap();
-        let result: Vec<EpisodicMemory> = episodes
-            .iter()
-            .rev()
-            .take(limit as usize)
-            .cloned()
-            .collect();
-        Ok(result)
+        let episodes = self.episodes.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        Ok(episodes.clone())
     }
 }

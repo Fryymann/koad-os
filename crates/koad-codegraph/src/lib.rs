@@ -153,6 +153,37 @@ impl CodeGraph {
 
         Ok(symbols)
     }
+
+    /// Provides a summary of all symbols in a specific crate (directory).
+    pub fn get_crate_summary(&self, crate_path: &str) -> Result<String> {
+        let conn = self.db.lock().map_err(|_| anyhow::anyhow!("DB lock poisoned"))?;
+        let mut stmt = conn.prepare(
+            "SELECT path, name, kind FROM symbols WHERE path LIKE ?1 ORDER BY path, kind",
+        )?;
+
+        let pattern = format!("{}%", crate_path);
+        let mut current_path = String::new();
+        let mut summary = String::new();
+
+        let rows = stmt.query_map(params![pattern], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+
+        for row in rows {
+            let (path, name, kind) = row?;
+            if path != current_path {
+                current_path = path.clone();
+                summary.push_str(&format!("\nFile: {}\n", current_path));
+            }
+            summary.push_str(&format!("  - {}: {}\n", kind, name));
+        }
+
+        Ok(summary)
+    }
 }
 
 #[cfg(test)]
@@ -172,6 +203,11 @@ mod tests {
         assert_eq!(symbols[0].name, "my_cool_func");
         assert_eq!(symbols[0].kind, "func");
         assert_eq!(symbols[0].start_line, 1);
+
+        // Test Crate Summary
+        let summary = graph.get_crate_summary("test")?;
+        assert!(summary.contains("File: test.rs"));
+        assert!(summary.contains("func: my_cool_func"));
 
         Ok(())
     }

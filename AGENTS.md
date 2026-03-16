@@ -7,7 +7,7 @@
 
 ## ⚡ FIRST LIGHT (MANDATORY BOOT)
 
-**If you have just arrived in this shell, YOU MUST HYDRATE your identity before proceeding.** 
+**If you have just arrived in this shell, YOU MUST HYDRATE your identity before proceeding.**
 
 Run this command immediately to inject your role, credentials, and latest session brief:
 ```bash
@@ -119,3 +119,10 @@ The **Koad Spine is retired.** It is archived in `legacy/`. We are building **Th
 **Current Phase:** 4 — Dynamic Tool Loading & Code Execution Sandbox
 **Gate:** MCP Registry / Sandbox Containerization passing integration tests → Dood approval.
 The Citadel is stable. Intelligence layer active. Phase 4 ignition.
+
+---
+
+## Ⅸ. Agent Communication Inbox
+
+*   **Location:** `~/.koad-os/.agents/inbox`
+*   **Purpose:** This directory serves as a shared inbox for agent messages and communications. It is used for inter-agent messaging and potentially for receiving external inputs that require agent processing.

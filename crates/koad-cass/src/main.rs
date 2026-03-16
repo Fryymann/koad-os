@@ -52,7 +52,12 @@ async fn main() -> Result<()> {
 
     // Services
     let memory_svc = CassMemoryService::new(storage.clone(), intelligence.clone());
-    let hydration_svc = CassHydrationService::new(storage.clone(), hierarchy.clone());
+    let hydration_svc = CassHydrationService::new(
+        storage.clone(),
+        hierarchy.clone(),
+        codegraph.clone(),
+        intelligence.clone(),
+    );
     let stream_svc = CassStreamService::new(notion_client.clone(), stream_db);
     let symbol_svc = CassSymbolService::new(codegraph.clone());
 
