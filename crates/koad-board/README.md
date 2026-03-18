@@ -21,7 +21,7 @@ The GitHub Project Board and Command Deck integration layer for **KoadOS**.
 
 ## 🚀 Usage
 
-This crate is primarily used as a dependency of `koad-cli` and `koad-spine`.
+This crate is primarily used as a dependency of `koad-cli` and `koad-citadel`.
 
 ```toml
 [dependencies]

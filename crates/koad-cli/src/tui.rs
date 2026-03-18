@@ -1,6 +1,6 @@
 #![allow(dead_code, unused_imports, clippy::type_complexity)]
 
-use crate::KoadDB;
+use crate::db::KoadDB;
 use anyhow::Result;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -14,6 +14,41 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Terminal,
 };
+use koad_core::health::{SystemStatus, HealthStatus};
+
+pub fn render_citadel_status_board(systems: &[SystemStatus]) {
+    // Standard CLI Print (Non-interactive for v1)
+    println!("\n\x1b[1;34m--- [CITADEL] Operational Status Board ---\x1b[0m");
+    
+    let mut current_subsystem = "";
+    for sys in systems {
+        if sys.subsystem != current_subsystem {
+            current_subsystem = &sys.subsystem;
+            println!("\n\x1b[1;37m[ {} ]\x1b[0m", current_subsystem.to_uppercase());
+        }
+        
+        let status_icon = match sys.status {
+            HealthStatus::Pass => "\x1b[32m🟢\x1b[0m",
+            HealthStatus::Warn => "\x1b[33m🟡\x1b[0m",
+            HealthStatus::Fail => "\x1b[31m🔴\x1b[0m",
+            HealthStatus::Unknown => "\x1b[30m⚪\x1b[0m",
+        };
+        
+        let uptime_str = if sys.stub {
+            "\x1b[30mNOT IMPLEMENTED\x1b[0m".to_string()
+        } else {
+            format!("\x1b[36m{}\x1b[0m", sys.uptime)
+        };
+        
+        println!("  {:<30} {:<4} | Uptime: {:<15} | {}", 
+            sys.name, 
+            status_icon,
+            uptime_str,
+            sys.message
+        );
+    }
+    println!("\n\x1b[1;30m---------------------------------------------------\x1b[0m\n");
+}
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -114,6 +149,7 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
 
             // 2. Active Spec Banner
             let spec_text = if let Ok(Some((title, _, status, _))) = db.get_spec() {
+                let status: String = status;
                 format!(" ACTIVE SPEC: {} [{}] ", title.to_uppercase(), status)
             } else {
                 " NO ACTIVE SPEC - Use 'koad spec set' to begin ".to_string()
@@ -148,8 +184,10 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
             // 0. PROJECTS (Master Project Map)
             let mut project_items: Vec<ListItem> = Vec::new();
             if let Ok(projects) = db.list_projects() {
+                let projects: Vec<(i32, String, String, String, String)> = projects;
                 app.items_counts[0] = projects.len();
                 for (_, name, _, branch, health) in projects {
+                    let health: String = health;
                     let style = match health.as_str() {
                         "green" => Style::default()
                             .fg(Color::Green)
@@ -176,7 +214,9 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
             // 1. MIND
             let mut mind_items: Vec<ListItem> = Vec::new();
             if let Ok(recent) = db.query("", 15, None) {
+                let recent: Vec<(i32, String, String, String)> = recent;
                 for (_, cat, content, _) in recent {
+                    let cat: String = cat;
                     let style = match cat.as_str() {
                         "fact" => Style::default().fg(Color::Cyan),
                         "learning" => Style::default().fg(Color::Green),
@@ -208,12 +248,15 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
             // 2. VOICE
             let mut voice_items: Vec<ListItem> = Vec::new();
             if let Ok(notes) = db.get_notes(10) {
+                let notes: Vec<(i32, String, String)> = notes;
                 for (_, content, _) in notes {
                     voice_items.push(ListItem::new(format!("(Note) {}", content)));
                 }
             }
             if let Ok(brainstorms) = db.get_recent_brainstorms(10) {
+                let brainstorms: Vec<(String, String, String)> = brainstorms;
                 for (content, cat, _) in brainstorms {
+                    let cat: String = cat;
                     let style = if cat == "rant" {
                         Style::default().fg(Color::Red)
                     } else {
@@ -237,7 +280,9 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
             // 3. ACTIVITY
             let mut activity_items: Vec<ListItem> = Vec::new();
             if let Ok(execs) = db.get_recent_executions(12) {
+                let execs: Vec<(String, String, String)> = execs;
                 for (cmd, args, status) in execs {
+                    let status: String = status;
                     let style = if status == "success" {
                         Style::default().fg(Color::Green)
                     } else {
@@ -248,6 +293,7 @@ pub fn run_dash(db: &KoadDB) -> Result<()> {
                 }
             }
             if let Ok(deltas) = db.get_recent_deltas(30) {
+                let deltas: Vec<(String, String, String)> = deltas;
                 for (path, event, _) in deltas {
                     let name = std::path::Path::new(&path)
                         .file_name()

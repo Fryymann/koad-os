@@ -6,7 +6,7 @@ use crate::signal_corps::quota::QuotaValidator;
 use futures::Stream;
 use koad_core::signal::SignalCorps;
 use koad_proto::citadel::v5::signal_server::Signal;
-use koad_proto::citadel::v5::{Event, StatusResponse, SubscribeRequest};
+use koad_proto::citadel::v5::*;
 use std::pin::Pin;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
@@ -115,6 +115,41 @@ impl Signal for SignalService {
             success: true,
             message: "Event broadcasted".to_string(),
             context: None,
+        }))
+    }
+
+    async fn send_signal(
+        &self,
+        request: Request<SendSignalRequest>,
+    ) -> Result<Response<StatusResponse>, Status> {
+        let req = request.into_inner();
+        Ok(Response::new(StatusResponse {
+            success: true,
+            message: "Signal sent (stub)".to_string(),
+            context: req.context,
+        }))
+    }
+
+    async fn get_signals(
+        &self,
+        request: Request<GetSignalsRequest>,
+    ) -> Result<Response<GetSignalsResponse>, Status> {
+        let req = request.into_inner();
+        Ok(Response::new(GetSignalsResponse {
+            signals: vec![],
+            context: req.context,
+        }))
+    }
+
+    async fn update_signal_status(
+        &self,
+        request: Request<UpdateSignalStatusRequest>,
+    ) -> Result<Response<StatusResponse>, Status> {
+        let req = request.into_inner();
+        Ok(Response::new(StatusResponse {
+            success: true,
+            message: "Status updated (stub)".to_string(),
+            context: req.context,
         }))
     }
 }

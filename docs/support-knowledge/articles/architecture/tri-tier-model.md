@@ -84,8 +84,6 @@ koad-cass  ──── context packet ──► agent receives on boot
 | `KOAD_SESSION_ID` | Shell environment | The public session identifier |
 | `KOAD_SESSION_TOKEN` | Shell environment | The private credential used to authenticate all gRPC calls |
 
-> **Note:** The `config/kernel.toml` file currently uses the field name `spine_grpc_addr` in some places — this is legacy naming from the old Spine architecture and refers to the Citadel's gRPC address. It will be renamed to `citadel_grpc_addr` in a future cleanup.
-
 ## Failure Modes & Edge Cases
 
 **What happens if the Citadel crashes?**
@@ -108,7 +106,7 @@ The session lives in Redis, managed by the Citadel. When `koad-agent boot` succe
 ### Q: How do the three tiers communicate?
 Exclusively via gRPC, with protobuf message definitions in `proto/`. The Link calls the Citadel; the Citadel calls CASS. No tier reaches into another's internal state directly. All cross-tier communication carries a `TraceContext` for observability.
 
-### Q: Why was the old "Spine" model retired?
+### Q: [ARCHIVE] Why was the old "Spine" model retired?
 The Spine was a monolithic binary that combined all responsibilities. This meant a memory bug could crash the session layer, two agents couldn't use the same AI driver simultaneously, and the security model was porous. The Tri-Tier model separates these concerns into independent processes with explicit, versioned gRPC contracts between them.
 
 ### Q: Can I run the Citadel without CASS?

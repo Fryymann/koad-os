@@ -1,6 +1,6 @@
 # koad-proto
 
-The communication protocols for the **KoadOS** ecosystem. This crate manages gRPC and Tonic-generated service definitions used by the Spine, CLI, and Bridge agents.
+The communication protocols for the **KoadOS** ecosystem. This crate manages gRPC and Tonic-generated service definitions used by the Citadel, CLI, and Bridge agents.
 
 ## 🏗 Overview
 
@@ -8,13 +8,13 @@ The communication protocols for the **KoadOS** ecosystem. This crate manages gRP
 
 ## 🛰 Core Services
 
-- **`spine.v1`**: The primary Spine gRPC interface for state management, context hydration, and heartbeat monitoring.
+- **`citadel.v5`**: The primary Citadel gRPC interface for session management, context hydration, and heartbeat monitoring.
 - **`skill`**: Service definitions for specialized agent skill execution and communication.
 
 ## 🛠 Protos
 
 The raw `.proto` definitions are located in the root `proto/` directory:
-- `proto/spine.proto`: State orchestration, session monitoring, and context management.
+- `proto/citadel.proto`: State orchestration, session monitoring, and context management.
 - `proto/skill.proto`: Agent-to-Skill communication protocols.
 
 ## ⚙️ Build Process
@@ -24,7 +24,7 @@ The crate utilizes `tonic-build` in its `build.rs` to compile the proto definiti
 ```rust
 // build.rs
 tonic_build::configure().compile_protos(
-    &["../../proto/skill.proto", "../../proto/spine.proto"],
+    &["../../proto/skill.proto", "../../proto/citadel.proto"],
     &["../../proto"],
 )?;
 ```

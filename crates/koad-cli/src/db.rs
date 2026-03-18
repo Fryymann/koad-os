@@ -133,4 +133,86 @@ impl KoadDB {
             Ok(results)
         }
     }
+
+    pub fn get_spec(&self) -> Result<Option<(String, String, String, String)>> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT title, description, status, priority FROM active_spec LIMIT 1")?;
+        let res = stmt.query_row([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).ok();
+        Ok(res)
+    }
+
+    pub fn list_projects(&self) -> Result<Vec<(i32, String, String, String, String)>> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT id, name, path, branch, health FROM projects")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })?;
+        let mut results = Vec::new();
+        for r in rows {
+            results.push(r?);
+        }
+        Ok(results)
+    }
+
+    pub fn query(&self, term: &str, limit: usize, _agent: Option<&str>) -> Result<Vec<(i32, String, String, String)>> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT id, category, content, tags FROM knowledge WHERE content LIKE ?1 LIMIT ?2")?;
+        let rows = stmt.query_map(params![format!("%{}%", term), limit as i64], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?;
+        let mut results = Vec::new();
+        for r in rows {
+            results.push(r?);
+        }
+        Ok(results)
+    }
+
+    pub fn get_ponderings(&self, limit: usize) -> Result<Vec<String>> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT content FROM knowledge WHERE category = 'pondering' ORDER BY timestamp DESC LIMIT ?1")?;
+        let rows = stmt.query_map(params![limit as i64], |row| row.get(0))?;
+        let mut results = Vec::new();
+        for r in rows {
+            results.push(r?);
+        }
+        Ok(results)
+    }
+
+    pub fn get_notes(&self, limit: usize) -> Result<Vec<(i32, String, String)>> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT id, content, timestamp FROM knowledge WHERE category = 'note' ORDER BY timestamp DESC LIMIT ?1")?;
+        let rows = stmt.query_map(params![limit as i64], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        let mut results = Vec::new();
+        for r in rows {
+            results.push(r?);
+        }
+        Ok(results)
+    }
+
+    pub fn get_recent_brainstorms(&self, limit: usize) -> Result<Vec<(String, String, String)>> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare("SELECT content, category, timestamp FROM knowledge WHERE category LIKE 'brainstorm%' ORDER BY timestamp DESC LIMIT ?1")?;
+        let rows = stmt.query_map(params![limit as i64], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        let mut results = Vec::new();
+        for r in rows {
+            results.push(r?);
+        }
+        Ok(results)
+    }
+
+    pub fn get_recent_executions(&self, _limit: usize) -> Result<Vec<(String, String, String)>> {
+        // Mock data or stub if table doesn't exist
+        Ok(vec![])
+    }
+
+    pub fn get_recent_deltas(&self, _limit: usize) -> Result<Vec<(String, String, String)>> {
+        // Mock data or stub if table doesn't exist
+        Ok(vec![])
+    }
 }

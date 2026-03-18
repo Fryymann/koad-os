@@ -53,7 +53,7 @@ pub fn find_ghosts(home: &Path) -> Vec<(u32, String)> {
     let mut ghosts = Vec::new();
 
     // Check common PID files
-    let pid_files = vec!["redis.pid", "kspine.pid", "kgateway.pid", "koad-asm.pid"];
+    let pid_files = vec!["redis.pid", "kcitadel.pid", "kgateway.pid", "koad-asm.pid"];
     for pf in pid_files {
         let pid_file = home.join(pf);
         if pid_file.exists() {

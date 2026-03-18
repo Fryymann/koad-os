@@ -3,6 +3,7 @@
 mod cli;
 mod db;
 mod handlers;
+mod tui;
 mod utils;
 
 use anyhow::{Context, Result};
@@ -193,12 +194,13 @@ async fn main() -> Result<()> {
             // Query Citadel version
             if let Ok(mut client) =
                 koad_proto::citadel::v5::admin_client::AdminClient::connect(
-                    config.network.spine_grpc_addr.clone(),
+                    config.network.citadel_grpc_addr.clone(),
                 )
                 .await
             {
+                let context = Some(crate::utils::get_trace_context(&agent_name, 3));
                 if let Ok(resp) = client
-                    .get_system_status(koad_proto::citadel::v5::SystemStatusRequest { context: None })
+                    .get_system_status(koad_proto::citadel::v5::SystemStatusRequest { context })
                     .await
                 {
                     println!("KoadOS Citadel v{}", resp.into_inner().version);
@@ -212,6 +214,9 @@ async fn main() -> Result<()> {
             crate::handlers::project::handle_project(action, &config).await?;
         }
         Commands::Status { json, full } => {
+            if full && !json {
+                let _ = crate::handlers::motd::show_motd(&agent_name, &config).await;
+            }
             handle_status_command(json, full, &config, &db).await?;
         }
         Commands::Doctor { fix } => {

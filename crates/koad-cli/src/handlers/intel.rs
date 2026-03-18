@@ -3,8 +3,8 @@ use crate::db::KoadDB;
 use crate::utils::{detect_model_tier, feature_gate};
 use anyhow::{Context, Result};
 use koad_core::config::KoadConfig;
-use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
-use koad_proto::spine::v1::*;
+use koad_proto::citadel::v5::admin_client::AdminClient;
+use koad_proto::citadel::v5::*;
 use rusqlite::params;
 use std::env;
 
@@ -15,6 +15,7 @@ pub async fn handle_intel_action(
     agent_name: &str,
 ) -> Result<()> {
     let _model_tier = detect_model_tier();
+    let context = Some(crate::utils::get_trace_context(agent_name, 3)); // Level 3 = Citadel scope
     match action {
         IntelAction::Query {
             term,
@@ -49,13 +50,14 @@ pub async fn handle_intel_action(
 
             let session_id = env::var("KOAD_SESSION_ID")
                 .context("KOAD_SESSION_ID not set. Please boot an agent first.")?;
-            let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
+            let mut client = AdminClient::connect(config.network.citadel_grpc_addr.clone())
                 .await
-                .context("Failed to connect to Spine gRPC")?;
+                .context("Failed to connect to Citadel gRPC")?;
 
             client
                 .commit_knowledge(crate::utils::authenticated_request(
                     CommitKnowledgeRequest {
+                        context: context.clone(),
                         session_id,
                         category: cat_str.to_string(),
                         content: text,
@@ -65,18 +67,19 @@ pub async fn handle_intel_action(
                 .await
                 .context("Commit failed")?;
 
-            println!("Memory updated via Spine.");
+            println!("Memory updated via Citadel.");
         }
         IntelAction::Ponder { text, tags } => {
             let session_id = env::var("KOAD_SESSION_ID")
                 .context("KOAD_SESSION_ID not set. Please boot an agent first.")?;
-            let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
+            let mut client = AdminClient::connect(config.network.citadel_grpc_addr.clone())
                 .await
-                .context("Failed to connect to Spine gRPC")?;
+                .context("Failed to connect to Citadel gRPC")?;
 
             client
                 .commit_knowledge(crate::utils::authenticated_request(
                     CommitKnowledgeRequest {
+                        context: context.clone(),
                         session_id,
                         category: "pondering".to_string(),
                         content: text,
@@ -86,7 +89,7 @@ pub async fn handle_intel_action(
                 .await
                 .context("Commit failed")?;
 
-            println!("Reflection recorded via Spine.");
+            println!("Reflection recorded via Citadel.");
         }
         IntelAction::Guide { topic: _ } => {
             feature_gate("koad guide", None);
@@ -124,14 +127,15 @@ pub async fn handle_intel_action(
             bypass,
         } => {
             println!(
-                ">>> [UPLINK] Connecting to Spine at {}...",
-                config.network.spine_grpc_addr
+                ">>> [UPLINK] Connecting to Citadel at {}...",
+                config.network.citadel_grpc_addr
             );
-            let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
+            let mut client = AdminClient::connect(config.network.citadel_grpc_addr.clone())
                 .await
                 .context("Connect failed.")?;
             let resp = client
                 .get_file_snippet(crate::utils::authenticated_request(GetFileSnippetRequest {
+                    context: context.clone(),
                     path: path.to_string_lossy().to_string(),
                     start_line: start,
                     end_line: end,

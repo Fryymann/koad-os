@@ -4,12 +4,12 @@ version = "3.2"
 [network]
 gateway_port = 3000
 gateway_addr = "0.0.0.0:3000"
-spine_grpc_port = 50051
-spine_grpc_addr = "http://127.0.0.1:50051"
+citadel_grpc_port = 50051
+citadel_grpc_addr = "http://127.0.0.1:50051"
 cass_grpc_port = 50052
 cass_grpc_addr = "http://127.0.0.1:50052"
 redis_socket = "koad.sock"
-spine_socket = "kspine.sock"
+citadel_socket = "kcitadel.sock"
 
 [storage]
 db_name = "koad.db"

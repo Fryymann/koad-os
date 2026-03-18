@@ -4,5 +4,5 @@ workspace_symlink = "/home/ideans/data"
 [filesystem.mappings]
 data = "/mnt/c/data"
 projects = "/mnt/c/data/projects"
-skylinks = "/mnt/c/data/skylinks"
+skylinks = "/home/ideans/data/skylinks/.agents/.sky"
 personal = "/mnt/c/data/personal"

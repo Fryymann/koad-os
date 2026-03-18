@@ -1,8 +1,8 @@
 use crate::cli::SignalAction;
 use anyhow::Result;
 use koad_core::config::KoadConfig;
-use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
-use koad_proto::spine::v1::*;
+use koad_proto::citadel::v5::signal_client::SignalClient;
+use koad_proto::citadel::v5::*;
 use std::collections::HashMap;
 use std::env;
 
@@ -11,8 +11,9 @@ pub async fn handle_signal_action(
     config: &KoadConfig,
     agent_name: &str,
 ) -> Result<()> {
-    let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await?;
+    let mut client = SignalClient::connect(config.network.citadel_grpc_addr.clone()).await?;
     let _session_id = env::var("KOAD_SESSION_ID").unwrap_or_else(|_| agent_name.to_string());
+    let context = Some(crate::utils::get_trace_context(agent_name, 3)); // Level 3 = Citadel scope
 
     match action {
         SignalAction::Send {
@@ -29,6 +30,7 @@ pub async fn handle_signal_action(
 
             client
                 .send_signal(crate::utils::authenticated_request(SendSignalRequest {
+                    context: context.clone(),
                     target_agent: target.clone(),
                     message,
                     priority: p as i32,
@@ -40,6 +42,7 @@ pub async fn handle_signal_action(
         SignalAction::List { all: _all } => {
             let res = client
                 .get_signals(crate::utils::authenticated_request(GetSignalsRequest {
+                    context: context.clone(),
                     agent_name: agent_name.to_string(),
                     filter_status: SignalStatus::Pending as i32,
                 }))
@@ -68,6 +71,7 @@ pub async fn handle_signal_action(
         SignalAction::Read { id } => {
             let res = client
                 .get_signals(crate::utils::authenticated_request(GetSignalsRequest {
+                    context: context.clone(),
                     agent_name: agent_name.to_string(),
                     filter_status: SignalStatus::Pending as i32,
                 }))
@@ -84,6 +88,7 @@ pub async fn handle_signal_action(
                 client
                     .update_signal_status(crate::utils::authenticated_request(
                         UpdateSignalStatusRequest {
+                            context: context.clone(),
                             signal_id: sig.id,
                             status: SignalStatus::Read as i32,
                         },
@@ -97,6 +102,7 @@ pub async fn handle_signal_action(
             client
                 .update_signal_status(crate::utils::authenticated_request(
                     UpdateSignalStatusRequest {
+                        context: context.clone(),
                         signal_id: id,
                         status: SignalStatus::Archived as i32,
                     },

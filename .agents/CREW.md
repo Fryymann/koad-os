@@ -14,7 +14,7 @@
 
 ## Deployment Protocols
 - **Booting:** Agents must be instantiated via `eval $(koad-agent boot <AgentName>)` to hydrate their shell.
-- **Sovereignty:** Tyr owns `~/.tyr/`; Sky owns `/mnt/c/data/skylinks/`. No cross-bay writes.
+- **Sovereignty:** Tyr owns `~/.tyr/`; Sky owns `/home/ideans/data/skylinks/.agents/.sky/`. No cross-bay writes.
 - **Isolation:** Contractor (Claude) is restricted to `~/.koad-os/` worktree.
 - **Identity:** All agents must reference their identity TOML in `config/identities/`.
 - **Communication:** Use `~/.tyr/logs/` or `koad:stream:*` (Phase 2+) for inter-agent awareness.

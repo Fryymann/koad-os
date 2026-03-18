@@ -18,9 +18,9 @@ pub const BACKUP_DIR_SQLITE: &str = "backups/sqlite";
 pub const BACKUP_DIR_REDIS: &str = "backups/redis";
 pub const BACKUP_DIR_SYSTEM: &str = "backups/system";
 
-/// Default address for the KoadOS Spine gRPC service
-pub const DEFAULT_SPINE_GRPC_PORT: u32 = 50051;
-pub const DEFAULT_SPINE_GRPC_ADDR: &str = "http://127.0.0.1:50051";
+/// Default address for the KoadOS Citadel gRPC service
+pub const DEFAULT_CITADEL_GRPC_PORT: u32 = 50051;
+pub const DEFAULT_CITADEL_GRPC_ADDR: &str = "http://127.0.0.1:50051";
 
 /// Default address for the KoadOS CASS gRPC service
 pub const DEFAULT_CASS_GRPC_PORT: u32 = 50052;
@@ -35,14 +35,14 @@ pub const DND_BEYOND_CHAR_SERVICE: &str =
 /// Default Redis socket filename
 pub const DEFAULT_REDIS_SOCK: &str = "koad.sock";
 
-/// Default Spine socket filename
-pub const DEFAULT_SPINE_SOCK: &str = "kspine.sock";
+/// Default Citadel socket filename
+pub const DEFAULT_CITADEL_SOCK: &str = "kcitadel.sock";
 
 /// Default Admin socket filename
 pub const DEFAULT_ADMIN_SOCK: &str = "kadmin.sock";
 
 /// Default PID filenames
-pub const DEFAULT_SPINE_PID: &str = "kspine.pid";
+pub const DEFAULT_CITADEL_PID: &str = "kcitadel.pid";
 pub const DEFAULT_GATEWAY_PID: &str = "kgateway.pid";
 
 /// Redis Channels

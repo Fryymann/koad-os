@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use koad_core::config::KoadConfig;
-use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
+use koad_proto::citadel::v5::citadel_session_client::CitadelSessionClient;
 use std::env;
 use std::path::Path;
 use tonic::transport::Channel;
@@ -11,10 +11,22 @@ pub enum PreFlightStatus {
     Critical(String),
 }
 
-pub async fn get_spine_client(config: &KoadConfig) -> Result<SpineServiceClient<Channel>> {
-    SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
+pub async fn get_citadel_client(config: &KoadConfig) -> Result<CitadelSessionClient<Channel>> {
+    CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone())
         .await
-        .context("Failed to connect to Koad Spine gRPC")
+        .context("Failed to connect to Koad Citadel gRPC")
+}
+
+use koad_proto::citadel::v5::TraceContext;
+
+pub fn get_trace_context(actor: &str, level: i32) -> TraceContext {
+    TraceContext {
+        trace_id: format!("TRC-{}-{}", actor, &uuid::Uuid::new_v4().to_string()[..8]),
+        origin: "CLI".to_string(),
+        actor: actor.to_string(),
+        timestamp: Some(prost_types::Timestamp::from(std::time::SystemTime::now())),
+        level,
+    }
 }
 
 pub fn authenticated_request<T>(payload: T) -> tonic::Request<T> {

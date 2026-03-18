@@ -129,12 +129,12 @@ mod tests {
                 "network": {
                     "gateway_port": 7700,
                     "gateway_addr": "127.0.0.1",
-                    "spine_grpc_port": 50051,
-                    "spine_grpc_addr": "127.0.0.1",
+                    "citadel_grpc_port": 50051,
+                    "citadel_grpc_addr": "127.0.0.1",
                     "cass_grpc_port": 50052,
                     "cass_grpc_addr": "127.0.0.1",
                     "redis_socket": "/tmp/redis.sock",
-                    "spine_socket": "/tmp/spine.sock"
+                    "citadel_socket": "/tmp/citadel.sock"
                 },
                 "storage": { "db_name": "koad_test.db", "drain_interval_secs": 60 },
                 "sandbox": {

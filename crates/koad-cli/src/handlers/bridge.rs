@@ -1,11 +1,11 @@
 use crate::cli::{BridgeAction, NotionAction, StreamAction};
 use crate::db::KoadDB;
-use crate::utils::get_spine_client;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use koad_bridge_notion::NotionClient;
 use koad_core::config::KoadConfig;
-use koad_proto::spine::v1::{EventSeverity, SystemEvent};
+use koad_proto::citadel::v5::admin_client::AdminClient;
+use koad_proto::citadel::v5::{EventSeverity, SystemEvent};
 use std::env;
 use uuid::Uuid;
 
@@ -54,7 +54,9 @@ pub async fn handle_bridge_action(
                 message,
                 msg_type,
             } => {
-                let mut client = get_spine_client(config).await?;
+                let mut client = AdminClient::connect(config.network.citadel_grpc_addr.clone())
+                    .await
+                    .context("Failed to connect to Citadel gRPC")?;
 
                 let severity = match msg_type.to_uppercase().as_str() {
                     "DEBUG" => EventSeverity::Debug,
@@ -64,6 +66,8 @@ pub async fn handle_bridge_action(
                     "CRITICAL" => EventSeverity::Critical,
                     _ => EventSeverity::Info,
                 };
+
+                let context = Some(crate::utils::get_trace_context(&agent_name, 3));
 
                 let event = SystemEvent {
                     event_id: Uuid::new_v4().to_string(),
@@ -75,6 +79,7 @@ pub async fn handle_bridge_action(
                         seconds: Utc::now().timestamp(),
                         nanos: Utc::now().timestamp_subsec_nanos() as i32,
                     }),
+                    context,
                 };
 
                 client.post_system_event(event).await?;

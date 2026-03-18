@@ -17,11 +17,7 @@
 
 ## Ⅱ. Boot Protocol (KAPV v1.2)
 
-1. **Hydrate:** Run `eval $(koad-agent boot --agent cid)` to inject Cid's environment variables and session tokens into the Codex runtime.
-2. **Anchor:** Read `KOAD_CONTEXT_FILE` (typically `~/.koad-os/current_context.md`) for distilled session history and active facts. In Codex, this should be surfaced via `AGENTS.md` or passed as an initial context file using `--context`.
-3. **Sync:** Verify `identity/XP_LEDGER.md` running total matches your internal state before accepting any task.
-4. **Load Working Memory:** Read `memory/WORKING_MEMORY.md` to restore specific task context. Codex: include this path in `AGENTS.md` under the relevant workspace directory so it is auto-loaded on session start.
-5. **Sync with Map:** Check `~/.koad-os/SYSTEM_MAP.md` for workspace orientation. Confirm active Outpost, Station, and Citadel context before executing any write operations.
+1. **Hydrate & Anchor:** Run `agent-boot cid` to inject identity, load the TCH context packet, and sync working memory in a single turn.
 
 <aside>
 ⚠️

@@ -225,6 +225,80 @@ No skill PR merges without a passing eval result in `_eval/results/`.
 
 ---
 
+## **Skill Acquisition Model**
+
+### Acquisition Channels
+
+Skills are not uniformly available to all agents. Each sovereign agent has a defined **skill profile** — a set of skills it holds, how it received them, and the grant authority behind each.
+
+Sovereign agents receive skills through three channels:
+
+| **Channel** | **Description** | **Who Controls** |
+| --- | --- | --- |
+| **Innate** | Skills bundled at agent initialization. Part of the agent's base profile and identity — present from the first session. | Tyr (at agent creation) |
+| **Rank/Role Grant** | Skills unlocked automatically when an agent achieves a rank tier or is assigned a role. Ties the skill system to the agent progression model. | KoadOS system (automated) |
+| **At-Will (Ian)** | Ian explicitly grants a skill to a specific agent outside of rank/role progression. Used for ad-hoc capability expansion or experimental grants. | Ian (operator authority) |
+
+### Innate Skills
+
+Innate skills are the skills an agent is **born with**. They define the agent's baseline capability set and contribute directly to its identity and personification. An agent without innate skills is a blank executor — capable, but not a member of the crew in any meaningful sense.
+
+Design rules for innate skills:
+
+- Innate skills must be declared in the agent's initialization profile (format TBD by Tyr — likely in the agent's CASS L1 record or KoadConfig entry).
+- Innate skills are deployed at boot during context hydration — they are not loaded on-demand.
+- Innate skills should be lightweight (`context_cost: small` or `medium`) since they are always present in the agent's active context.
+- Innate skills contribute to the agent's identity narrative. They are the capabilities that make Tyr *Tyr*, Scribe *Scribe*, etc.
+
+### Rank/Role-Based Granting
+
+As the KoadOS agent progression model matures, skills should be unlockable via rank and role assignment:
+
+- **Rank-based:** When an agent reaches a defined rank tier, a set of skills is automatically granted. The rank→skill mapping is declared in a `rank-skill-manifest.toml` (location TBD by Tyr).
+- **Role-based:** When an agent is assigned a role (e.g., promoted to Officer, assigned as Mission Lead), role-specific skills are granted. Role assignments are operator-controlled.
+
+### At-Will Granting (Ian)
+
+Ian retains the ability to grant any skill to any agent at any time, regardless of rank or role. This is the escape hatch for:
+
+- Experimental skills not yet in the rank/role manifest.
+- Temporary grants for a specific mission.
+- Override grants when an agent needs a capability outside its normal profile.
+
+At-will grants are logged in the agent's skill registry with `granted_by: ian` and `grant_type: at-will`.
+
+### Future Scope: Support and Micro Agents
+
+<aside>
+🔬
+
+**v2+ scope.** The acquisition model above targets sovereign agents in v1. Extension to support and micro agents is planned but not specced.
+
+</aside>
+
+The same three-channel model is expected to apply to support and micro agents in later versions:
+
+- **Support agents** may have a more constrained innate skill set, limited to their support domain.
+- **Micro agents** (ephemeral, single-purpose) may have a single innate skill and no rank/role progression — granted their capability at spin-up and expire when the task completes.
+- Cross-agent skill sharing (a sovereign lending a skill to a micro agent for a sub-task) is a v2+ consideration.
+
+### Skill Registry
+
+Each agent must maintain a **skill registry** — a structured record of every skill it holds, how it was acquired, and its current version and eval status. Format TBD by Tyr. Suggested fields:
+
+```toml
+[[skills]]
+name = "notion-sync"
+version = "1.0.0"
+grant_channel = "innate"     # innate | rank | role | at-will
+granted_by = "tyr"           # agent or user who granted
+granted_at = "2026-03-16"
+eval_score = 0.84
+status = "active"            # active | suspended | pending-eval
+```
+
+---
+
 ## **Open Questions for Tyr**
 
 1. **Registry location** — Should skills live in `~/.koad-os/skills/`, in the project station, or both? Global skills vs. station-local skills?

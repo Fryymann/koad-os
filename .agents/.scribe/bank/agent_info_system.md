@@ -27,7 +27,7 @@ status: 🟢 CONDITION GREEN
   - *Global:* `/home/ideans/.koad-os/.agents/.tyr/`
   - *Local:* `/home/ideans/.tyr/`
 - **Vigil Vault:** `/home/ideans/.koad-os/.agents/.vigil/`
-- **Sky (SLE) Vault:** `/home/ideans/data/skylinks/.sky/`
+- **Sky (SLE) Vault:** `/home/ideans/data/skylinks/.agents/.sky/`
 
 ## IV. Legacy Authority
 - **Legacy Context (Read-Only):** `/home/ideans/.koad-os/legacy/data/koad.db`

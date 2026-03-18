@@ -3,7 +3,7 @@ use anyhow::Result;
 use fred::interfaces::HashesInterface;
 use koad_core::config::KoadConfig;
 use koad_core::utils::redis::RedisClient;
-use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
+use koad_proto::citadel::v5::citadel_session_client::CitadelSessionClient;
 use std::env;
 use sysinfo::System;
 
@@ -21,12 +21,12 @@ pub async fn handle_cognitive_check(
     // --- Layer 1: Tethering ---
     let session_id = env::var("KOAD_SESSION_ID").unwrap_or_default();
     if !session_id.is_empty() {
-        match SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
+        match CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone()).await {
             Ok(_) => println!(
                 "[32m[PASS][0m L1: Tethered (Session: {})[0m",
                 &session_id[..8]
             ),
-            Err(_) => println!("[31m[FAIL][0m L1: Spine Disconnected"),
+            Err(_) => println!("[31m[FAIL][0m L1: Citadel Disconnected"),
         }
     } else {
         println!("[33m[WARN][0m L1: Session ID not found in environment");

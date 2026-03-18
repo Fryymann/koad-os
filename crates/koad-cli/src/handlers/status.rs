@@ -9,11 +9,21 @@ use serde_json::Value;
 use sysinfo::System;
 
 pub async fn handle_status_command(
-    _json: bool,
+    json: bool,
     full: bool,
     config: &KoadConfig,
     _db: &KoadDB,
 ) -> Result<()> {
+    if full && !json {
+        let systems = koad_core::health::HealthRegistry::check_subsystems(config).await;
+        crate::tui::render_citadel_status_board(&systems);
+        return Ok(());
+    }
+
+    if json {
+        // ... json output logic ...
+        return Ok(());
+    }
     println!(
         "
 \x1b[1m--- [TELEMETRY] Neural Link & Grid Integrity ---\x1b[0m"
@@ -32,11 +42,11 @@ pub async fn handle_status_command(
         }
     };
 
-    // 2. Backbone (Spine)
-    print!("{:<30}", "Backbone (Spine):");
-    let spine_socket = config.home.join("kspine.sock");
-    if spine_socket.exists() {
-        println!("\x1b[32m[PASS]\x1b[0m Neural bus (kspine.sock) active.");
+    // 2. Control Plane (Citadel)
+    print!("{:<30}", "Control Plane (Citadel):");
+    let citadel_socket = config.get_citadel_socket();
+    if citadel_socket.exists() {
+        println!("\x1b[32m[PASS]\x1b[0m Neural bus (kcitadel.sock) active.");
     } else {
         println!("\x1b[33m[WARN]\x1b[0m Orchestrator link severed. Some features offline.");
     }
@@ -53,7 +63,7 @@ pub async fn handle_status_command(
         println!("\x1b[32m[PASS]\x1b[0m Gateway pulse detected.");
     } else {
         println!(
-            "\x1b[31m[FAIL]\x1b[0m Web Deck is DARK. The Spine is attempting autonomic recovery."
+            "\x1b[31m[FAIL]\x1b[0m Web Deck is DARK. The Citadel is attempting autonomic recovery."
         );
     }
 

@@ -85,6 +85,84 @@ impl Admin for AdminService {
             context: req.context,
         }))
     }
+
+    /// Commit knowledge/learnings to the Memory Bank.
+    async fn commit_knowledge(
+        &self,
+        request: Request<CommitKnowledgeRequest>,
+    ) -> Result<Response<StatusResponse>, Status> {
+        let req = request.into_inner();
+        info!("Admin: Commit knowledge requested");
+
+        // Logic would go here to persist to SQLite/Redis
+        Ok(Response::new(StatusResponse {
+            success: true,
+            message: "Knowledge committed (Placeholder)".to_string(),
+            context: req.context,
+        }))
+    }
+
+    /// Retrieve a snippet of a file from the Citadel's cache or disk.
+    async fn get_file_snippet(
+        &self,
+        request: Request<GetFileSnippetRequest>,
+    ) -> Result<Response<SnippetResponse>, Status> {
+        let req = request.into_inner();
+        info!(path = %req.path, "Admin: Get file snippet requested");
+
+        Ok(Response::new(SnippetResponse {
+            content: "Snippet content placeholder".to_string(),
+            total_lines: 0,
+            source: "placeholder".to_string(),
+            context: req.context,
+        }))
+    }
+
+    /// Post a system event to the telemetry stream.
+    async fn post_system_event(
+        &self,
+        request: Request<SystemEvent>,
+    ) -> Result<Response<StatusResponse>, Status> {
+        let req = request.into_inner();
+        info!(message = %req.message, "Admin: Post system event requested");
+
+        Ok(Response::new(StatusResponse {
+            success: true,
+            message: "System event posted".to_string(),
+            context: req.context,
+        }))
+    }
+
+    /// Trigger a system-wide backup or a specific source.
+    async fn trigger_backup(
+        &self,
+        request: Request<TriggerBackupRequest>,
+    ) -> Result<Response<TriggerBackupResponse>, Status> {
+        let req = request.into_inner();
+        info!(source = %req.source, "Admin: Trigger backup requested");
+
+        Ok(Response::new(TriggerBackupResponse {
+            success: true,
+            message: "Backup triggered (Placeholder)".to_string(),
+            backup_id: "bkp-placeholder".to_string(),
+            context: req.context,
+        }))
+    }
+
+    /// Flush all volatile context for a session.
+    async fn flush_context(
+        &self,
+        request: Request<FlushContextRequest>,
+    ) -> Result<Response<StatusResponse>, Status> {
+        let req = request.into_inner();
+        info!(session_id = %req.session_id, "Admin: Flush context requested");
+
+        Ok(Response::new(StatusResponse {
+            success: true,
+            message: "Context flushed".to_string(),
+            context: req.context,
+        }))
+    }
 }
 
 #[cfg(test)]

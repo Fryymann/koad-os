@@ -42,7 +42,7 @@ pub async fn handle_whoami(config: &KoadConfig, _db: &KoadDB) -> Result<()> {
     }
 
     if !session_id.is_empty() {
-        println!("\x1b[33m[Warning] KOAD_SESSION_ID is set but no matching active session was found in the Spine.\x1b[0m");
+        println!("\x1b[33m[Warning] KOAD_SESSION_ID is set but no matching active session was found in the Citadel.\x1b[0m");
     }
 
     // Fallback to first identity in config

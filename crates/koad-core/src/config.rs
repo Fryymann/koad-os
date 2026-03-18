@@ -8,11 +8,46 @@ use std::path::{Path, PathBuf};
 use crate::constants::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CitadelSubsystem {
+    pub id: String,
+    pub name: String,
+    pub subsystem: String,
+    pub enabled: bool,
+    pub stub: bool,
+    pub probe_type: String,
+    pub probe_target: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MotdConfig {
+    pub enabled: bool,
+    pub show_citadel_snapshot: bool,
+    pub show_agent_identity: bool,
+    pub show_stats: bool,
+    pub show_intelligence: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatusBoardConfig {
+    pub refresh_interval_secs: u64,
+    pub color_mode: String,
+    pub systems: Vec<CitadelSubsystem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CitadelStatusRegistry {
+    pub motd: MotdConfig,
+    pub status_board: StatusBoardConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KoadConfig {
     pub home: PathBuf,
     pub system: SystemConfig,
     pub network: NetworkConfig,
     pub storage: StorageConfig,
+    #[serde(default)]
+    pub status_registry: Option<CitadelStatusRegistry>,
     #[serde(default = "default_sessions")]
     pub sessions: SessionsConfig,
     #[serde(default = "default_watchdog")]
@@ -43,12 +78,15 @@ pub struct KoadConfig {
 pub struct NetworkConfig {
     pub gateway_port: u32,
     pub gateway_addr: String,
-    pub spine_grpc_port: u32,
-    pub spine_grpc_addr: String,
+    #[serde(alias = "spine_grpc_port")]
+    pub citadel_grpc_port: u32,
+    #[serde(alias = "spine_grpc_addr")]
+    pub citadel_grpc_addr: String,
     pub cass_grpc_port: u32,
     pub cass_grpc_addr: String,
     pub redis_socket: String,
-    pub spine_socket: String,
+    #[serde(alias = "spine_socket")]
+    pub citadel_socket: String,
     #[serde(default = "default_admin_socket")]
     pub admin_socket: String,
 }
@@ -162,6 +200,7 @@ pub struct AgentIdentityConfig {
     pub role: String,
     pub rank: String,
     pub bio: String,
+    pub vault: Option<String>,
     pub bootstrap: Option<String>,
     pub preferences: Option<AgentPreferences>,
 }
@@ -201,11 +240,38 @@ impl KoadConfig {
                 .join(".koad-os"),
         };
 
-        let config_path = home.join("config/kernel.toml");
-
-        let s = Config::builder()
+        let kernel_path = home.join("config/kernel.toml");
+        let status_path = home.join("config/citadel_status.toml");
+        let mut builder = Config::builder()
             .set_default("home", home.to_string_lossy().to_string())?
-            .add_source(File::from(config_path).required(false))
+            .add_source(File::from(kernel_path).required(false))
+            .add_source(File::from(status_path).required(false));
+
+        // Glob identities
+        let identities_dir = home.join("config/identities");
+        if identities_dir.exists() {
+            for entry in std::fs::read_dir(identities_dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                    builder = builder.add_source(File::from(path).required(false));
+                }
+            }
+        }
+
+        // Glob projects
+        let projects_dir = home.join("config/projects");
+        if projects_dir.exists() {
+            for entry in std::fs::read_dir(projects_dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                    builder = builder.add_source(File::from(path).required(false));
+                }
+            }
+        }
+
+        let s = builder
             .add_source(config::Environment::with_prefix("KOAD").separator("__"))
             .build()?;
 
@@ -228,8 +294,8 @@ impl KoadConfig {
         self.home.join(&self.network.redis_socket)
     }
 
-    pub fn get_spine_socket(&self) -> PathBuf {
-        self.home.join(&self.network.spine_socket)
+    pub fn get_citadel_socket(&self) -> PathBuf {
+        self.home.join(&self.network.citadel_socket)
     }
 
     pub fn get_admin_socket(&self) -> PathBuf {
@@ -287,12 +353,12 @@ pub fn default_network() -> NetworkConfig {
     NetworkConfig {
         gateway_port: DEFAULT_GATEWAY_PORT,
         gateway_addr: DEFAULT_GATEWAY_ADDR.to_string(),
-        spine_grpc_port: DEFAULT_SPINE_GRPC_PORT,
-        spine_grpc_addr: DEFAULT_SPINE_GRPC_ADDR.to_string(),
+        citadel_grpc_port: DEFAULT_CITADEL_GRPC_PORT,
+        citadel_grpc_addr: DEFAULT_CITADEL_GRPC_ADDR.to_string(),
         cass_grpc_port: DEFAULT_CASS_GRPC_PORT,
         cass_grpc_addr: DEFAULT_CASS_GRPC_ADDR.to_string(),
         redis_socket: DEFAULT_REDIS_SOCK.to_string(),
-        spine_socket: DEFAULT_SPINE_SOCK.to_string(),
+        citadel_socket: DEFAULT_CITADEL_SOCK.to_string(),
         admin_socket: DEFAULT_ADMIN_SOCK.to_string(),
     }
 }

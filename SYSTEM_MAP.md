@@ -41,9 +41,10 @@
 │   ├── integrations/  # External service (Airtable, Slack, etc.) config
 │   └── kernel.toml    # Primary OS configuration
 ├── crates/            # Active Rust crates (The rebuild source)
-│   ├── koad-core/     # Shared types and refactored logic
-│   ├── koad-proto/    # gRPC protobuf bindings
-│   └── koad-watchdog/ # System health monitoring
+├── koad-core/     # Shared types and refactored logic
+├── koad-proto/    # gRPC protobuf bindings
+└── koad-watchdog/ # Citadel health and self-healing
+
 ├── docs/              # Architectural references and research
 │   ├── protocols/     # Engineering and contribution standards
 │   ├── rebuild/       # Phase-specific implementation specs
@@ -70,12 +71,12 @@
 | **Scribe** | `.agents/.scribe/` | Active (This Vault) |
 | **Cid** | `.agents/.cid/` | Initialized |
 | **Vigil** | `.agents/.vigil/` | Initialized |
-| **Sky** | `/mnt/c/data/skylinks/` | Remote / Active |
+| **Sky** | `/mnt/c/data/skylinks/.agents/.sky/` | Active |
 
 ## Crate/Module Index
 - `crates/koad-core`: Shared primitives, types, and refactored legacy logic.
 - `crates/koad-proto`: Auto-generated gRPC code (via `tonic`).
-- `crates/koad-watchdog`: Heartbeats, signal checks, and self-healing logic.
+- `crates/koad-watchdog`: Heartbeats, signal checks, and Citadel self-healing.
 
 ## Documentation Index
 - `docs/rebuild/DIRECTORY_CLEANUP.md`: Status of the `personas/` -> `config/identities/` move.
@@ -85,9 +86,9 @@
 - `docs/protocols/RUST_CANON.md`: [MANDATORY] Rust development and coding standards.
 
 ## Stale/Deprecated Items
-- `legacy/`: All contents are retired.
+- `legacy/`: [ARCHIVE] All contents are retired Spine-era artifacts.
 - `new_world/old.DRAFT_PLAN*`: Superseded by `DRAFT_PLAN_3.md`.
-- `kspine.log*`: Legacy log files, to be rotated/archived.
+- `kcitadel.log*`: System log files (formerly kspine.log).
 
 ## Navigation Tips
 - **If you need an agent's identity:** Look in `config/identities/`, not `personas/`.

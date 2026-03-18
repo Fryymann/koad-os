@@ -1,10 +1,10 @@
 use crate::cli::ImportRoute;
 use crate::handlers::system::spawn_issue;
-use crate::utils::get_spine_client;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use koad_core::config::KoadConfig;
-use koad_proto::spine::v1::{HotContextChunk, HydrationRequest};
+use koad_proto::cass::v1::memory_service_client::MemoryServiceClient;
+use koad_proto::cass::v1::FactCard;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
@@ -39,7 +39,7 @@ pub async fn handle_import(
     println!(">>> Found {} potential payloads.", chunks.len());
 
     let mut client = if matches!(route, ImportRoute::Hydration) {
-        Some(get_spine_client(config).await?)
+        Some(MemoryServiceClient::connect(config.network.cass_grpc_addr.clone()).await?)
     } else {
         None
     };
@@ -88,27 +88,24 @@ pub async fn handle_import(
 
                 println!("[SYNC] Hydrating Context Chunk: {}...", title);
                 if let Some(c) = &mut client {
-                    let request = HydrationRequest {
+                    let request = FactCard {
+                        id: chunk_id,
+                        source_agent: "admiral".to_string(),
                         session_id: session_id.clone(),
-                        chunk: Some(HotContextChunk {
-                            chunk_id,
-                            content: format!("### {}\n{}", title, body),
-                            file_path: "".to_string(),
-                            ttl_seconds: 0, // Session-persistent
-                            created_at: Some(prost_types::Timestamp {
-                                seconds: Utc::now().timestamp(),
-                                nanos: Utc::now().timestamp_subsec_nanos() as i32,
-                            }),
+                        domain: "import".to_string(),
+                        content: format!("### {}\n{}", title, body),
+                        confidence: 1.0,
+                        tags: labels.clone(),
+                        created_at: Some(prost_types::Timestamp {
+                            seconds: Utc::now().timestamp(),
+                            nanos: Utc::now().timestamp_subsec_nanos() as i32,
                         }),
                     };
-                    let response = c.hydrate_context(request).await?.into_inner();
+                    let response = c.commit_fact(request).await?.into_inner();
                     if !response.success {
-                        println!("  \x1b[31m[ERROR]\x1b[0m {}", response.error);
+                        println!("  \x1b[31m[ERROR]\x1b[0m {}", response.message);
                     } else {
-                        println!(
-                            "  \x1b[32m[OK]\x1b[0m Size: {} chars",
-                            response.current_context_size
-                        );
+                        println!("  \x1b[32m[OK]\x1b[0m Fact committed to memory bank.");
                     }
                 }
             }

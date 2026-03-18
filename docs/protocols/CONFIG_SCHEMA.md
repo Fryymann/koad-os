@@ -10,7 +10,7 @@ level = "citadel"
 github_owner = "Fryymann"
 
 [projects.skylinks]
-path = "~/data/skylinks"
+path = "/home/ideans/data/skylinks/.agents/.sky"
 level = "station"
 github_owner = "Skylinks-Golf"
 ```

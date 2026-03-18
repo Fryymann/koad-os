@@ -1,6 +1,6 @@
 [interfaces.codex]
 name = "codex"
-bootstrap = "~/.koad-os/bodies/codex/BOOT.md"
+bootstrap = "~/.codex/AGENTS.md"
 mcp_enabled = false
 tools = [
     "run_shell_command",

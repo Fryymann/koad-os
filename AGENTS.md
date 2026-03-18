@@ -11,11 +11,11 @@
 
 Run this command immediately to inject your role, credentials, and latest session brief:
 ```bash
-eval $(koad-agent boot <YourAgentName>)
+agent-boot <YourAgentName>
 ```
-*Example for Tyr:* `eval $(koad-agent boot tyr)`
+*Example for Tyr:* `agent-boot tyr`
 
-This hydration layer aligns your persona, saves orientation tokens, and generates your **Temporal Context Packet**. **Do not perform work in a dry shell.**
+This command performs the `koad-agent boot` hydration AND delivers a consolidated **Context Packet** (Session Brief, Vault files, and System Map) in a single turn. It is the most token-efficient way to anchor your identity.
 
 ---
 

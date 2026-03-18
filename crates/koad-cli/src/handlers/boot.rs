@@ -7,6 +7,7 @@ use koad_proto::cass::v1::hydration_service_client::HydrationServiceClient;
 use koad_proto::cass::v1::HydrationRequest;
 use koad_proto::citadel::v5::citadel_session_client::CitadelSessionClient;
 use koad_proto::citadel::v5::{CloseRequest, LeaseRequest, TurnMetrics};
+use crate::handlers::motd::show_motd;
 use std::env;
 use std::io::Write;
 
@@ -82,13 +83,15 @@ pub async fn handle_boot_command(opts: BootOptions, config: &KoadConfig) -> Resu
     f.write_all(packet.markdown_packet.as_bytes())?;
 
     // 3. Citadel Handshake (Lease + Telemetry)
-    let mut citadel = CitadelSessionClient::connect(config.network.spine_grpc_addr.clone())
+    let mut citadel = CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone())
         .await
         .context("Failed to connect to Citadel.")?;
 
+    let context = Some(crate::utils::get_trace_context(&agent, 3));
+
     let lease_resp = citadel
         .create_lease(LeaseRequest {
-            context: None,
+            context: context.clone(),
             agent_name: agent.clone(),
             project_root: current_dir.to_string_lossy().to_string(),
             force,
@@ -120,17 +123,9 @@ pub async fn handle_boot_command(opts: BootOptions, config: &KoadConfig) -> Resu
             context_file.display()
         );
     } else {
-        println!("\n\x1b[1m--- KoadOS Neural Link Established ---\x1b[0m");
-        println!("Agent:    {}", agent);
-        println!("Session:  {}", session_id);
-        println!(
-            "Context:  {} ({} tokens)",
-            context_file.display(),
-            packet.estimated_tokens
-        );
-        println!("\n\x1b[32m[BOOT COMPLETE]\x1b[0m");
+        show_motd(&agent, config).await?;
 
-        // Output the actual eval strings
+        // Output the actual eval strings (hidden but necessary for eval $(...))
         println!("export KOAD_SESSION_ID=\"{}\"", session_id);
         println!("export KOAD_BODY_ID=\"{}\"", body_id);
         println!("export KOAD_CONTEXT_FILE=\"{}\"", context_file.display());
@@ -145,11 +140,14 @@ pub async fn handle_logout_command(session: Option<String>, config: &KoadConfig)
         .or_else(|| env::var("KOAD_SESSION_ID").ok())
         .context("No active session ID found.")?;
 
-    let mut client = CitadelSessionClient::connect(config.network.spine_grpc_addr.clone()).await?;
+    let agent_name = env::var("KOAD_AGENT_NAME").unwrap_or_else(|_| "unknown".to_string());
+    let context = Some(crate::utils::get_trace_context(&agent_name, 3));
+
+    let mut client = CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone()).await?;
 
     client
         .close_session(CloseRequest {
-            context: None,
+            context,
             session_id: session_id.clone(),
             summary_path: String::new(),
         })

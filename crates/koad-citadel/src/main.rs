@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
 
     let _kernel = KernelBuilder::new()
         .with_home(config.home.clone())
-        .with_tcp(&format!("127.0.0.1:{}", config.network.spine_grpc_port))
+        .with_tcp(&format!("127.0.0.1:{}", config.network.citadel_grpc_port))
         .with_admin_uds(config.get_admin_socket())
         .with_config(config.clone())
         .start()

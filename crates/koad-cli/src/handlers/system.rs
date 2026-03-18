@@ -9,8 +9,11 @@ use futures_util::StreamExt;
 use koad_core::config::KoadConfig;
 use koad_core::utils::lock::DistributedLock;
 use koad_core::utils::redis::RedisClient;
-use koad_proto::spine::v1::spine_service_client::SpineServiceClient;
-use koad_proto::spine::v1::*;
+use koad_proto::citadel::v5::admin_client::AdminClient;
+use koad_proto::citadel::v5::citadel_session_client::CitadelSessionClient;
+use koad_proto::citadel::v5::*;
+use koad_proto::cass::v1::memory_service_client::MemoryServiceClient;
+use koad_proto::cass::v1::FactCard;
 use rusqlite::params;
 use serde_json::Value;
 use std::env;
@@ -207,7 +210,7 @@ pub async fn handle_system_action(
                         }
                     }
                     "gateway_addr" => hot_config.network.gateway_addr = value.clone(),
-                    "spine_grpc_addr" => hot_config.network.spine_grpc_addr = value.clone(),
+                    "citadel_grpc_addr" | "spine_grpc_addr" => hot_config.network.citadel_grpc_addr = value.clone(),
                     _ => {
                         hot_config.extra.insert(key.clone(), value.clone());
                     }
@@ -241,7 +244,7 @@ pub async fn handle_system_action(
                     println!("{}", val);
                 }
                 "gateway_addr" => println!("{}", config.network.gateway_addr),
-                "spine_grpc_addr" => println!("{}", config.network.spine_grpc_addr),
+                "citadel_grpc_addr" | "spine_grpc_addr" => println!("{}", config.network.citadel_grpc_addr),
                 _ => {
                     if let Some(v) = config.extra.get(&key) {
                         println!("{}", v);
@@ -300,7 +303,7 @@ pub async fn handle_system_action(
 
                 let links = [
                     ("koad", "koad"),
-                    ("kspine", "koad-spine"),
+                    ("kcitadel", "koad-citadel"),
                     ("koad-asm", "koad-asm"),
                     ("koad-watchdog", "koad-watchdog"),
                     ("koad-cli", "koad"),
@@ -329,16 +332,16 @@ pub async fn handle_system_action(
 
                 if restart {
                     println!(">>> [3/3] Rebooting Core Systems...");
-                    let _ = Command::new("pkill").arg("-9").arg("kspine").status();
+                    let _ = Command::new("pkill").arg("-9").arg("kcitadel").status();
                     let _ = Command::new("pkill").arg("-9").arg("koad-asm").status();
                     let _ = Command::new("pkill")
                         .arg("-9")
                         .arg("koad-watchdog")
                         .status();
 
-                    // Spine handles autonomic restart of ASM when started
-                    let spine_bin = bin_dir.join("kspine");
-                    let _ = Command::new(spine_bin).env("KOAD_HOME", &home).spawn();
+                    // Citadel handles autonomic restart of ASM when started
+                    let citadel_bin = bin_dir.join("kcitadel");
+                    let _ = Command::new(citadel_bin).env("KOAD_HOME", &home).spawn();
 
                     // Launch Watchdog
                     let watchdog_bin = bin_dir.join("koad-watchdog");
@@ -362,11 +365,15 @@ pub async fn handle_system_action(
             let now_ts = Local::now().format("%Y%m%d-%H%M%S").to_string();
 
             // 1. Memory Drain (gRPC)
-            println!(">>> [1/4] Neuronal Flush (Spine Drain)...");
-            match SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await {
+            println!(">>> [1/4] Neuronal Flush (Citadel Shutdown)...");
+            match AdminClient::connect(config.network.citadel_grpc_addr.clone()).await {
                 Ok(mut client) => {
+                    let context = Some(crate::utils::get_trace_context(agent_name, 3));
                     if let Err(e) = client
-                        .drain_all(crate::utils::authenticated_request(Empty {}))
+                        .shutdown(crate::utils::authenticated_request(ShutdownRequest {
+                            context,
+                            reason: "Sovereign Save Protocol initiated.".to_string(),
+                        }))
                         .await
                     {
                         warn!(
@@ -377,7 +384,7 @@ pub async fn handle_system_action(
                         println!("  [OK] Hot-stream drained to durable memory.");
                     }
                 }
-                Err(_) => warn!("  [SKIP] Spine offline. Skipping hot-stream drain."),
+                Err(_) => warn!("  [SKIP] Citadel offline. Skipping hot-stream drain."),
             }
 
             // 2. Cognitive Snapshot
@@ -688,27 +695,27 @@ pub async fn handle_system_action(
                 println!(">>> [RECONNECT] Searching for Ghost: {}...", target_agent);
             }
 
+            let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             let mut client =
-                SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await?;
-            let req = ReconnectSessionRequest {
+                CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone()).await?;
+            let context = Some(crate::utils::get_trace_context(&target_agent, 3));
+            let req = LeaseRequest {
+                context,
                 agent_name: target_agent.clone(),
                 body_id: body_id.clone(),
-                session_id: if live {
-                    session_id.clone()
-                } else {
-                    "".to_string()
-                },
+                project_root: current_dir.to_string_lossy().to_string(),
+                force: true, // Force re-sync
+                driver_id: "reconnect".to_string(),
+                metrics: None,
             };
 
-            let res = client.reconnect_session(req).await;
+            let res = client.create_lease(req).await;
 
             match res {
                 Ok(resp) => {
                     let pkg = resp.into_inner();
                     let sid = pkg.session_id;
-                    let identity: koad_core::identity::Identity =
-                        serde_json::from_str(&pkg.identity_json)?;
-
+                    
                     // Recover body_id from session if not in environment
                     let bid = body_id;
 
@@ -719,15 +726,9 @@ pub async fn handle_system_action(
                     } else {
                         println!("\n\x1b[32m--- KoadOS Neural Link RE-ESTABLISHED ---\x1b[0m");
                         println!("Agent:    {}", target_agent);
-                        println!("Rank:     {:?}", identity.rank);
                         println!("Session:  {}", sid);
                         println!("Body:     {}", bid);
                         println!("\nShell:    Run `export KOAD_SESSION_ID={} KOAD_BODY_ID={}` to bind this shell.", sid, bid);
-                    }
-
-                    if let Some(intel) = pkg.intelligence {
-                        println!("\n\x1b[1mBrain Refreshed:\x1b[0m");
-                        println!("{}", intel.mission_briefing);
                     }
                 }
                 Err(e) => {
@@ -743,8 +744,9 @@ pub async fn handle_system_action(
                 anyhow::bail!("Admin only.");
             }
             let mut client =
-                SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await?;
-            let req = TriggerBackupRequest { source };
+                AdminClient::connect(config.network.citadel_grpc_addr.clone()).await?;
+            let context = Some(crate::utils::get_trace_context(agent_name, 3));
+            let req = TriggerBackupRequest { context, source };
             let res = client
                 .trigger_backup(crate::utils::authenticated_request(req))
                 .await?
@@ -808,24 +810,28 @@ pub async fn handle_system_action(
             }
 
             if !confirm {
-                println!("\x1b[33m[SAFETY GATE]\x1b[0m This will shut down the KoadOS Spine and all background services.");
+                println!("\x1b[33m[SAFETY GATE]\x1b[0m This will shut down the KoadOS Citadel and all background services.");
                 println!("Run with --confirm to proceed.");
                 return Ok(());
             }
 
             if drain {
-                println!(">>> [1/2] Neuronal Flush (Spine Drain)...");
+                println!(">>> [1/2] Neuronal Flush (Citadel Shutdown)...");
                 if let Ok(mut client) =
-                    SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await
+                    AdminClient::connect(config.network.citadel_grpc_addr.clone()).await
                 {
+                    let context = Some(crate::utils::get_trace_context(agent_name, 3));
                     let _ = client
-                        .drain_all(crate::utils::authenticated_request(Empty {}))
+                        .shutdown(crate::utils::authenticated_request(ShutdownRequest {
+                            context,
+                            reason: "Manual system stop requested.".to_string(),
+                        }))
                         .await;
                 }
             }
 
             println!(">>> [2/2] Terminating KoadOS Core...");
-            let _ = Command::new("pkill").arg("koad-spine").status();
+            let _ = Command::new("pkill").arg("koad-citadel").status();
             let _ = Command::new("pkill").arg("koad-watchdog").status();
             println!("\x1b[32m[OK]\x1b[0m System halted.");
         }
@@ -848,15 +854,23 @@ pub async fn handle_heartbeat(
         .or_else(|| env::var("KOAD_SESSION_ID").ok())
         .context("No session ID provided or found in environment (KOAD_SESSION_ID).")?;
 
-    let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
+    let agent_name = config.get_agent_name();
+    let mut client = CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone())
         .await
-        .context("Failed to connect to Spine gRPC")?;
+        .context("Failed to connect to Citadel gRPC")?;
 
     if daemon {
         // Heartbeat Daemon: Subconscious Neural Pulse
         loop {
+            let context = Some(crate::utils::get_trace_context(&agent_name, 1));
+            let req = HeartbeatRequest {
+                context,
+                session_id: session_id.clone(),
+                metrics: None,
+            };
+
             if let Err(e) = client
-                .heartbeat(crate::utils::authenticated_request(Empty {}))
+                .heartbeat(crate::utils::authenticated_request(req))
                 .await
             {
                 warn!(
@@ -866,20 +880,25 @@ pub async fn handle_heartbeat(
 
                 // 1. Re-connect to gRPC
                 if let Ok(mut c) =
-                    SpineServiceClient::connect(config.network.spine_grpc_addr.clone()).await
+                    CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone()).await
                 {
-                    // 2. If session is unknown to Spine (e.g. Spine rebooted), trigger Live Reconnect
+                    // 2. If session is unknown to Citadel (e.g. Citadel rebooted), trigger Live Reconnect
                     if e.code() == tonic::Code::NotFound || e.code() == tonic::Code::Unavailable {
-                        let agent_name = config.get_agent_name();
                         let body_id = env::var("KOAD_BODY_ID").unwrap_or_default();
-                        let rec_req = ReconnectSessionRequest {
-                            agent_name,
+                        let current_dir = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                        let context = Some(crate::utils::get_trace_context(&agent_name, 3));
+                        let rec_req = LeaseRequest {
+                            context,
+                            agent_name: agent_name.clone(),
                             body_id,
-                            session_id: session_id.clone(),
+                            project_root: current_dir.to_string_lossy().to_string(),
+                            force: true,
+                            driver_id: "heartbeat-recovery".to_string(),
+                            metrics: None,
                         };
-                        if c.reconnect_session(rec_req).await.is_ok() {
+                        if c.create_lease(rec_req).await.is_ok() {
                             info!(
-                                "Subconscious Recovery: Session {} re-linked to Spine.",
+                                "Subconscious Recovery: Session {} re-linked to Citadel.",
                                 session_id
                             );
                         }
@@ -890,8 +909,13 @@ pub async fn handle_heartbeat(
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         }
     } else {
+        let context = Some(crate::utils::get_trace_context(&agent_name, 1));
         client
-            .heartbeat(crate::utils::authenticated_request(Empty {}))
+            .heartbeat(crate::utils::authenticated_request(HeartbeatRequest {
+                context,
+                session_id: session_id.clone(),
+                metrics: None,
+            }))
             .await?;
         println!(
             "\x1b[32m[OK]\x1b[0m Heartbeat transmitted for session {}.",
@@ -907,16 +931,16 @@ pub async fn handle_context_action(
     db: &KoadDB,
     agent_name: &str,
 ) -> Result<()> {
-    let mut client = SpineServiceClient::connect(config.network.spine_grpc_addr.clone())
+    let mut client = AdminClient::connect(config.network.citadel_grpc_addr.clone())
         .await
-        .context("Failed to connect to Spine gRPC")?;
+        .context("Failed to connect to Citadel gRPC")?;
 
     match action {
         crate::cli::ContextAction::Hydrate {
             session,
             path,
             text,
-            ttl,
+            ttl: _,
         } => {
             let session_id = if let Some(s) = session {
                 s
@@ -949,28 +973,32 @@ pub async fn handle_context_action(
                 format!("{:x}", hasher.finalize())
             };
 
-            let req = HydrationRequest {
+            let mut cass = MemoryServiceClient::connect(config.network.cass_grpc_addr.clone()).await?;
+            let req = FactCard {
+                id: chunk_id,
+                source_agent: agent_name.to_string(),
                 session_id: session_id.clone(),
-                chunk: Some(HotContextChunk {
-                    chunk_id,
-                    content,
-                    file_path: file_path.unwrap_or_default(),
-                    ttl_seconds: ttl,
-                    created_at: None,
+                domain: "context".to_string(),
+                content,
+                confidence: 1.0,
+                tags: vec!["manual-hydration".to_string()],
+                created_at: Some(prost_types::Timestamp {
+                    seconds: Local::now().timestamp(),
+                    nanos: Local::now().timestamp_subsec_nanos() as i32,
                 }),
             };
 
-            let res = client
-                .hydrate_context(crate::utils::authenticated_request(req))
+            let res = cass
+                .commit_fact(req)
                 .await?
                 .into_inner();
             if res.success {
                 println!(
-                    "\x1b[32m[OK]\x1b[0m Context Hydrated for session {}. Current size: {} bytes.",
-                    session_id, res.current_context_size
+                    "\x1b[32m[OK]\x1b[0m Context Hydrated for session {}.",
+                    session_id
                 );
             } else {
-                println!("\x1b[31m[ERROR]\x1b[0m Hydration Failed: {}", res.error);
+                println!("\x1b[31m[ERROR]\x1b[0m Hydration Failed: {}", res.message);
             }
         }
         crate::cli::ContextAction::Flush { session, confirm } => {
@@ -988,6 +1016,7 @@ pub async fn handle_context_action(
 
             client
                 .flush_context(crate::utils::authenticated_request(FlushContextRequest {
+                    context: Some(crate::utils::get_trace_context(agent_name, 3)),
                     session_id: target_sid.clone(),
                 }))
                 .await?;
@@ -1072,28 +1101,29 @@ pub async fn handle_context_action(
 
             // 3. Hydrate chunks via gRPC
             let mut success_count = 0;
+            let mut cass = MemoryServiceClient::connect(config.network.cass_grpc_addr.clone()).await?;
             for (chunk_id, chunk_val) in hot_context {
                 if let Ok(chunk_data) =
                     serde_json::from_str::<serde_json::Value>(chunk_val.as_str().unwrap_or(""))
                 {
-                    let req = HydrationRequest {
+                    let req = FactCard {
+                        id: chunk_id.clone(),
+                        source_agent: agent_name.to_string(),
                         session_id: target_session_id.clone(),
-                        chunk: Some(HotContextChunk {
-                            chunk_id: chunk_id.clone(),
-                            content: chunk_data["content"]
-                                .as_str()
-                                .unwrap_or_default()
-                                .to_string(),
-                            file_path: chunk_data["file_path"]
-                                .as_str()
-                                .unwrap_or_default()
-                                .to_string(),
-                            ttl_seconds: chunk_data["ttl_seconds"].as_i64().unwrap_or(0) as i32,
-                            created_at: None,
+                        domain: "restore".to_string(),
+                        content: chunk_data["content"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_string(),
+                        confidence: 1.0,
+                        tags: vec!["snapshot-restore".to_string()],
+                        created_at: Some(prost_types::Timestamp {
+                            seconds: Local::now().timestamp(),
+                            nanos: Local::now().timestamp_subsec_nanos() as i32,
                         }),
                     };
 
-                    if client.hydrate_context(req).await.is_ok() {
+                    if cass.commit_fact(req).await.is_ok() {
                         success_count += 1;
                     }
                 }

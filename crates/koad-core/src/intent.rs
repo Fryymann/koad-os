@@ -77,7 +77,7 @@ pub struct SystemIntent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum SystemAction {
-    /// Reboot the KoadOS Kernel (spine).
+    /// Reboot the KoadOS Kernel (Citadel).
     Reboot,
     /// Trigger a full synchronization with Notion.
     SyncNotion,

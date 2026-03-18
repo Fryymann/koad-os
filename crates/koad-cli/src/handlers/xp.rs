@@ -8,15 +8,16 @@ use crate::cli::XpCommands;
 
 /// Main entry point for XP-related CLI actions.
 pub async fn handle_xp_command(command: XpCommands, config: &KoadConfig) -> Result<()> {
-    let mut client = XpServiceClient::connect(config.network.spine_grpc_addr.clone())
+    let mut client = XpServiceClient::connect(config.network.citadel_grpc_addr.clone())
         .await
         .context("Failed to connect to Citadel XP Service")?;
 
     match command {
         XpCommands::Status { agent } => {
             let agent_name = agent.unwrap_or_else(|| config.get_agent_name());
+            let context = Some(crate::utils::get_trace_context(&agent_name, 1));
             let resp = client.get_status(XpStatusRequest {
-                context: None,
+                context,
                 agent_name: agent_name.clone(),
             }).await?.into_inner();
 
@@ -44,8 +45,9 @@ pub async fn handle_xp_command(command: XpCommands, config: &KoadConfig) -> Resu
                 _ => XpSource::System,
             };
 
+            let context = Some(crate::utils::get_trace_context(&agent, 3));
             let resp = client.award_xp(XpAwardRequest {
-                context: None,
+                context,
                 agent_name: agent,
                 amount,
                 reason,
