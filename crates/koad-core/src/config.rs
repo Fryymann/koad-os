@@ -299,6 +299,26 @@ impl KoadConfig {
         self.home.join(&self.storage.db_name)
     }
 
+    /// Resolves the active agent name by checking environment variables 
+    /// and verifying against the live Citadel session if possible.
+    pub async fn resolve_active_agent(&self) -> String {
+        // 1. Check for active session ID
+        if let Ok(session_id) = env::var("KOAD_SESSION_ID") {
+            if !session_id.is_empty() {
+                // Future: Add Redis lookup here if koad-core gains async redis dependency.
+                // For now, we trust the env var if it's set after a boot.
+            }
+        }
+
+        // 2. Fallback to name-based env var
+        if let Ok(name) = env::var("KOAD_AGENT_NAME") {
+            return name;
+        }
+
+        // 3. System Default
+        "admin".to_string()
+    }
+
     pub fn get_redis_socket(&self) -> PathBuf {
         self.home.join(&self.network.redis_socket)
     }

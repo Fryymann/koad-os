@@ -62,6 +62,10 @@ path = "src/bin/koad-notion-mcp.rs"
 name = "koad-fs-mcp"
 path = "src/bin/koad-fs-mcp.rs"
 
+[[bin]]
+name = "koad-map"
+path = "src/bin/koad-map.rs"
+
 [dev-dependencies]
 assert_cmd = "2.0"
 predicates = "3.0"

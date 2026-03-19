@@ -100,7 +100,7 @@ async fn render_look(
         WorkspaceLevel::LevelCitadel => "CITADEL",
         WorkspaceLevel::LevelStation => "STATION",
         WorkspaceLevel::LevelOutpost => "OUTPOST",
-        _ => "UNKNOWN",
+        _ => "NEUTRAL BODY",
     };
 
     println!("══════════════ [ {} ] ══════════════", level_str);
