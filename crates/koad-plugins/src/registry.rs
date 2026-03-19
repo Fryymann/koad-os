@@ -30,6 +30,7 @@ pub struct PluginMetrics {
 #[derive(Debug)]
 pub struct PluginResult {
     pub plugin_name: String,
+    pub output: String,
     pub metrics: PluginMetrics,
 }
 
@@ -113,11 +114,12 @@ impl PluginRegistry {
         info!(plugin = %name, topic = %topic, "PluginRegistry: invoking");
 
         let start = Instant::now();
-        self.manager.run_plugin(&path, topic, payload).await?;
+        let output = self.manager.run_plugin(&path, topic, payload).await?;
         let duration_ms = start.elapsed().as_millis() as u64;
 
         Ok(PluginResult {
             plugin_name: name.to_string(),
+            output,
             metrics: PluginMetrics {
                 duration_ms,
                 memory_bytes: 0, // Future: wasmtime memory introspection
@@ -216,5 +218,55 @@ mod tests {
         // Duration should be non-zero (wasmtime init takes some time)
         // We just assert it's a valid u64, not zero (timing is environment-dependent)
         let _ = result.metrics.duration_ms;
+    }
+
+    #[tokio::test]
+    async fn test_registry_concurrency() {
+        let path = component_path();
+        if !path.exists() {
+            return;
+        }
+
+        let registry = PluginRegistry::new().expect("registry init");
+        registry.register("hello", path).await;
+
+        let registry_arc = Arc::new(registry);
+        let mut handles = vec![];
+
+        // 20 concurrent invocations
+        for i in 0..20 {
+            let reg = registry_arc.clone();
+            handles.push(tokio::spawn(async move {
+                reg.invoke("hello", "topic", &format!("{{\"id\": {}}}", i)).await
+            }));
+        }
+
+        for handle in handles {
+            let res = handle.await.expect("join task");
+            assert!(res.is_ok(), "Concurrent invocation failed: {:?}", res.err());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_registry_resilience() {
+        let registry = PluginRegistry::new().expect("registry init");
+        
+        // 1. Missing File
+        registry.register("missing", PathBuf::from("nonexistent.wasm")).await;
+        let res = registry.invoke("missing", "topic", "{}").await;
+        assert!(res.is_err());
+        let err_msg = res.unwrap_err().to_string();
+        assert!(err_msg.contains("Failed to load plugin"), "Error was: {}", err_msg);
+
+        // 2. Corrupt/Non-WASM File
+        let temp_file = std::env::current_dir().unwrap().join("not_a_wasm.txt");
+        std::fs::write(&temp_file, "this is not wasm").expect("write temp");
+        registry.register("corrupt", temp_file.clone()).await;
+        let res = registry.invoke("corrupt", "topic", "{}").await;
+        assert!(res.is_err());
+        let err_msg = res.unwrap_err().to_string();
+        assert!(err_msg.contains("Failed to load plugin"), "Error was: {}", err_msg);
+        
+        let _ = std::fs::remove_file(&temp_file);
     }
 }

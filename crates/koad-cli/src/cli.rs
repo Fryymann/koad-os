@@ -126,11 +126,58 @@ pub enum Commands {
     /// Perform a deep audit of the agent's internal cognitive layers.
     Cognitive,
 
+    /// Navigation Map: Contextual overview and fast-travel bookmarks.
+    Map {
+        #[command(subcommand)]
+        action: Option<MapAction>,
+        /// Enable verbose output for human captains.
+        #[arg(short, long)]
+        verbose: bool,
+    },
+
     /// Gracefully logout and untether the current session.
     Logout {
         /// Explicit session ID to terminate.
         #[arg(short, long)]
         session: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MapAction {
+    /// Describe the current directory and nearby points of interest.
+    Look,
+    /// Show available paths, siblings, and pinned connections.
+    Exits,
+    /// Navigate to a pinned location or alias.
+    Goto {
+        /// Alias or path to navigate to.
+        target: String,
+    },
+    /// Bookmark a location as a favorite (pin).
+    Pin {
+        /// Alias for the bookmark.
+        alias: String,
+        /// Path to bookmark (defaults to current dir).
+        path: Option<String>,
+        /// Scope: 'personal' (default) or 'shared'.
+        #[arg(short, long, default_value = "personal")]
+        scope: String,
+    },
+    /// List all bookmarked locations.
+    Pins,
+    /// Show contextually relevant items (tasks, KAPVs, configs) based on current location.
+    Nearby,
+    /// Show the breadcrumb trail of recently accessed locations.
+    History,
+    /// Display a legend for all map symbols and markers.
+    Legend,
+    /// Show a region-specific health and status overlay.
+    MapStatus,
+    /// Locate a specific entity (file, page, agent, or service).
+    Where {
+        /// Search query.
+        entity: String,
     },
 }
 
@@ -570,6 +617,11 @@ pub enum BridgeAction {
         #[command(subcommand)]
         action: NotionAction,
     },
+    /// Interface with local Filesystem (Scoped MCP).
+    Fs {
+        #[command(subcommand)]
+        action: FsAction,
+    },
     /// Execute a global cloud-to-local sync.
     Sync,
     /// Manage Google Drive file anchors.
@@ -599,6 +651,26 @@ pub enum NotionAction {
         /// The Notion Page ID.
         id: String,
     },
+    /// Synchronize all pages from a Notion database to local SQLite.
+    Sync {
+        /// The Notion Database ID.
+        id: String,
+    },
+    /// Export synced pages from SQLite to local Markdown files.
+    Export {
+        /// The Notion Database ID.
+        id: String,
+        /// The output directory for Markdown files.
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Update the status of a Notion page.
+    UpdateStatus {
+        /// The Notion Page ID.
+        id: String,
+        /// New Status Name.
+        status: String,
+    },
     /// Post a high-priority message to the KoadStream.
     Stream {
         /// The message to post.
@@ -610,6 +682,12 @@ pub enum NotionAction {
         #[arg(short, long, default_value = "Medium")]
         priority: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum FsAction {
+    /// Start the scoped Filesystem MCP Server (Stdio).
+    Serve,
 }
 
 #[derive(Subcommand)]

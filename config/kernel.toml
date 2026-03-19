@@ -27,6 +27,14 @@ check_interval_secs = 10
 max_failures = 3
 monitor_asm = true
 
+[filesystem]
+workspace_root = "/home/ideans"
+protected_paths = ["~/.ssh", "~/.notion"]
+allowed_directories = [
+  "~/.koad-os",
+  "~/projects"
+]
+
 [sandbox]
 enabled = true
 blacklist = ["sudo ", "su ", "rm -rf /", "koad boot"]

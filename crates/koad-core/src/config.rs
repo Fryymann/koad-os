@@ -190,8 +190,13 @@ pub struct SlackConfig {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct FilesystemConfig {
+    /// Canonical root of the KoadOS workspace.
     pub workspace_root: Option<String>,
+    /// List of paths protected from modification by agents.
     pub protected_paths: Vec<String>,
+    /// Global whitelist of directories accessible via the Filesystem MCP Server.
+    #[serde(default)]
+    pub allowed_directories: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -207,7 +212,11 @@ pub struct AgentIdentityConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentPreferences {
+    /// List of access keys/tokens used by the agent.
     pub access_keys: Vec<String>,
+    /// Agent-specific whitelist of directories accessible via the Filesystem MCP Server.
+    #[serde(default)]
+    pub allowed_directories: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -5,6 +5,7 @@ pub mod cognitive;
 pub mod fleet;
 pub mod import;
 pub mod intel;
+pub mod map;
 pub mod motd;
 pub mod project;
 pub mod signal;

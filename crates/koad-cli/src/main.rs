@@ -250,6 +250,9 @@ async fn main() -> Result<()> {
             crate::handlers::cognitive::handle_cognitive_check(&config, &db, &final_agent_name)
                 .await?;
         }
+        Commands::Map { action, verbose } => {
+            crate::handlers::map::handle_map(action, verbose, &config, &db).await?;
+        }
         Commands::Logout { session } => {
             crate::handlers::boot::handle_logout_command(session, &config).await?;
         }

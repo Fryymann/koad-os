@@ -24,7 +24,7 @@ use wasmtime::{
 //   trait CitadelHooksImportsGetHost<T>       — helper for the host-getter closure
 //   CitadelHooks::add_to_linker_imports_get_host(linker, getter) — registers the impl
 //   CitadelHooks::instantiate_async(store, component, linker) → (Self, Instance)
-//   CitadelHooks::call_on_signal(store, topic, payload)
+//   CitadelHooks::call_invoke(store, topic, payload)
 //
 // The WIT package namespace (`koad:hooks`) does NOT produce a Rust module hierarchy.
 // The trait name follows the world name: `CitadelHooksImports`, NOT `Host`.
@@ -69,7 +69,7 @@ impl WasmPluginManager {
         Ok(Self { engine })
     }
 
-    pub async fn run_plugin(&self, wasm_path: &Path, topic: &str, payload: &str) -> Result<()> {
+    pub async fn run_plugin(&self, wasm_path: &Path, topic: &str, payload: &str) -> Result<String> {
         let mut store = Store::new(&self.engine, MyHostState);
         let mut linker: Linker<MyHostState> = Linker::new(&self.engine);
 
@@ -89,9 +89,9 @@ impl WasmPluginManager {
         let (instance, _instance_handle) =
             CitadelHooks::instantiate_async(&mut store, &component, &linker).await?;
 
-        instance.call_on_signal(&mut store, topic, payload).await?;
+        let res = instance.call_invoke(&mut store, topic, payload).await?;
 
-        Ok(())
+        Ok(res)
     }
 }
 
@@ -108,18 +108,7 @@ mod tests {
     }
 
     /// Integration test: loads the hello-plugin WASM component and drives the
-    /// `on-signal` export.  The guest calls back the host `log` import.
-    ///
-    /// Requires the guest component to be built first:
-    ///   1. cargo build \
-    ///        --manifest-path crates/koad-plugins/examples/hello-plugin/Cargo.toml \
-    ///        --target wasm32-unknown-unknown --release
-    ///   2. wasm-tools component new \
-    ///        crates/koad-plugins/examples/hello-plugin/target/wasm32-unknown-unknown/release/hello_plugin.wasm \
-    ///        -o crates/koad-plugins/examples/hello-plugin/target/wasm32-unknown-unknown/release/hello_plugin.component.wasm
-    ///
-    /// No WASI adapter is needed because the guest uses no WASI syscalls —
-    /// it only calls back the host `log` import.
+    /// `invoke` export.  The guest calls back the host `log` import.
     #[tokio::test]
     async fn test_plugin_manager_runs_wasm() {
         // `.component.wasm` is a pure WASM component produced by `wasm-tools component new`

@@ -105,9 +105,10 @@ KoadOS adoption of the **Game Map Metaphor** for information topology:
 
 </aside>
 
-1. **MCP Tool Registry** — CASS service for registering and invoking Model Context Protocol (MCP) tools.
-2. **Code Execution Sandbox** — Docker/Podman isolation for running arbitrary agent code.
-3. **Dynamic Library Loading** — Allow CASS to load custom tool implementations at runtime.
+1. **MCP Tool Registry** — CASS service for registering and invoking Model Context Protocol (MCP) tools. [ACTIVE]
+2. **Filesystem MCP Server** — Integrate the standard MCP Filesystem server into the containerized toolbox. [APPROVED]
+3. **Code Execution Sandbox** — Docker/Podman isolation for running arbitrary agent code.
+4. **Dynamic Library Loading** — Allow CASS to load custom tool implementations at runtime.
 
 ---
 

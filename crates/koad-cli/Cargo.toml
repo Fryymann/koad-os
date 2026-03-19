@@ -37,6 +37,7 @@ sysinfo = "0.30"
 tracing.workspace = true
 regex = "1.10"
 csv = "1.3"
+walkdir = "2.4"
 sha2 = "0.10"
 fred = { workspace = true, features = ["unix-sockets", "subscriber-client", "i-scripts", "i-pubsub", "i-keys"] }
 # Internal
@@ -52,6 +53,14 @@ path = "src/main.rs"
 [[bin]]
 name = "koad-agent"
 path = "src/bin/koad-agent.rs"
+
+[[bin]]
+name = "koad-notion-mcp"
+path = "src/bin/koad-notion-mcp.rs"
+
+[[bin]]
+name = "koad-fs-mcp"
+path = "src/bin/koad-fs-mcp.rs"
 
 [dev-dependencies]
 assert_cmd = "2.0"

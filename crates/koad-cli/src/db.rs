@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use std::path::Path;
 
 pub struct IdentityRecord {
@@ -214,5 +214,62 @@ impl KoadDB {
     pub fn get_recent_deltas(&self, _limit: usize) -> Result<Vec<(String, String, String)>> {
         // Mock data or stub if table doesn't exist
         Ok(vec![])
+    }
+
+    // --- Navigation Map Support ---
+
+    pub fn add_pin(&self, alias: &str, path: &str, scope: &str, agent_id: Option<&str>) -> Result<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "INSERT OR REPLACE INTO pins (alias, path, scope, agent_id) VALUES (?, ?, ?, ?)",
+            params![alias, path, scope, agent_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_pins(&self, agent_id: &str) -> Result<Vec<(String, String, String)>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare("SELECT alias, path, scope FROM pins WHERE scope = 'shared' OR agent_id = ?")?;
+        let rows = stmt.query_map(params![agent_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
+    pub fn resolve_pin(&self, alias: &str, agent_id: &str) -> Result<Option<String>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare("SELECT path FROM pins WHERE alias = ? AND (scope = 'shared' OR agent_id = ?)")?;
+        let res = stmt.query_row(params![alias, agent_id], |row| row.get(0)).optional()?;
+        Ok(res)
+    }
+
+    pub fn log_navigation(&self, agent_id: &str, path: &str) -> Result<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "INSERT INTO navigation_history (agent_id, path) VALUES (?, ?)",
+            params![agent_id, path],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_navigation_history(&self, agent_id: &str, limit: usize) -> Result<Vec<(String, String)>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare(
+            "SELECT path, timestamp FROM navigation_history WHERE agent_id = ? ORDER BY timestamp DESC LIMIT ?"
+        )?;
+        let rows = stmt.query_map(params![agent_id, limit as i64], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?;
+        
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
     }
 }

@@ -3,5 +3,5 @@ package koad:hooks@0.1.0;
 
 world citadel-hooks {
     import log: func(msg: string);
-    export on-signal: func(topic: string, payload: string);
+    export invoke: func(topic: string, payload: string) -> string;
 }

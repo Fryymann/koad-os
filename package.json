@@ -1,0 +1,7 @@
+{
+  "name": "koados-core-tools",
+  "version": "1.0.0",
+  "dependencies": {
+    "@modelcontextprotocol/server-filesystem": "latest"
+  }
+}

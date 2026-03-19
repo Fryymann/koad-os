@@ -9,6 +9,7 @@
 | :--- | :--- | :--- |
 | `MISSION.md` | Core Mission & Vision | Strategic Orientation |
 | `AGENTS.md` | Root onboarding portal | Boot / New session |
+| `ToolRegistry` | Phase 4 MCP Tool Service | Dynamic tool execution |
 | `.agents/CITADEL.md` | Core mission & mission brief | Strategic orientation |
 | `.agents/CREW.md` | Agent personnel manifest | Inter-agent coordination |
 | `config/identities/` | Active KAI identities | Boot / Identity loading |

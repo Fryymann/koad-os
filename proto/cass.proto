@@ -32,7 +32,52 @@ service SymbolService {
   rpc IndexProject(IndexRequest) returns (koad.citadel.v5.StatusResponse);
 }
 
+service ToolRegistryService {
+  // Register a new WASM-based MCP tool.
+  rpc RegisterTool(RegisterToolRequest) returns (koad.citadel.v5.StatusResponse);
+  // Deregister a tool by name.
+  rpc DeregisterTool(DeregisterToolRequest) returns (koad.citadel.v5.StatusResponse);
+  // Invoke a registered tool.
+  rpc InvokeTool(InvokeToolRequest) returns (InvokeToolResponse);
+  // List all registered tools.
+  rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
+}
+
 // --- Data Structures ---
+
+message RegisterToolRequest {
+  koad.citadel.v5.TraceContext context = 1;
+  string name = 2;
+  string component_path = 3; // Absolute path to the .wasm component
+}
+
+message DeregisterToolRequest {
+  koad.citadel.v5.TraceContext context = 1;
+  string name = 2;
+}
+
+message InvokeToolRequest {
+  koad.citadel.v5.TraceContext context = 1;
+  string name = 2;
+  string topic = 3;
+  string payload = 4; // JSON payload for the tool
+}
+
+message InvokeToolResponse {
+  string output = 1; // Tool execution result (JSON)
+  uint64 duration_ms = 2;
+  uint64 memory_bytes = 3;
+  koad.citadel.v5.TraceContext context = 4;
+}
+
+message ListToolsRequest {
+  koad.citadel.v5.TraceContext context = 1;
+}
+
+message ListToolsResponse {
+  repeated string tool_names = 1;
+  koad.citadel.v5.TraceContext context = 2;
+}
 
 message FactCard {
   string id = 1;

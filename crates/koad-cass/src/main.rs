@@ -7,6 +7,7 @@ use koad_cass::services::hydration::CassHydrationService;
 use koad_cass::services::memory::CassMemoryService;
 use koad_cass::services::stream::CassStreamService;
 use koad_cass::services::symbol::CassSymbolService;
+use koad_cass::services::tool_registry::CassToolRegistryService;
 use koad_cass::storage::CassStorage;
 use koad_codegraph::CodeGraph;
 use koad_core::config::KoadConfig;
@@ -14,11 +15,13 @@ use koad_core::hierarchy::HierarchyManager;
 use koad_core::signal::SignalCorps;
 use koad_core::utils::redis::RedisClient;
 use koad_intelligence::router::InferenceRouter;
+use koad_plugins::registry::PluginRegistry;
 
 use koad_proto::cass::v1::hydration_service_server::HydrationServiceServer;
 use koad_proto::cass::v1::memory_service_server::MemoryServiceServer;
 use koad_proto::cass::v1::stream_service_server::StreamServiceServer;
 use koad_proto::cass::v1::symbol_service_server::SymbolServiceServer;
+use koad_proto::cass::v1::tool_registry_service_server::ToolRegistryServiceServer;
 
 use std::sync::Arc;
 use tonic::transport::Server;
@@ -37,6 +40,7 @@ async fn main() -> Result<()> {
     let hierarchy = Arc::new(HierarchyManager::new(config.clone()));
     let signal_corps = Arc::new(SignalCorps::new(redis.clone(), "koad:stream:", 1000));
     let codegraph = Arc::new(CodeGraph::new(&config.home.join("codegraph.db"))?);
+    let plugin_registry = PluginRegistry::new()?;
 
     let notion_key = std::env::var("NOTION_PAT").unwrap_or_default();
     let notion_client = Arc::new(NotionClient::new(notion_key)?);
@@ -60,6 +64,7 @@ async fn main() -> Result<()> {
     );
     let stream_svc = CassStreamService::new(notion_client.clone(), stream_db);
     let symbol_svc = CassSymbolService::new(codegraph.clone());
+    let tool_svc = CassToolRegistryService::new(plugin_registry);
 
     // Pipelines
     let eow_pipeline = Arc::new(EndOfWatchPipeline::new(
@@ -79,6 +84,7 @@ async fn main() -> Result<()> {
         .add_service(HydrationServiceServer::new(hydration_svc))
         .add_service(StreamServiceServer::new(stream_svc))
         .add_service(SymbolServiceServer::new(symbol_svc))
+        .add_service(ToolRegistryServiceServer::new(tool_svc))
         .serve(addr)
         .await?;
 

@@ -62,6 +62,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Boot { agent, name, shell } => {
+            let boot_start = std::time::Instant::now();
             let agent_name = agent.or(name).context("No agent name provided. Use 'koad-agent boot <name>' or 'koad-agent boot --agent <name>'.")?;
             
         let agent_key = agent_name.to_lowercase();
@@ -92,6 +93,8 @@ async fn main() -> Result<()> {
             }
 
             if shell {
+                let mut cass_packet_size = 0;
+                let mut boot_status = "OK";
                 let now = chrono::Utc::now();
                 let timestamp = now.to_rfc3339();
 
@@ -179,25 +182,30 @@ async fn main() -> Result<()> {
 
                     // --- [CASS TCH Hydration (Phase 2)] ---
                     let mut cass_packet = String::new();
-                    if let Ok(mut cass_client) =
-                        HydrationServiceClient::connect(config.network.cass_grpc_addr.clone()).await
-                    {
-                        let hydration_req = tonic::Request::new(HydrationRequest {
-                            agent_name: agent_name.clone(),
-                            project_root: project_root.clone(),
-                            level: WorkspaceLevel::LevelUnspecified as i32,
-                            token_budget: 4000,
-                            task_id: String::new(),
-                        });
+                    match HydrationServiceClient::connect(config.network.cass_grpc_addr.clone()).await {
+                        Ok(mut cass_client) => {
+                            let hydration_req = tonic::Request::new(HydrationRequest {
+                                agent_name: agent_name.clone(),
+                                project_root: project_root.clone(),
+                                level: WorkspaceLevel::LevelUnspecified as i32,
+                                token_budget: 4000,
+                                task_id: String::new(),
+                            });
 
-                        if let Ok(hydration_res) = cass_client.hydrate(hydration_req).await {
-                            cass_packet = hydration_res.into_inner().markdown_packet;
+                            match cass_client.hydrate(hydration_req).await {
+                                Ok(hydration_res) => {
+                                    cass_packet = hydration_res.into_inner().markdown_packet;
+                                    cass_packet_size = cass_packet.len();
+                                }
+                                Err(_) => boot_status = "FAIL (Hydration)",
+                            }
                         }
+                        Err(_) => boot_status = "FAIL (CASS Connection)",
                     }
 
                     // --- AI Anchor Generation ---
                     let mut anchor_content = format!(
-                        "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`agent-boot {}`\n\n## ⚡ Efficiency Policy: The 'No-Read' Rule\nTo minimize token burn, you are STRICTLY FORBIDDEN from reading entire source files unless they are under 50 lines. \n1. **Use your Context Packet:** Structural maps of relevant crates are provided in the CASS section below. Use them first.\n2. **Discovery:** Use `grep_search` to locate specific logic or patterns.\n3. **Targeted Reading:** Use `read_file` ONLY with `start_line` and `end_line` parameters for surgical extraction.\n",
+                        "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`agent-boot {}`\n\n## 📂 Filesystem Protocol: Scoped MCP\nAll filesystem operations MUST be performed via the `koadFsMcp` toolset (read_text_file, write_file, list_directory, etc.). Raw shell commands for file manipulation are strictly prohibited to ensure Sanctuary compliance.\n\n## 🧭 Navigation Protocol: Game Map HUD\nUse `koad map` for instant situational awareness. \n- `koad map look` → Describe surroundings & POIs.\n- `koad map exits` → Show available paths.\n- `koad map goto <alias>` → Fast-travel to pinned locations.\n- `koad map nearby` → Scan for related configs/tasks.\n\n## ⚡ Efficiency Policy: The 'No-Read' Rule\nTo minimize token burn, you are STRICTLY FORBIDDEN from reading entire source files unless they are under 50 lines. \n1. **Use your Context Packet:** Structural maps of relevant crates are provided in the CASS section below. Use them first.\n2. **Discovery:** Use `grep_search` to locate specific logic or patterns.\n3. **Targeted Reading:** Use `read_file` ONLY with `start_line` and `end_line` parameters for surgical extraction.\n",
                         timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, agent_key
                     );
 
@@ -247,6 +255,19 @@ async fn main() -> Result<()> {
                 let _ = fs::write(
                     cache_dir.join(format!("session-brief-{}.md", agent_key)),
                     &brief_content,
+                )
+                .await;
+
+                let boot_duration = boot_start.elapsed();
+                let metrics_content = format!(
+                    "- **Hydration Time:** {:.2}ms\n- **CASS Packet Size:** {} bytes\n- **Status:** {}\n",
+                    boot_duration.as_secs_f64() * 1000.0,
+                    cass_packet_size,
+                    boot_status
+                );
+                let _ = fs::write(
+                    cache_dir.join(format!("boot-metrics-{}.md", agent_key)),
+                    &metrics_content,
                 )
                 .await;
 

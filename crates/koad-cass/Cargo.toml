@@ -26,6 +26,7 @@ koad-proto = { path = "../koad-proto" }
 koad-bridge-notion = { path = "../koad-bridge-notion" }
 koad-intelligence = { path = "../koad-intelligence" }
 koad-codegraph = { path = "../koad-codegraph" }
+koad-plugins = { path = "../koad-plugins" }
 
 [[bin]]
 name = "koad-cass"
