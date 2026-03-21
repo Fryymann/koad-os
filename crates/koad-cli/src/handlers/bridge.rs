@@ -28,9 +28,11 @@ pub async fn handle_bridge_action(
             }
         },
         BridgeAction::Notion { action } => {
-            let api_key = env::var("NOTION_API_KEY")
+            let api_key = env::var("KOADOS_PAT_NOTION_MAIN")
+                .or_else(|_| env::var("KOADOS_MAIN_NOTION_TOKEN"))
+                .or_else(|_| env::var("NOTION_API_KEY"))
                 .or_else(|_| env::var("NOTION_TOKEN"))
-                .map_err(|_| anyhow!("NOTION_API_KEY or NOTION_TOKEN environment variable not set"))?;
+                .map_err(|_| anyhow!("Notion token not set. Expected KOADOS_PAT_NOTION_MAIN in environment."))?;
             
             let db_path = config.home.join("data/notion-sync.db");
             let proxy = NotionMcpProxy::new(api_key.clone(), db_path)?;

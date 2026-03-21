@@ -341,11 +341,11 @@ pub async fn handle_system_action(
 
                     // Citadel handles autonomic restart of ASM when started
                     let citadel_bin = bin_dir.join("kcitadel");
-                    let _ = Command::new(citadel_bin).env("KOAD_HOME", &home).spawn();
+                    let _ = Command::new(citadel_bin).env("KOADOS_HOME", &home).env("KOAD_HOME", &home).spawn();
 
                     // Launch Watchdog
                     let watchdog_bin = bin_dir.join("koad-watchdog");
-                    let _ = Command::new(watchdog_bin).env("KOAD_HOME", &home).spawn();
+                    let _ = Command::new(watchdog_bin).env("KOADOS_HOME", &home).env("KOAD_HOME", &home).spawn();
 
                     println!("  [OK] Core systems energized.");
                 }

@@ -244,10 +244,10 @@ pub struct ProjectDirConfig {
 
 impl KoadConfig {
     pub fn load() -> Result<Self> {
-        let home = match env::var("KOAD_HOME") {
+        let home = match env::var("KOADOS_HOME").or_else(|_| env::var("KOAD_HOME")) {
             Ok(val) => PathBuf::from(val),
             Err(_) => dirs::home_dir()
-                .context("Could not determine home directory and KOAD_HOME is not set")?
+                .context("Could not determine home directory and KOADOS_HOME is not set")?
                 .join(".koad-os"),
         };
 
