@@ -1,10 +1,11 @@
 [projects.koados]
 path = "~/.koad-os"
-github_owner = "Fryymann"
+github_owner = "KOADOS_MAIN_GITHUB_USER"
 github_repo = "koad-os"
-credential_key = "KOADOS_PAT_GITHUB_FRYYMANN"
+credential_key = "GITHUB_PAT"
 
 [projects.skylinks]
 path = "~/data/skylinks/.agents/.sky"
-github_owner = "Skylinks-Golf"
-credential_key = "KOADOS_PAT_GITHUB_SKYLINKS"
+github_owner = "KOADOS_STATION_SLE_GITHUB_USER"
+credential_key = "GITHUB_PAT"
+station = "SLE"

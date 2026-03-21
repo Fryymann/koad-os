@@ -10,7 +10,7 @@ bootstrap = "~/data/skylinks/.agents/.sky/identity/IDENTITY.md"
 [identities.sky.preferences]
 languages = ["Node.js", "Python", "TypeScript"]
 style = "production-first"
-access_keys = ["KOADOS_PAT_GITHUB_SKYLINKS"]
+access_keys = ["GITHUB_PAT"]
 principles = [
     "Isolation Mandate: Total development isolation from production. No heuristic context.",
     "Tool-First: Favor native CLI tools over general-purpose ones.",

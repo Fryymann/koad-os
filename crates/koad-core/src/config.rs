@@ -233,6 +233,8 @@ pub struct ProjectConfig {
     pub github_owner: Option<String>,
     pub github_repo: Option<String>,
     pub default_project: Option<u32>,
+    pub station: Option<String>,
+    pub credential_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -342,10 +344,21 @@ impl KoadConfig {
         if let Some(proj) = project {
             if let Some(p_config) = self.projects.get(proj) {
                 if let Some(owner) = &p_config.github_owner {
+                    // Check if owner is a reference (e.g. KOADOS_...)
+                    if owner.starts_with("KOADOS_") {
+                        return self.resolve_indirect_value(owner);
+                    }
                     return owner.clone();
                 }
             }
         }
+        
+        // Hierarchical fallback for owner
+        let owner = self.resolve_secret("GITHUB_USER", project);
+        if !owner.is_empty() {
+            return owner;
+        }
+
         self.integrations.github.as_ref()
             .map(|g| g.default_owner.clone())
             .unwrap_or_else(|| DEFAULT_GITHUB_OWNER.to_string())
@@ -364,7 +377,57 @@ impl KoadConfig {
             .unwrap_or_else(|| DEFAULT_GITHUB_REPO.to_string())
     }
 
-    pub fn resolve_gh_token(&self, _project: Option<&str>, _agent: Option<&str>) -> Result<String> {
+    /// Resolves a secret hierarchically: Outpost > Station > Main.
+    /// Supports indirect resolution where the KOADOS_ variable points to another variable.
+    pub fn resolve_secret(&self, key_id: &str, project: Option<&str>) -> String {
+        // 1. Try Station Override
+        if let Some(proj) = project {
+            if let Some(p_config) = self.projects.get(proj) {
+                if let Some(station) = &p_config.station {
+                    let station_key = format!("KOADOS_STATION_{}_{}", station.to_uppercase(), key_id);
+                    if let Ok(val) = env::var(&station_key) {
+                        return self.resolve_indirect_value(&val);
+                    }
+                }
+            }
+        }
+
+        // 2. Fallback to Main (Citadel)
+        let main_key = format!("KOADOS_MAIN_{}", key_id);
+        if let Ok(val) = env::var(&main_key) {
+            return self.resolve_indirect_value(&val);
+        }
+
+        // 3. Legacy Fallback (direct environment variable)
+        env::var(key_id).unwrap_or_default()
+    }
+
+    /// Resolves an indirect value (e.g. if KOADOS_... points to another env var)
+    pub fn resolve_indirect_value(&self, val: &str) -> String {
+        if let Ok(deref) = env::var(val) {
+            deref
+        } else {
+            val.to_string()
+        }
+    }
+
+    pub fn resolve_gh_token(&self, project: Option<&str>, _agent: Option<&str>) -> Result<String> {
+        let key_id = if let Some(proj) = project {
+            self.projects.get(proj)
+                .and_then(|p| p.credential_key.as_ref())
+                .map(|k| k.as_str())
+                .unwrap_or("GITHUB_PAT")
+        } else {
+            "GITHUB_PAT"
+        };
+
+        // Try Hierarchical first
+        let token = self.resolve_secret(key_id, project);
+        if !token.is_empty() {
+            return Ok(token);
+        }
+        
+        // Fallback to direct GITHUB_PAT
         Ok(env::var("GITHUB_PAT").unwrap_or_default())
     }
 
