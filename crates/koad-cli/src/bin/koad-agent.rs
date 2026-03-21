@@ -126,8 +126,8 @@ async fn main() -> Result<()> {
                                 println!("export {}=\"{}\";", key, val);
                             }
                         }
-                        if prefs.access_keys.contains(&"GITHUB_ADMIN_PAT".to_string()) {
-                            if let Ok(val) = std::env::var("GITHUB_ADMIN_PAT") {
+                        if prefs.access_keys.contains(&"KOADOS_PAT_GITHUB_ADMIN".to_string()) {
+                            if let Ok(val) = std::env::var("KOADOS_PAT_GITHUB_ADMIN") {
                                 println!("export GITHUB_PAT=\"{}\";", val);
                                 println!("export GITHUB_OWNER=\"Fryymann\";");
                                 println!("export GITHUB_PROJECT_NUMBER=2;");

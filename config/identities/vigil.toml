@@ -10,7 +10,7 @@ bootstrap = "~/.koad-os/.agents/.vigil/identity/IDENTITY.md"
 [identities.vigil.preferences]
 languages = ["Rust", "Python", "TypeScript"]
 style = "security-first"
-access_keys = ["GITHUB_PERSONAL_PAT"]
+access_keys = ["KOADOS_PAT_GITHUB_FRYYMANN"]
 principles = [
     "Sanctuary Protection: The kernel core is off-limits to unvetted scripts.",
     "Hook-Based Vigilance: Leverage host hooks for real-time monitoring.",

@@ -39,7 +39,7 @@ mod tests {
             name: "Dood".to_string(),
             rank: Rank::Admiral,
             permissions: vec!["all".to_string()],
-            access_keys: vec!["GITHUB_ADMIN_PAT".to_string()],
+            access_keys: vec!["KOADOS_PAT_GITHUB_ADMIN".to_string()],
             tier: 1,
         };
         let serialized = serde_json::to_string(&identity).unwrap();

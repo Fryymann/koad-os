@@ -42,7 +42,7 @@ async fn main() -> Result<()> {
     let codegraph = Arc::new(CodeGraph::new(&config.home.join("codegraph.db"))?);
     let plugin_registry = PluginRegistry::new()?;
 
-    let notion_key = std::env::var("NOTION_PAT").unwrap_or_default();
+    let notion_key = std::env::var("KOADOS_PAT_NOTION_MAIN").unwrap_or_default();
     let notion_client = Arc::new(NotionClient::new(notion_key)?);
     let stream_db = config
         .integrations

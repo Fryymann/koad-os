@@ -63,9 +63,9 @@ pub fn detect_context_tags(path: &Path) -> Vec<String> {
 pub fn get_gh_pat_for_path(_path: &Path, role: &str, _config: &KoadConfig) -> (String, String) {
     let pat = match role {
         "admin" => {
-            env::var("GITHUB_ADMIN_PAT").unwrap_or_else(|_| "GITHUB_PERSONAL_PAT".to_string())
+            env::var("KOADOS_PAT_GITHUB_ADMIN").unwrap_or_else(|_| "KOADOS_PAT_GITHUB_FRYYMANN".to_string())
         }
-        _ => "GITHUB_PERSONAL_PAT".to_string(),
+        _ => "KOADOS_PAT_GITHUB_FRYYMANN".to_string(),
     };
     (pat.clone(), pat)
 }
