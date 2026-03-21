@@ -13,8 +13,18 @@ CREATE TABLE IF NOT EXISTS procedural_memory (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- episodic_memories is created by koad-cass on first boot; pre-seed schema here for indexes
+CREATE TABLE IF NOT EXISTS episodic_memories (
+  session_id TEXT PRIMARY KEY,
+  project_path TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  turn_count INTEGER NOT NULL,
+  timestamp TEXT NOT NULL,
+  task_ids TEXT NOT NULL
+);
+
 -- Optimization Indexes
-CREATE INDEX IF NOT EXISTS idx_agent_time ON episodic(agent_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_episodic_time ON episodic_memories(session_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_skill_pattern ON procedural_memory(skill_name, pattern);
 
 -- Evolution: Importance Score for Phase 1C (Handles error if already exists)
