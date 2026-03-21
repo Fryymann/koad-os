@@ -4,60 +4,67 @@
 
 ---
 
-## Session State (2026-03-21 — Jupiter Migration, Session 2)
+## Session State (2026-03-21 — Jupiter Migration, Session 3)
 
-**Status:** Active — Config verification complete. Blocked on Docker WSL integration + sqlite3.
-**Context:** Jupiter Migration (Io → Jupiter) — Phase 0.5 complete / Phase 1A blocked
+**Status:** Phase 1A + 1B complete. Paused for saveup. Ready for Phase 1C.
 **Machine:** Jupiter (WSL2/Ubuntu — RTX 5070 Ti, Ryzen 9 9950X3D, 64GB DDR5)
-**nightly HEAD:** `7e067c6` (config namespace fixes committed today)
+**nightly HEAD:** `f37058b` (Phase 1B restore commit)
 
 ---
 
 ## Completed This Session
 
-| Task | Status |
-|---|---|
-| Verified `.env` with new KOADOS_ namespace | ✅ |
-| Fixed 5 env var mismatches (KOADOS_ alignment) — commit `7e067c6` | ✅ |
-| Installed protoc v27.0 to `~/.local/bin/` | ✅ |
-| Added `PROTOC` + `PROTOC_INCLUDE` to `~/.bashrc` | ✅ |
-| `cargo check` clean — koad-core, koad, koad-agent binaries | ✅ |
-| Updated Notion Jupiter Migration tracking | ✅ |
-| Updated agent memory files | ✅ |
-
----
-
-## Active Blockers (Jupiter)
-
-| Blocker | Impact | Fix |
+| Task | Commit | Status |
 |---|---|---|
-| `sqlite3` not installed in WSL | Phase 0.5 item unchecked; Phase 1A DB init blocked | `sudo apt-get install sqlite3` |
-| Docker Desktop WSL integration not enabled | Phase 1A entirely blocked (Redis, Qdrant) | Docker Desktop → Settings → Resources → WSL Integration → enable Ubuntu |
+| KOADOS_ env namespace fixes | `7e067c6` | ✅ |
+| protoc installed to `~/.local/bin/` | — | ✅ |
+| Redis Stack deployed + validated | `60930e3` | ✅ |
+| Qdrant deployed + 5 collections created | `60930e3` | ✅ |
+| SQLite initialized (WAL, 8 tables) | `60930e3` | ✅ |
+| `init-jupiter-db.sql` bug fixed | `60930e3` | ✅ |
+| Phase 1B: `koados_memory_transfer.tar.gz` unpacked | `f37058b` | ✅ |
+| Tyr vault → `~/.tyr/` | — | ✅ |
+| Sky vault → `~/data/skylinks/.agents/.sky/` | — | ✅ |
+| Agent bays (.tyr, .cid, .scribe) restored | `f37058b` | ✅ |
+| 4 SQLite DBs restored + WAL re-applied | — | ✅ |
+| Redis dump.rdb loaded, FT index recreated | — | ✅ |
+| Notion updated throughout | — | ✅ |
 
 ---
 
-## Next Steps (Jupiter Migration — in order)
+## Infrastructure State (Jupiter)
 
-1. `sudo apt-get install sqlite3` → check off Phase 0.5 DB item
-2. Enable Docker Desktop WSL integration → confirm `docker ps` works in WSL
-3. `docker compose up -d` → Redis Stack running; `redis-cli ping` → PONG
-4. Deploy Qdrant container
-5. Init SQLite databases (`scripts/init-jupiter-db.sql`), enable WAL
-6. Create Qdrant collections: sky_memories, tyr_memories, vigil_memories, koados_knowledge, task_outcomes
-7. Phase 1B: migrate koados_knowledge + task_outcomes snapshots from Io
-8. Phase 1C: `agent-boot tyr` — confirm Citadel handshake on Jupiter
-
----
-
-## Open Issues (filed from Phase 4, still pending)
-
-| Issue | Title | Priority |
+| Service | Status | Details |
 |---|---|---|
-| #189 | fix(sandbox): kill container on timeout | High |
-| #190 | perf(plugins): cache compiled WASM Component | Medium |
-| #191 | chore(canon): RUST_CANON compliance sweep | Medium |
-| #192 | test(plugins): error-path tests | Low |
-| #193 | feat(plugins): PluginRegistry via gRPC | Phase 5 prereq |
+| Redis Stack | ✅ Running | port 6379, `agent_context` FT index live |
+| Qdrant | ✅ Running | port 6333/6334, 5 collections |
+| `koad.db` | ✅ Ready | WAL, knowledge + procedural tables |
+| `cass.db` | ✅ Ready | WAL, episodic_memories + fact_cards |
+| `codegraph.db` | ✅ Ready | symbols table |
+| `notion-sync.db` | ✅ Ready | WAL, pages + sync tables |
+| koad-citadel | ❓ Not started | Required for Phase 1C boot handshake |
+
+---
+
+## Next Steps
+
+1. **Phase 1C** — `agent-boot tyr`
+   - May need `koad system start` first (launches koad-citadel binary)
+   - Watch for gRPC handshake — Citadel must be running for session lease
+   - If Citadel not running, boot falls back gracefully (env exports still work)
+2. Validate Tyr can read/write to Redis + SQLite on Jupiter
+3. Run smoke-test task through Tyr to validate full memory pipeline
+4. Update Notion Phase 1C checklist
+
+---
+
+## Key Facts for Next Session
+
+- Redis FT index schema: `FT.CREATE agent_context ON HASH PREFIX 1 ctx: SCHEMA agent_id TAG session_id TAG content TEXT timestamp NUMERIC SORTABLE`
+- Redis default password: `koados_secret` (docker-compose default; `KOADOS_AUTH_REDIS` blank in .env)
+- Qdrant: all 5 collections exist, 1536-dim Cosine, empty (rebuild naturally)
+- `koad.db` identities table is empty — identities load from TOML (`config/identities/`)
+- koad-agent boot: `eval $(koad-agent boot tyr)` — exports KOAD_AGENT_NAME, KOAD_AGENT_ROLE, etc.
 
 ---
 
@@ -65,7 +72,7 @@
 
 ```
 1. Read SAVEUPS.md — always
-2. git status in ~/.koad-os — confirm on nightly
-3. PROTOC=~/.local/bin/protoc for any cargo builds (in .bashrc, but verify)
-4. Check this file for current blockers before starting any task
+2. git status in ~/.koad-os — confirm on nightly, HEAD should be f37058b
+3. docker ps — confirm Redis Stack + Qdrant running
+4. PROTOC=~/.local/bin/protoc for any cargo builds (in .bashrc)
 ```

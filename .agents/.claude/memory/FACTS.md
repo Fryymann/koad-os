@@ -167,6 +167,38 @@ Source: 2026-03-21 session.
 
 ---
 
+**F-31 — Redis FT index is NOT persisted in dump.rdb.**
+After restoring a Redis RDB, recreate the `agent_context` index:
+```bash
+docker exec koad-redis-stack redis-cli -a koados_secret \
+  FT.CREATE agent_context ON HASH PREFIX 1 ctx: \
+  SCHEMA agent_id TAG session_id TAG content TEXT timestamp NUMERIC SORTABLE
+```
+Source: 2026-03-21 Phase 1B restore.
+
+**F-32 — SQLite migration DBs from Io come with journal_mode=delete.**
+Always re-apply `PRAGMA journal_mode=WAL;` after deploying a migrated DB.
+Source: 2026-03-21 Phase 1B restore.
+
+**F-33 — Qdrant collections are NOT in Tyr's migration bundle.**
+`koados_knowledge` and `task_outcomes` Qdrant snapshots were not exported from Io.
+Collections on Jupiter are fresh (1536-dim Cosine) and rebuild from session activity.
+The SQLite `koad.db` knowledge table (3 rows) is the primary institutional memory transfer.
+Source: 2026-03-21 Phase 1B restore.
+
+**F-34 — Redis RDB restore pattern (Docker):**
+```bash
+docker cp dump.rdb koad-redis-stack:/data/dump.rdb
+docker restart koad-redis-stack   # Redis loads dump.rdb only on startup
+```
+Source: 2026-03-21 Phase 1B restore.
+
+**F-35 — `koad.db` identities table is empty by design.**
+Identity data loads from TOML files (`config/identities/*.toml`) at runtime, not from SQLite.
+Source: 2026-03-21 spot-check.
+
+---
+
 ## Session Status (as of 2026-03-15 EOD)
 
 - nightly: `32eceb1` (post-merge of #178 + gitignore/memory fix `83f92c0`)

@@ -1,3 +1,18 @@
+## [2026-03-21] — Jupiter Migration Session 3: Phase 1A + 1B Complete
+
+- **Fact:** Phase 1A fully deployed on Jupiter. Redis Stack running (PONG, `agent_context` FT index). Qdrant running on 6333/6334, all 5 collections created (sky_memories, tyr_memories, vigil_memories, koados_knowledge, task_outcomes — 1536-dim Cosine). SQLite `koad.db` initialized (WAL, 8 tables). Committed `60930e3`.
+- **Fact:** `docker-compose.yml` updated to include Qdrant service with persistent volume `koad-os_qdrant_data`. `scripts/init-jupiter-db.sql` bug fixed — wrong table name `episodic` → `episodic_memories` (table is created by koad-cass on boot; script now pre-seeds it for index creation).
+- **Fact:** Phase 1B complete. Tyr bundled `koados_memory_transfer.tar.gz` on Io. Contents: 4 SQLite migration DBs, Redis `dump.rdb`, agent vaults for Tyr/Sky/Scribe/Cid, config identities + registry.toml. Committed `f37058b`.
+- **Fact:** Restored locations — Tyr vault: `~/.tyr/`. Sky vault: `~/data/skylinks/.agents/.sky/`. Agent bays: `.agents/.tyr/`, `.agents/.cid/`, `.agents/.scribe/` updated in repo. SQLite: `koad.db`, `cass.db`, `codegraph.db`, `data/notion-sync.db` all deployed with WAL. Redis: `dump.rdb` loaded, `koad:stream:system` key present.
+- **Fact:** Qdrant `koados_knowledge` and `task_outcomes` were NOT snapshotted from Io — not in the bundle. Collections are fresh on Jupiter and rebuild from session activity. The SQLite `koad.db` knowledge table carries the 3 institutional rows as the primary transfer.
+- **Fact:** `koad.db` from Io migration came with journal_mode=delete — re-applied WAL after restore. Same for `cass.db` and `notion-sync.db`. Always re-apply `PRAGMA journal_mode=WAL` after restoring a migrated SQLite DB.
+- **Fact:** Redis FT index (`agent_context`) is NOT persisted in `dump.rdb` — it was wiped when the Io RDB was loaded. Had to recreate it after restore. Schema: `ON HASH PREFIX 1 ctx: SCHEMA agent_id TAG session_id TAG content TEXT timestamp NUMERIC SORTABLE`.
+- **Learn:** `docker cp <file> <container>:/data/ && docker restart <container>` is the correct pattern for restoring a Redis RDB into a Docker container. Restart required — Redis loads dump.rdb only at startup.
+- **Learn:** When restoring a bundle with `rsync --update`, existing newer files are preserved. Safe for incremental restores without clobbering local work.
+- **Ponder:** Phase 1C (`agent-boot tyr`) is next. The Citadel gRPC handshake during boot requires `koad-citadel` to be running. That binary doesn't auto-start — it needs either `koad system start` or manual launch. This may be the first real test of the Rust services on Jupiter.
+
+---
+
 ## [2026-03-21] — Jupiter Migration Session 2: Config Verification & Env Namespace Alignment
 
 - **Fact:** KoadOS Rust codebase builds clean on Jupiter. `koad-core`, `koad`, `koad-agent` pass `cargo check`. 3 signal tests fail as expected (Redis not running — Docker blocked). Requires `PROTOC=/home/ideans/.local/bin/protoc PROTOC_INCLUDE=/home/ideans/.local/include` (now in `~/.bashrc`).
