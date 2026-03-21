@@ -28,5 +28,9 @@ To define a new station:
 3. Add a `[projects.<name>]` entry in `registry.toml` with `station = "DND"`.
 4. Add any station-specific keys to your `.env` using the `KOADOS_STATION_DND_<KEY>` pattern.
 
-## Ⅲ. Registry Health
+### 2. Creating a New Outpost
+An Outpost is a specific project that may need unique overrides.
+1. Create a `.agent-outpost` file in the project root containing the outpost name (e.g. `KOS`).
+2. Add any outpost-specific keys to your `.env` using the `KOADOS_OUTPOST_KOS_<KEY>` pattern.
+3. KoadOS will prioritize these over Station and Main defaults.
 The `registry.toml` file is the canonical map of the KoadOS workspace. Contributors must ensure that any new projects or outposts are registered with the correct `path`, `station`, and `level`.

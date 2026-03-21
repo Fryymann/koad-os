@@ -380,25 +380,62 @@ impl KoadConfig {
     /// Resolves a secret hierarchically: Outpost > Station > Main.
     /// Supports indirect resolution where the KOADOS_ variable points to another variable.
     pub fn resolve_secret(&self, key_id: &str, project: Option<&str>) -> String {
-        // 1. Try Station Override
-        if let Some(proj) = project {
-            if let Some(p_config) = self.projects.get(proj) {
-                if let Some(station) = &p_config.station {
-                    let station_key = format!("KOADOS_STATION_{}_{}", station.to_uppercase(), key_id);
-                    if let Ok(val) = env::var(&station_key) {
-                        return self.resolve_indirect_value(&val);
+        let mut station_name = None;
+        let mut outpost_name = None;
+
+        // 1. Detect Outpost & Station (Search upward from current directory or project path)
+        let mut current_dir = if let Some(proj) = project {
+            self.projects.get(proj).map(|p| p.path.clone()).unwrap_or_else(|| env::current_dir().unwrap_or_default())
+        } else {
+            env::current_dir().unwrap_or_default()
+        };
+
+        while current_dir.parent().is_some() {
+            if outpost_name.is_none() {
+                let outpost_marker = current_dir.join(".agent-outpost");
+                if outpost_marker.exists() {
+                    if let Ok(name) = std::fs::read_to_string(outpost_marker) {
+                        outpost_name = Some(name.trim().to_uppercase());
                     }
                 }
             }
+            if station_name.is_none() {
+                let station_marker = current_dir.join(".agent-station");
+                if station_marker.exists() {
+                    if let Ok(name) = std::fs::read_to_string(station_marker) {
+                        station_name = Some(name.trim().to_uppercase());
+                    }
+                }
+            }
+            if outpost_name.is_some() && station_name.is_some() {
+                break;
+            }
+            current_dir = current_dir.parent().unwrap().to_path_buf();
         }
 
-        // 2. Fallback to Main (Citadel)
+        // 2. Try Outpost Override
+        if let Some(outpost) = outpost_name {
+            let outpost_key = format!("KOADOS_OUTPOST_{}_{}", outpost, key_id);
+            if let Ok(val) = env::var(&outpost_key) {
+                return self.resolve_indirect_value(&val);
+            }
+        }
+
+        // 3. Try Station Override
+        if let Some(station) = station_name {
+            let station_key = format!("KOADOS_STATION_{}_{}", station, key_id);
+            if let Ok(val) = env::var(&station_key) {
+                return self.resolve_indirect_value(&val);
+            }
+        }
+
+        // 4. Fallback to Main (Citadel)
         let main_key = format!("KOADOS_MAIN_{}", key_id);
         if let Ok(val) = env::var(&main_key) {
             return self.resolve_indirect_value(&val);
         }
 
-        // 3. Legacy Fallback (direct environment variable)
+        // 5. Legacy Fallback (direct environment variable)
         env::var(key_id).unwrap_or_default()
     }
 

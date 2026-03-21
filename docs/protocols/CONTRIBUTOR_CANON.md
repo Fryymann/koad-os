@@ -88,7 +88,8 @@ Contributors MUST use the `KOADOS_` hierarchical namespace for all project-relat
 - Use `KOADOS_OUTPOST_<NAME>_<KEY>` for project-specific overrides.
 
 ### 2. Context Detection
-- **Stations:** All stations MUST include a `.agent-station` marker file in their root directory containing the station's short-name (e.g. `SLE`).
+- **Outposts:** All projects requiring specific overrides MUST include a `.agent-outpost` marker file.
+- **Stations:** All stations MUST include a `.agent-station` marker file.
 - **Indirect Mapping:** Hardcoding personal names (e.g. `Fryymann`) in core logic is a **Tier 2 Code Quality Violation**. Always use generic variables and map them in your local `.env`.
 
 ---
