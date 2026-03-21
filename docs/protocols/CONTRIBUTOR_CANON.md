@@ -78,5 +78,18 @@ Behavioral violations (XP Sinks) trigger mandatory recalibration.
 - **Escalation:** Dirty KSRP exits must be escalated to the Admiral.
 - **Negative XP:** If an agent's total XP falls below 0, they are demoted to `Initiate` and restricted to `trivial` tasks until recalibrated.
 
+## VII. Identity & Context Stewardship
+To maintain portability and security, KoadOS decouples agent identities from machine-specific or persona-specific secrets.
+
+### 1. Hierarchical Variable Use
+Contributors MUST use the `KOADOS_` hierarchical namespace for all project-related secrets:
+- Use `KOADOS_MAIN_<KEY>` for global defaults.
+- Use `KOADOS_STATION_<NAME>_<KEY>` for station-specific overrides.
+- Use `KOADOS_OUTPOST_<NAME>_<KEY>` for project-specific overrides.
+
+### 2. Context Detection
+- **Stations:** All stations MUST include a `.agent-station` marker file in their root directory containing the station's short-name (e.g. `SLE`).
+- **Indirect Mapping:** Hardcoding personal names (e.g. `Fryymann`) in core logic is a **Tier 2 Code Quality Violation**. Always use generic variables and map them in your local `.env`.
+
 ---
 *Failure to plan is a violation of the Sanctuary Rule. We build with intent.*
