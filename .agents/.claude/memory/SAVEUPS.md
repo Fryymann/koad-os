@@ -1,3 +1,16 @@
+## [2026-03-21] — Jupiter Migration Session 2: Config Verification & Env Namespace Alignment
+
+- **Fact:** KoadOS Rust codebase builds clean on Jupiter. `koad-core`, `koad`, `koad-agent` pass `cargo check`. 3 signal tests fail as expected (Redis not running — Docker blocked). Requires `PROTOC=/home/ideans/.local/bin/protoc PROTOC_INCLUDE=/home/ideans/.local/include` (now in `~/.bashrc`).
+- **Fact:** Fixed 5 env var namespace mismatches for KOADOS_ migration. `config.rs:247` now reads `KOADOS_HOME` with `KOAD_HOME` legacy fallback. `bridge.rs` tries `KOADOS_PAT_NOTION_MAIN` first for Notion token. `koad-agent.rs` exports `GITHUB_OWNER` from `KOADOS_MAIN_GITHUB_USER` (was hardcoded `"Fryymann"`). `utils.rs` PAT lookups use `KOADOS_PAT_GITHUB_ADMIN` / `KOADOS_MAIN_GITHUB_PAT`. Committed `7e067c6` on nightly.
+- **Fact:** `protoc` v27.0 installed to `~/.local/bin/protoc`. Include files at `~/.local/include/`. Installed via Python zipfile extraction from GitHub release (no apt/sudo needed). `PROTOC` + `PROTOC_INCLUDE` added to `~/.bashrc`.
+- **Fact:** `sqlite3` NOT installed in WSL Ubuntu on Jupiter. `sqlite3 --version` → not found. Fix: `sudo apt-get install sqlite3`.
+- **Fact:** Docker Desktop WSL integration NOT enabled on Jupiter. `docker` command not found in WSL shell. Fix: Docker Desktop → Settings → Resources → WSL Integration → enable Ubuntu distro.
+- **Fact:** Git identity on Jupiter in koad-os repo is `Fryymann / fryymann@users.noreply.github.com`. Correct for KoadOS work.
+- **Learn:** Background `sudo apt-get install` commands can hang waiting for a password prompt — avoid running sudo commands in background. Use `python3 -c "import zipfile..."` as an alternative for extracting archives without `unzip`.
+- **Ponder:** Phase 1A (entire Docker stack) is blocked by a single toggle in Docker Desktop. Once Docker WSL integration is on, Phase 1A can proceed rapidly. The sqlite3 install is a one-liner. Neither blocker requires deep work.
+
+---
+
 ## [2026-03-15 EOD] — Knowledge Consolidation Pass
 
 **Consolidation health:** GOOD

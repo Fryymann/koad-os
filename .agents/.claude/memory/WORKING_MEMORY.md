@@ -4,62 +4,68 @@
 
 ---
 
-## Session State (2026-03-15 — Phase 4 Complete)
+## Session State (2026-03-21 — Jupiter Migration, Session 2)
 
-**Status:** Idle — PR #185 merged. Awaiting next issue assignment.
-**Phase:** 4 complete → Phase 5 pending
-**nightly HEAD:** post-merge of PR #185 (Phase 4)
-
----
-
-## Completed This Cycle
-
-| PR | Branch | Issue / Task | Status |
-|---|---|---|---|
-| #185 | `agent/claude/issue-73-wasm-plugin-fix` | Issue #173 — Phase 4: WASM host, PluginRegistry, ContainerSandbox, TurnMetrics | **MERGED** |
-| #170 | `claude/crazy-mcnulty` | Issue #163 — Diagnostic Harness (Signal Corps/Streams) | MERGED |
-| #178 | `claude/agitated-swartz` | compose_articles — Phase 2 Knowledge Base Authoring | MERGED |
-| — | `nightly` | gitignore fix + `.agents/.claude/` memory tracking | COMMITTED |
+**Status:** Active — Config verification complete. Blocked on Docker WSL integration + sqlite3.
+**Context:** Jupiter Migration (Io → Jupiter) — Phase 0.5 complete / Phase 1A blocked
+**Machine:** Jupiter (WSL2/Ubuntu — RTX 5070 Ti, Ryzen 9 9950X3D, 64GB DDR5)
+**nightly HEAD:** `7e067c6` (config namespace fixes committed today)
 
 ---
 
-## Active Worktrees
+## Completed This Session
 
-*None. All decommissioned and pruned.*
+| Task | Status |
+|---|---|
+| Verified `.env` with new KOADOS_ namespace | ✅ |
+| Fixed 5 env var mismatches (KOADOS_ alignment) — commit `7e067c6` | ✅ |
+| Installed protoc v27.0 to `~/.local/bin/` | ✅ |
+| Added `PROTOC` + `PROTOC_INCLUDE` to `~/.bashrc` | ✅ |
+| `cargo check` clean — koad-core, koad, koad-agent binaries | ✅ |
+| Updated Notion Jupiter Migration tracking | ✅ |
+| Updated agent memory files | ✅ |
 
 ---
 
-## Open Issues (filed from Phase 4 reviews)
+## Active Blockers (Jupiter)
+
+| Blocker | Impact | Fix |
+|---|---|---|
+| `sqlite3` not installed in WSL | Phase 0.5 item unchecked; Phase 1A DB init blocked | `sudo apt-get install sqlite3` |
+| Docker Desktop WSL integration not enabled | Phase 1A entirely blocked (Redis, Qdrant) | Docker Desktop → Settings → Resources → WSL Integration → enable Ubuntu |
+
+---
+
+## Next Steps (Jupiter Migration — in order)
+
+1. `sudo apt-get install sqlite3` → check off Phase 0.5 DB item
+2. Enable Docker Desktop WSL integration → confirm `docker ps` works in WSL
+3. `docker compose up -d` → Redis Stack running; `redis-cli ping` → PONG
+4. Deploy Qdrant container
+5. Init SQLite databases (`scripts/init-jupiter-db.sql`), enable WAL
+6. Create Qdrant collections: sky_memories, tyr_memories, vigil_memories, koados_knowledge, task_outcomes
+7. Phase 1B: migrate koados_knowledge + task_outcomes snapshots from Io
+8. Phase 1C: `agent-boot tyr` — confirm Citadel handshake on Jupiter
+
+---
+
+## Open Issues (filed from Phase 4, still pending)
 
 | Issue | Title | Priority |
 |---|---|---|
-| #189 | fix(sandbox): kill container on timeout — prevent orphan processes | **High** — live safety gap |
-| #190 | perf(plugins): cache compiled WASM Component — avoid per-invocation JIT | Medium |
-| #191 | chore(canon): RUST_CANON compliance sweep — Phase 4 crates | Medium |
-| #192 | test(plugins): error-path tests for WasmPluginManager | Low |
-| #193 | feat(plugins): expose PluginRegistry via gRPC — MCP Tool Registry | Phase 5 prerequisite |
+| #189 | fix(sandbox): kill container on timeout | High |
+| #190 | perf(plugins): cache compiled WASM Component | Medium |
+| #191 | chore(canon): RUST_CANON compliance sweep | Medium |
+| #192 | test(plugins): error-path tests | Low |
+| #193 | feat(plugins): PluginRegistry via gRPC | Phase 5 prereq |
 
 ---
 
-## Open Items / Follow-ups
-
-- **Worktree cleanup:** ✅ Done — `magical-golick` and `--claude-issue-73` removed, local branches deleted.
-- **Pre-push hook not executable** in worktree: `chmod +x /home/ideans/.koad-os/.git/hooks/pre-push` — flag to Tyr.
-- **Pending Tyr review:** Pre-existing clippy failures in `koad-citadel`:
-  `kernel.rs`, `sanctuary.rs`, `hierarchy.rs`, `bay.rs`, `session.rs` — undocumented public items.
-  Not introduced by Claude. Tracked in PONDERS.md.
-- **Coverage gaps noted in INDEX.md (PR #178):**
-  - koad-watchdog service (no article yet)
-  - koad-board / Airtable sync (no article yet)
-  - Bridge layer (no article yet)
-
----
-
-## Boot Ritual Reminder
+## Boot Ritual
 
 ```
-1. wsl.exe -d Ubuntu-24.04 -e bash -c "cat /home/ideans/.koad-os/.agents/.claude/memory/SAVEUPS.md"
-2. wsl.exe -d Ubuntu-24.04 -e bash -c "cd /home/ideans/.koad-os && git status && git log --oneline -3"
-3. wsl.exe -d Ubuntu-24.04 -e bash -c "ls /home/ideans/.koad-os/.agents/.claude/memory/"
-4. Confirm worktree before writing any files.
+1. Read SAVEUPS.md — always
+2. git status in ~/.koad-os — confirm on nightly
+3. PROTOC=~/.local/bin/protoc for any cargo builds (in .bashrc, but verify)
+4. Check this file for current blockers before starting any task
 ```

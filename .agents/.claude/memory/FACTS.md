@@ -146,6 +146,27 @@ Source: targeted module review, 2026-03-15 Phase 4.
 
 ---
 
+## Jupiter Machine (as of 2026-03-21)
+
+**F-26 — Jupiter specs:** WSL2/Ubuntu, RTX 5070 Ti (16GB VRAM), Ryzen 9 9950X3D, 64GB DDR5. Primary Citadel replacing Io (laptop).
+Source: CLAUDE.md Notion page + TRAVEL_MANIFEST.md.
+
+**F-27 — `protoc` on Jupiter:** Installed at `~/.local/bin/protoc` (v27.0). Include files at `~/.local/include/`. `PROTOC` + `PROTOC_INCLUDE` added to `~/.bashrc`. No system package. All `cargo` commands pick this up automatically in a fresh shell.
+Source: 2026-03-21 session.
+
+**F-28 — `sqlite3` NOT installed on Jupiter WSL.**
+Fix: `sudo apt-get install sqlite3`. Required before Phase 1A DB init (`scripts/init-jupiter-db.sql`).
+Source: 2026-03-21 session.
+
+**F-29 — Docker Desktop WSL integration NOT enabled on Jupiter.**
+`docker` command not found in WSL shell. Fix: Docker Desktop → Settings → Resources → WSL Integration → enable Ubuntu distro. Blocks all Phase 1A work (Redis, Qdrant).
+Source: 2026-03-21 session.
+
+**F-30 — Git identity on Jupiter (koad-os repo):** `Fryymann / fryymann@users.noreply.github.com`. Correct for KoadOS. Skylinks repos use `ian-skylinks` identity via `~/.gitconfig-skylinks` + `includeIf` directive.
+Source: 2026-03-21 session.
+
+---
+
 ## Session Status (as of 2026-03-15 EOD)
 
 - nightly: `32eceb1` (post-merge of #178 + gitignore/memory fix `83f92c0`)
