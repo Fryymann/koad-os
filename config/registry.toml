@@ -5,6 +5,6 @@ github_repo = "koad-os"
 credential_key = "GITHUB_PERSONAL_PAT"
 
 [projects.skylinks]
-path = "/home/ideans/data/skylinks/.agents/.sky"
+path = "~/data/skylinks/.agents/.sky"
 github_owner = "Skylinks-Golf"
 credential_key = "GITHUB_SKYLINKS_FULLACCESS_TOKEN"

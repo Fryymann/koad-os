@@ -28,12 +28,13 @@ max_failures = 3
 monitor_asm = true
 
 [filesystem]
-workspace_root = "/home/ideans"
+workspace_root = "~"
 protected_paths = ["~/.ssh", "~/.notion"]
 allowed_directories = [
   "~/.koad-os",
   "~/projects"
 ]
+custom_config_dir = "~/.koad-os/config/custom"
 
 [sandbox]
 enabled = true

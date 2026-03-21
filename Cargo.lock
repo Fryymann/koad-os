@@ -1936,6 +1936,7 @@ dependencies = [
  "tungstenite",
  "url",
  "uuid",
+ "walkdir",
 ]
 
 [[package]]
