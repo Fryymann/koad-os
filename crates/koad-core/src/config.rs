@@ -208,6 +208,10 @@ pub struct AgentIdentityConfig {
     pub vault: Option<String>,
     pub bootstrap: Option<String>,
     pub preferences: Option<AgentPreferences>,
+    /// Required runtime body for this agent (e.g. "gemini", "claude", "codex").
+    /// If set, boot will refuse to hydrate unless KOAD_RUNTIME matches.
+    #[serde(default)]
+    pub runtime: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

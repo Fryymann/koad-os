@@ -1,0 +1,17 @@
+[Unit]
+Description=KoadOS CASS Cognitive Memory Service
+After=network.target koad-citadel.service
+
+[Service]
+Type=simple
+User=ideans
+WorkingDirectory=/home/ideans/.koad-os
+EnvironmentFile=/home/ideans/.koad-os/.env
+ExecStart=/home/ideans/.koad-os/bin/koad-cass
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/home/ideans/.koad-os/logs/cass.log
+StandardError=append:/home/ideans/.koad-os/logs/cass.error.log
+
+[Install]
+WantedBy=multi-user.target

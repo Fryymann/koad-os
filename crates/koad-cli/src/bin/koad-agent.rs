@@ -68,6 +68,26 @@ async fn main() -> Result<()> {
         let agent_key = agent_name.to_lowercase();
         let identity_config = config.identities.get(&agent_key);
 
+        // --- [Pre-flight: Body Check] ---
+        // If the agent declares a required runtime, abort before any hydration
+        // unless KOAD_RUNTIME env var matches. No body = no ghost.
+        if let Some(id) = identity_config {
+            if let Some(required_runtime) = &id.runtime {
+                let active_runtime = std::env::var("KOAD_RUNTIME").unwrap_or_default();
+                if active_runtime.to_lowercase() != required_runtime.to_lowercase() {
+                    eprintln!(
+                        "\x1b[31m[BOOT DENIED]\x1b[0m No agent body detected for '{}'.",
+                        agent_name
+                    );
+                    eprintln!(
+                        "  Required runtime: \x1b[33m{}\x1b[0m — set KOAD_RUNTIME={} to authorize.",
+                        required_runtime, required_runtime
+                    );
+                    std::process::exit(1);
+                }
+            }
+        }
+
         let vault_path = match find_vault(&agent_name, &config, identity_config) {
             Ok(p) => p,
             Err(e) => {
@@ -122,18 +142,18 @@ async fn main() -> Result<()> {
 
                     if let Some(prefs) = &identity_config.preferences {
                         for key in &prefs.access_keys {
-                            if let Ok(val) = std::env::var(key) {
-                                println!("export {}=\"{}\";", key, val);
+                            let resolved = config.resolve_secret(key, None);
+                            if !resolved.is_empty() {
+                                println!("export {}=\"{}\";", key, resolved);
                             }
                         }
-                        if prefs.access_keys.contains(&"KOADOS_PAT_GITHUB_ADMIN".to_string()) {
-                            if let Ok(val) = std::env::var("KOADOS_PAT_GITHUB_ADMIN") {
-                                println!("export GITHUB_PAT=\"{}\";", val);
-                                let github_user = std::env::var("KOADOS_MAIN_GITHUB_USER")
-                                    .unwrap_or_else(|_| config.get_github_owner(None));
+                        // Export GitHub context alongside PAT for agents with GitHub access
+                        if prefs.access_keys.iter().any(|k| k == "GITHUB_PAT" || k == "KOADOS_PAT_GITHUB_ADMIN") {
+                            let github_user = config.resolve_secret("GITHUB_USER", None);
+                            if !github_user.is_empty() {
                                 println!("export GITHUB_OWNER=\"{}\";", github_user);
-                                println!("export GITHUB_PROJECT_NUMBER=2;");
                             }
+                            println!("export GITHUB_PROJECT_NUMBER=2;");
                         }
                     }
 
@@ -174,12 +194,12 @@ async fn main() -> Result<()> {
 
                     // Telemetry (Phase 0)
                     println!(
-                        "/home/ideans/.koad-os/scripts/koad-telemetry.sh boot {} {};",
-                        agent_name, cache_hash
+                        "{}/scripts/koad-telemetry.sh boot {} {};",
+                        config.home.display(), agent_name, cache_hash
                     );
                     println!(
-                        "trap \"/home/ideans/.koad-os/scripts/koad-telemetry.sh shutdown {} {}\" EXIT;",
-                        agent_name, cache_hash
+                        "trap \"{}/scripts/koad-telemetry.sh shutdown {} {}\" EXIT;",
+                        config.home.display(), agent_name, cache_hash
                     );
 
                     // --- [CASS TCH Hydration (Phase 2)] ---
@@ -361,3 +381,4 @@ mod tests {
         // Placeholder for KAPV logic tests
     }
 }
+// rebuild

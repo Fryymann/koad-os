@@ -1,6 +1,6 @@
 use crate::cli::{ConfigAction, SystemAction};
 use crate::db::KoadDB;
-use crate::utils::{feature_gate, get_gdrive_token_for_path, get_gh_pat_for_path};
+use crate::utils::{get_gdrive_token_for_path, get_gh_pat_for_path};
 use anyhow::{Context, Result};
 use chrono::Local;
 use fred::interfaces::{HashesInterface, KeysInterface, LuaInterface};
@@ -189,8 +189,8 @@ pub async fn handle_system_action(
             let (d, _) = get_gdrive_token_for_path(&current_dir);
             println!("GH:{} | GD:{}", p, d);
         }
-        SystemAction::Init { force: _ } => {
-            feature_gate("koad init", Some(25));
+        SystemAction::Init { force } => {
+            system_init(config, force)?;
         }
         SystemAction::Config { action, json } => match action {
             Some(ConfigAction::Set { key, value }) => {
@@ -842,6 +842,11 @@ pub async fn handle_system_action(
             handle_heartbeat(daemon, session, config).await?;
         }
     }
+    Ok(())
+}
+
+fn system_init(_config: &KoadConfig, _force: bool) -> Result<()> {
+    println!("[KoadOS] system init - not yet implemented");
     Ok(())
 }
 

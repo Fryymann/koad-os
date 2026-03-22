@@ -1,0 +1,17 @@
+[Unit]
+Description=KoadOS Citadel gRPC Control Plane
+After=network.target
+
+[Service]
+Type=simple
+User=ideans
+WorkingDirectory=/home/ideans/.koad-os
+EnvironmentFile=/home/ideans/.koad-os/.env
+ExecStart=/home/ideans/.koad-os/bin/koad-citadel
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/home/ideans/.koad-os/logs/citadel.log
+StandardError=append:/home/ideans/.koad-os/logs/citadel.error.log
+
+[Install]
+WantedBy=multi-user.target
