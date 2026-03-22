@@ -108,6 +108,7 @@ The **Koad Spine is retired.** It is archived in `legacy/`. We are building **Th
 | **Sky** | Specialist | CASS Architect | Memory Stack, MCP Tool Design |
 | **Scribe** | Crew | Scout & Scribe | Context Distillation, Map Maintenance, Vault Scaffolding |
 | **Cid** | Engineer | Systems Engineer | Crate Architect, CI/CD, Rust Modules |
+| **Clyde** | Officer | Citadel Officer | KoadOS Development, Multi-Project Engineering |
 | **Helm** | Security | Security Sentinel | Jailing, Sandboxing, Integrity |
 
 ---

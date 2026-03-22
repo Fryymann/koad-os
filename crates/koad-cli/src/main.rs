@@ -16,7 +16,7 @@ use koad_core::utils::redis::RedisClient;
 use std::env;
 use std::path::PathBuf;
 
-use crate::cli::{Cli, Commands, SystemAction, XpCommands};
+use crate::cli::{AgentAction, Cli, Commands, SystemAction, XpCommands};
 use crate::db::KoadDB;
 use crate::handlers::boot::handle_boot_command;
 use crate::handlers::bridge::handle_bridge_action;
@@ -255,6 +255,9 @@ async fn main() -> Result<()> {
         }
         Commands::Logout { session } => {
             crate::handlers::boot::handle_logout_command(session, &config).await?;
+        }
+        Commands::Agent { action } => {
+            crate::handlers::agent::handle_agent_action(action, &config).await?;
         }
     }
 

@@ -23,6 +23,9 @@ jobs:
       - name: Workspace Health Check
         run: cargo check --workspace
 
+      - name: Run Tests
+        run: cargo test --workspace
+
       - name: Git Compliance Check
         run: |
           # Verify no forbidden files are tracked

@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod board;
 pub mod boot;
 pub mod bridge;

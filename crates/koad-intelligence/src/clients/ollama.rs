@@ -103,6 +103,112 @@ impl InferenceClient for OllamaClient {
 
 #[cfg(test)]
 mod tests {
-    // Integration test placeholder (Requires live Ollama)
-    // In a real project, we'd use mockito/wiremock here.
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn chat_returns_trimmed_response_field() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/generate"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"response": "  hello world  "})),
+            )
+            .mount(&server)
+            .await;
+
+        let client = OllamaClient::new(None, Some(&server.uri())).unwrap();
+        let reply = client.chat("test prompt").await.unwrap();
+        assert_eq!(reply, "hello world", "Response should have leading/trailing whitespace trimmed");
+    }
+
+    #[tokio::test]
+    async fn chat_returns_error_on_http_error_status() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/generate"))
+            .respond_with(
+                ResponseTemplate::new(500).set_body_string("internal server error"),
+            )
+            .mount(&server)
+            .await;
+
+        let client = OllamaClient::new(None, Some(&server.uri())).unwrap();
+        let result = client.chat("test").await;
+        assert!(result.is_err(), "Non-2xx response should produce an error");
+        assert!(
+            result.unwrap_err().to_string().contains("Ollama API returned error"),
+            "Error message should describe the API failure"
+        );
+    }
+
+    #[tokio::test]
+    async fn score_significance_falls_back_to_0_5_on_non_numeric_response() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/generate"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"response": "not-a-number"})),
+            )
+            .mount(&server)
+            .await;
+
+        let client = OllamaClient::new(None, Some(&server.uri())).unwrap();
+        let score = client.score_significance("some content").await.unwrap();
+        assert_eq!(score, 0.5, "Should fall back to 0.5 when the response cannot be parsed as f32");
+    }
+
+    #[tokio::test]
+    async fn score_significance_parses_valid_float() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/generate"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"response": "0.75"})),
+            )
+            .mount(&server)
+            .await;
+
+        let client = OllamaClient::new(None, Some(&server.uri())).unwrap();
+        let score = client.score_significance("important content").await.unwrap();
+        assert_eq!(score, 0.75);
+    }
+
+    #[tokio::test]
+    async fn score_significance_clamps_above_1_to_1() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/generate"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"response": "1.9"})),
+            )
+            .mount(&server)
+            .await;
+
+        let client = OllamaClient::new(None, Some(&server.uri())).unwrap();
+        let score = client.score_significance("content").await.unwrap();
+        assert_eq!(score, 1.0, "Score above 1.0 should be clamped to 1.0");
+    }
+
+    #[tokio::test]
+    async fn score_significance_clamps_negative_to_0() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/generate"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"response": "-0.5"})),
+            )
+            .mount(&server)
+            .await;
+
+        let client = OllamaClient::new(None, Some(&server.uri())).unwrap();
+        let score = client.score_significance("content").await.unwrap();
+        assert_eq!(score, 0.0, "Negative score should be clamped to 0.0");
+    }
 }

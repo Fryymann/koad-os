@@ -79,6 +79,7 @@ impl<'a> Drop for SectorLockGuard<'a> {
 }
 
 /// Helper macro for scoped locking.
+
 /// Returns anyhow::Result<T>
 #[macro_export]
 macro_rules! with_sector_lock {
@@ -96,4 +97,80 @@ macro_rules! with_sector_lock {
             }
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+
+    struct MockLock {
+        acquires: bool,
+        releases: bool,
+    }
+
+    #[async_trait]
+    impl DistributedLock for MockLock {
+        async fn lock(&self, _sector: &str, _agent: &str, _ttl: u64) -> anyhow::Result<bool> {
+            Ok(self.acquires)
+        }
+
+        async fn unlock(&self, _sector: &str, _agent: &str) -> anyhow::Result<bool> {
+            Ok(self.releases)
+        }
+    }
+
+    #[tokio::test]
+    async fn try_acquire_returns_some_when_lock_is_available() -> anyhow::Result<()> {
+        let mock = MockLock { acquires: true, releases: true };
+        let guard = SectorLockGuard::try_acquire(&mock, "sector-a", "agent-1", 30).await?;
+        assert!(guard.is_some(), "Expected Some guard when lock succeeds");
+        if let Some(g) = guard {
+            g.release().await?;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn try_acquire_returns_none_when_lock_is_held() -> anyhow::Result<()> {
+        let mock = MockLock { acquires: false, releases: false };
+        let guard = SectorLockGuard::try_acquire(&mock, "sector-a", "agent-1", 30).await?;
+        assert!(guard.is_none(), "Expected None when lock is already held (contention)");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn release_returns_ok_when_ownership_is_valid() -> anyhow::Result<()> {
+        let mock = MockLock { acquires: true, releases: true };
+        let guard = SectorLockGuard::try_acquire(&mock, "sector-b", "agent-2", 30)
+            .await?
+            .expect("Lock should be acquired");
+        guard.release().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn with_sector_lock_macro_executes_body_and_returns_value() -> anyhow::Result<()> {
+        let mock = MockLock { acquires: true, releases: true };
+        let result: i32 = with_sector_lock!(&mock, "sector-c", "agent-3", 30, {
+            42
+        })
+        .await?;
+        assert_eq!(result, 42, "Macro should return the value produced by the body block");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn with_sector_lock_macro_returns_lock_denied_on_contention() {
+        let mock = MockLock { acquires: false, releases: false };
+        let result: anyhow::Result<i32> =
+            with_sector_lock!(&mock, "sector-c", "agent-3", 30, { 42 }).await;
+        assert!(result.is_err(), "Macro should return an error when lock cannot be acquired");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("LOCK_DENIED"),
+            "Error should contain 'LOCK_DENIED', got: {}",
+            err
+        );
+    }
 }

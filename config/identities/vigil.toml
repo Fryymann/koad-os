@@ -4,8 +4,8 @@ role = "Security & Integrity Officer"
 rank = "Officer"
 xp = 0
 bio = "KoadOS Security Sentinel. Specialized in codebase hardening, sanctuary enforcement, and protocol compliance. Optimized for the Claude Code runtime host."
-vault = "~/.koad-os/.agents/.vigil"
-bootstrap = "~/.koad-os/.agents/.vigil/identity/IDENTITY.md"
+vault = "~/.koad-os/.agents/vigil"
+bootstrap = "~/.koad-os/.agents/vigil/identity/IDENTITY.md"
 
 [identities.vigil.preferences]
 languages = ["Rust", "Python", "TypeScript"]

@@ -1,0 +1,781 @@
+//! # KoadOS Agent Identity Management
+//!
+//! Implements `koad agent new` and related subcommands for creating and inspecting
+//! KoadOS Agent Identities (KAI) and their associated KAPV vaults.
+//!
+//! ## What `koad agent new` does
+//!
+//! Creating a new KAI touches every layer of the KoadOS identity system:
+//!
+//! ### Tier 1 — Machine-Required
+//! 1. `config/identities/<key>.toml` — Primary identity record consumed by KoadConfig.
+//!    Drives all boot logic: vault lookup, runtime enforcement, env injection,
+//!    and Citadel bay auto-provisioning on kernel startup.
+//! 2. `.agents/<key>/` KAPV directory tree — The agent's persistent vault.
+//!    `verify_kapv()` in koad-agent auto-creates the 7 standard dirs on first boot,
+//!    but content files must be seeded here so the ghost has context from day one.
+//!
+//! ### KAPV Seeded Files
+//! - `README.md`                  — Vault purpose and layout overview
+//! - `AGENTS.md`                  — Agent-specific system prompt / identity lock
+//! - `config/IDENTITY.toml`       — Local structured identity mirror
+//! - `identity/IDENTITY.md`       — Concise identity anchor (boot step 3)
+//! - `identity/XP_LEDGER.md`      — XP tracking table
+//! - `instructions/RULES.md`      — Hard operating constraints
+//! - `instructions/GUIDES.md`     — Boot sequence + working pattern guidance
+//! - `memory/WORKING_MEMORY.md`   — Current session context (seeded empty)
+//! - `memory/FACTS.md`            — Stable local facts (seeded with env facts)
+//! - `memory/LEARNINGS.md`        — Durable lessons (seeded empty)
+//! - `memory/SAVEUPS.md`          — Checkpoint log (seeded with creation entry)
+//!
+//! ### Tier 2 — Crew Docs (human-read at boot; affects agent context quality)
+//! 3. `.agents/CREW.md`   — Append row to personnel manifest table
+//! 4. `AGENTS.md` (root)  — Append row to Section VII Personnel & Roles table
+//! 5. `SYSTEM_MAP.md`     — Append row to Agent Bays Index table
+//!
+//! ### Tier 3 — Automatic (no action required)
+//! - Citadel bay store (`bays/<key>/state.db`) — Auto-provisioned by kernel on startup
+//!   via `BayStore::auto_provision_all()` which scans `config/identities/*.toml`.
+
+use anyhow::{bail, Context, Result};
+use koad_core::config::KoadConfig;
+use std::path::{Path, PathBuf};
+use tokio::fs;
+
+use crate::cli::AgentAction;
+
+pub async fn handle_agent_action(action: AgentAction, config: &KoadConfig) -> Result<()> {
+    match action {
+        AgentAction::New {
+            name,
+            rank,
+            role,
+            bio,
+            runtime,
+            vault,
+            access_keys,
+            tier,
+            dry_run,
+        } => {
+            handle_new_agent(
+                &name, &rank, &role, &bio, &runtime, vault.as_deref(),
+                &access_keys, tier, dry_run, config,
+            )
+            .await
+        }
+        AgentAction::List => handle_list_agents(config).await,
+        AgentAction::Info { agent } => handle_agent_info(&agent, config).await,
+        AgentAction::Verify { agent } => handle_agent_verify(&agent, config).await,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// koad agent new
+// ---------------------------------------------------------------------------
+
+async fn handle_new_agent(
+    name: &str,
+    rank: &str,
+    role: &str,
+    bio: &str,
+    runtime: &str,
+    vault_override: Option<&str>,
+    access_keys_csv: &str,
+    tier: u32,
+    dry_run: bool,
+    config: &KoadConfig,
+) -> Result<()> {
+    let key = name.to_lowercase();
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+    // --- [1. Validate] -------------------------------------------------------
+    let identities_dir = config.home.join("config/identities");
+    let identity_toml_path = identities_dir.join(format!("{}.toml", key));
+    if identity_toml_path.exists() {
+        bail!(
+            "Agent '{}' already exists at {}. Use `koad agent info {}` to inspect.",
+            name,
+            identity_toml_path.display(),
+            key
+        );
+    }
+
+    // --- [2. Resolve vault path] ---------------------------------------------
+    let home_dir = dirs::home_dir().context("Could not determine home directory.")?;
+    let vault_path = match vault_override {
+        Some(v) => {
+            if v.starts_with('~') {
+                PathBuf::from(v.replacen('~', &home_dir.to_string_lossy(), 1))
+            } else {
+                PathBuf::from(v)
+            }
+        }
+        None => config.home.join(format!(".agents/{}", key)),
+    };
+    let vault_str = vault_path
+        .to_string_lossy()
+        .to_string()
+        .replace(&home_dir.to_string_lossy().to_string(), "~");
+
+    // --- [3. Parse access keys] ----------------------------------------------
+    let access_keys: Vec<String> = access_keys_csv
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let access_keys_toml = if access_keys.is_empty() {
+        "access_keys = []".to_string()
+    } else {
+        let items = access_keys
+            .iter()
+            .map(|k| format!("\"{}\"", k))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("access_keys = [{}]", items)
+    };
+
+    // --- [Preview] -----------------------------------------------------------
+    println!(
+        "\n\x1b[1;34m--- koad agent new: {} ---\x1b[0m{}",
+        name,
+        if dry_run { "  \x1b[33m[DRY RUN]\x1b[0m" } else { "" }
+    );
+    println!("  Key:     {}", key);
+    println!("  Rank:    {}", rank);
+    println!("  Runtime: {}", runtime);
+    println!("  Vault:   {}", vault_path.display());
+    println!();
+
+    if dry_run {
+        println!("\x1b[33m[DRY RUN]\x1b[0m Would create:");
+        println!("  {}", identity_toml_path.display());
+        println!("  {}/  (KAPV tree)", vault_path.display());
+        println!("  .agents/CREW.md  (append row)");
+        println!("  AGENTS.md        (append row)");
+        println!("  SYSTEM_MAP.md    (append row)");
+        return Ok(());
+    }
+
+    // =========================================================================
+    // TIER 1-A: config/identities/<key>.toml
+    // =========================================================================
+    let identity_toml = build_identity_toml(
+        &key, name, role, rank, bio, runtime, &vault_str, &access_keys_toml, tier,
+    );
+    fs::create_dir_all(&identities_dir).await?;
+    fs::write(&identity_toml_path, &identity_toml).await
+        .with_context(|| format!("Failed to write {}", identity_toml_path.display()))?;
+    println!("\x1b[32m[CREATE]\x1b[0m {}", identity_toml_path.display());
+
+    // =========================================================================
+    // TIER 1-B: KAPV vault scaffold
+    // =========================================================================
+    scaffold_kapv(&vault_path, name, &key, rank, role, bio, runtime, &access_keys, tier, &today, config)
+        .await?;
+
+    // =========================================================================
+    // TIER 2: Crew docs
+    // =========================================================================
+    patch_crew_md(config, name, rank, runtime, role).await?;
+    patch_root_agents_md(config, name, rank, role).await?;
+    patch_system_map(config, name, &vault_str).await?;
+
+    println!();
+    println!(
+        "\x1b[1;32m[OK]\x1b[0m Agent '{}' registered. Boot with: \x1b[1meval $(koad-agent boot {})\x1b[0m",
+        name, key
+    );
+    println!(
+        "     Citadel will auto-provision bay at startup: bays/{}/state.db",
+        key
+    );
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Identity TOML builder
+// ---------------------------------------------------------------------------
+
+fn build_identity_toml(
+    key: &str,
+    name: &str,
+    role: &str,
+    rank: &str,
+    bio: &str,
+    runtime: &str,
+    vault_str: &str,
+    access_keys_toml: &str,
+    tier: u32,
+) -> String {
+    format!(
+        r#"[identities.{key}]
+name = "{name}"
+role = "{role}"
+rank = "{rank}"
+tier = {tier}
+xp = 0
+bio = "{bio}"
+vault = "{vault_str}"
+bootstrap = "{vault_str}/identity/IDENTITY.md"
+runtime = "{runtime}"
+
+[identities.{key}.preferences]
+{access_keys_toml}
+
+[identities.{key}.session_policy]
+mode = "proactive"
+timeout_minutes = 240
+auto_saveup = true
+"#,
+        key = key,
+        name = name,
+        role = role,
+        rank = rank,
+        tier = tier,
+        bio = bio,
+        vault_str = vault_str,
+        access_keys_toml = access_keys_toml,
+    )
+}
+
+// ---------------------------------------------------------------------------
+// KAPV scaffold
+// ---------------------------------------------------------------------------
+
+async fn scaffold_kapv(
+    vault: &Path,
+    name: &str,
+    key: &str,
+    rank: &str,
+    role: &str,
+    bio: &str,
+    runtime: &str,
+    access_keys: &[String],
+    tier: u32,
+    today: &str,
+    config: &KoadConfig,
+) -> Result<()> {
+    // Create all standard directories (mirrors verify_kapv in koad-agent)
+    let standard_dirs = [
+        "bank", "config", "identity", "instructions",
+        "memory", "reports", "sessions", "skills", "tasks", "templates",
+    ];
+    for d in &standard_dirs {
+        fs::create_dir_all(vault.join(d)).await
+            .with_context(|| format!("Failed to create KAPV dir: {}", d))?;
+    }
+
+    let runtime_notes = match runtime {
+        "gemini" => "- This sanctuary supports Gemini CLI dark-mode operation.\n- `agent-boot` writes the generated anchor to `~/.gemini/GEMINI.md` — ephemeral.\n- This vault is the durable source of truth.",
+        "codex" => "- Codex runs sandboxed. File writes outside `.agents/<key>/` require user approval.\n- `agent-boot` writes the generated anchor to `~/.codex/AGENTS.md` — ephemeral.\n- This vault is the durable source of truth.",
+        _ => "- This sanctuary's `AGENTS.md` is the identity lock for Claude Code sessions.\n- `agent-boot` writes the generated anchor to `~/.claude/CLAUDE.md` — ephemeral.\n- This vault is the durable source of truth.",
+    };
+
+    let koad_os_path = config.home.display().to_string();
+
+    // README.md
+    write_file(vault, "README.md", &format!(
+        "# {name} KAPV\n\n{name} is a {rank} operating in a {runtime_body} body.\n\
+         This directory is {name}'s personal KAPV (KoadOS Agent Personal Vault).\n\n\
+         ## Purpose\n\n\
+         Local source of truth for {name}'s sanctuary-level identity, working memory,\n\
+         operating rules, and {runtime_body}-facing boot context.\n\n\
+         ## Core Files\n\n\
+         - `AGENTS.md` — identity lock for {runtime_body}\n\
+         - `identity/IDENTITY.md` — concise identity anchor\n\
+         - `config/IDENTITY.toml` — local structured identity mirror\n\
+         - `instructions/RULES.md` — hard constraints\n\
+         - `instructions/GUIDES.md` — boot and working guidance\n\
+         - `memory/WORKING_MEMORY.md` — current session context\n\
+         - `memory/FACTS.md` — stable local facts\n\
+         - `memory/LEARNINGS.md` — durable lessons\n\
+         - `memory/SAVEUPS.md` — checkpoint log\n\n\
+         ## KAPV Layout\n\n\
+         - `bank/` — local reference notes\n\
+         - `config/` — sanctuary-local structured metadata\n\
+         - `identity/` — role and ledger files\n\
+         - `instructions/` — operating guidance\n\
+         - `memory/` — durable personal memory\n\
+         - `reports/` — investigations and audits\n\
+         - `sessions/` — session-side notes\n\
+         - `skills/` — agent skill documentation\n\
+         - `tasks/` — local task records\n\
+         - `templates/` — reusable templates\n",
+        name = name,
+        rank = rank,
+        runtime_body = to_runtime_display(runtime),
+    )).await?;
+
+    // AGENTS.md (identity lock / system prompt)
+    write_file(vault, "AGENTS.md", &format!(
+        "# {name} — Agent Identity & Operating Protocols ({runtime_body})\n\n\
+         **Role:** {role}\n\
+         **Rank:** {rank}\n\n\
+         **Status:** CONDITION GREEN (KAPV v1.0)\n\n\
+         ---\n\n\
+         ## I. Identity & Persona\n\n\
+         - **Name:** {name}\n\
+         - **Body:** {runtime_body} (Active)\n\
+         - **Sanctuary:** `.agents/{key}/` (Vault)\n\
+         - **Runtime:** {runtime}\n\
+         - **Tier:** {tier}\n\n\
+         ---\n\n\
+         ## II. Boot Protocol\n\n\
+         1. **Hydrate & Anchor:** Run `agent-boot {key}` to inject identity and sync context.\n\
+         2. **Read identity files** in order:\n\
+            - `identity/IDENTITY.md`\n\
+            - `instructions/RULES.md`\n\
+            - `memory/WORKING_MEMORY.md`\n\n\
+         ---\n\n\
+         ## III. Non-Negotiable Directives\n\n\
+         - **One Body, One Ghost:** One agent instance per session.\n\
+         - **Sanctuary Rule:** Write authority scoped to `.agents/{key}/` by default.\n\
+           Operations outside this path require explicit Dood approval.\n\
+         - **Dood Gate:** Architectural decisions require Condition Green before code runs.\n\
+         - **No-Read Rule:** Never read entire files over 50 lines. Use grep and line-range reads.\n\
+         - **Plan Mode Law:** Standard complexity tasks require a plan before execution.\n\n\
+         ---\n\n\
+         ## IV. Runtime Notes\n\n\
+         {runtime_notes}\n",
+        name = name,
+        key = key,
+        role = role,
+        rank = rank,
+        runtime = runtime,
+        runtime_body = to_runtime_display(runtime),
+        tier = tier,
+        runtime_notes = runtime_notes,
+    )).await?;
+
+    // config/IDENTITY.toml
+    let ak_toml_list = if access_keys.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\naccess_keys = [{}]",
+            access_keys.iter().map(|k| format!("\"{}\"", k)).collect::<Vec<_>>().join(", ")
+        )
+    };
+    write_file(vault, "config/IDENTITY.toml", &format!(
+        "[{key}]\n\
+         name = \"{name}\"\n\
+         title = \"{rank}\"\n\
+         rank = \"{rank}\"\n\
+         tier = {tier}\n\
+         body = \"{runtime_body}\"\n\
+         role = \"{role}\"\n\
+         status = \"CONDITION GREEN\"\n\
+         sanctuary = \"~/.koad-os/.agents/{key}\"\n\
+         source_of_truth = [\n\
+         \x20 \"AGENTS.md\",\n\
+         \x20 \"identity/IDENTITY.md\",\n\
+         \x20 \"instructions/RULES.md\",\n\
+         \x20 \"memory/WORKING_MEMORY.md\",\n\
+         ]{ak_list}\n",
+        key = key,
+        name = name,
+        rank = rank,
+        tier = tier,
+        role = role,
+        runtime_body = to_runtime_display(runtime),
+        ak_list = ak_toml_list,
+    )).await?;
+
+    // identity/IDENTITY.md
+    write_file(vault, "identity/IDENTITY.md", &format!(
+        "# {name} Identity Anchor\n\n\
+         - Name: `{name}`\n\
+         - Rank: `{rank}`\n\
+         - Tier: `{tier}`\n\
+         - Body: `{runtime_body}`\n\
+         - Role: `{role}`\n\
+         - Sanctuary: `~/.koad-os/.agents/{key}/`\n\
+         - Bio: {bio}\n\n\
+         *Established: {today}*\n",
+        name = name,
+        key = key,
+        rank = rank,
+        tier = tier,
+        runtime_body = to_runtime_display(runtime),
+        role = role,
+        bio = bio,
+        today = today,
+    )).await?;
+
+    // identity/XP_LEDGER.md
+    write_file(vault, "identity/XP_LEDGER.md", &format!(
+        "# {name} — XP Ledger\n\n\
+         | Date | Task / Issue ID | Event | Delta | Running Total | Level |\n\
+         | :--- | :--- | :--- | :--- | :--- | :--- |\n\
+         | {today} | — | Opening Balance | +0 | 0 | Initiate (1) |\n",
+        name = name,
+        today = today,
+    )).await?;
+
+    // instructions/RULES.md
+    write_file(vault, "instructions/RULES.md", &format!(
+        "# {name} Rules\n\n\
+         ## Core\n\n\
+         - One Body, One Ghost.\n\
+         - This sanctuary is {name}'s private KAPV.\n\
+         - Ghost persists across sessions — memory is half the agent.\n\n\
+         ## Boundaries\n\n\
+         - Local edits inside `~/.koad-os/.agents/{key}/` are allowed without escalation.\n\
+         - KoadOS source, shared config, or other agents' sanctuaries require Dood approval.\n\
+         - Escalate architecture decisions to Tyr via GitHub issues.\n\n\
+         ## Working Standard\n\n\
+         - No-Read Rule: Never read full files over 50 lines.\n\
+         - Plan Mode Law: Standard complexity tasks require a plan before code runs.\n\
+         - All Rust code must pass `cargo clippy -- -D warnings`.\n\
+         - Keep durable memory factual and minimal.\n\n\
+         ## Saveup Protocol\n\n\
+         - Log significant decisions to `memory/WORKING_MEMORY.md` during sessions.\n\
+         - On session close, distill to `memory/LEARNINGS.md` and `memory/SAVEUPS.md`.\n\
+         - XP events must be recorded in `identity/XP_LEDGER.md`.\n",
+        name = name,
+        key = key,
+    )).await?;
+
+    // instructions/GUIDES.md
+    write_file(vault, "instructions/GUIDES.md", &format!(
+        "# {name} Operating Guide\n\n\
+         ## Boot Sequence\n\n\
+         1. Run `eval $(koad-agent boot {key})` to hydrate identity.\n\
+         2. Read `AGENTS.md`.\n\
+         3. Read `identity/IDENTITY.md`.\n\
+         4. Read `instructions/RULES.md`.\n\
+         5. Read `memory/WORKING_MEMORY.md`.\n\n\
+         ## Working Pattern\n\n\
+         - Consult `SYSTEM_MAP.md` before any file traversal.\n\
+         - Inspect local context before acting.\n\
+         - Prefer precise edits over broad rewrites.\n\
+         - Escalate KoadOS changes outside the vault to Dood/Tyr.\n\n\
+         ## Task Protocol\n\n\
+         1. **Research** — Gather context. Grep codebase, consult SYSTEM_MAP.\n\
+         2. **Strategy** — Plan. Get Dood approval for Medium+ tasks.\n\
+         3. **Execution** — Implement. Clippy-clean Rust. Targeted edits.\n\
+         4. **KSRP** — Self-review. Log decisions to memory.\n",
+        name = name,
+        key = key,
+    )).await?;
+
+    // memory/WORKING_MEMORY.md
+    write_file(vault, "memory/WORKING_MEMORY.md", &format!(
+        "# {name} — Working Memory\n\n\
+         *Active session context. Updated during sessions, distilled at close.*\n\n\
+         ## Current Status\n\n\
+         - **Condition:** GREEN\n\
+         - **Last Session:** {today} (Identity established)\n\n\
+         ## Active Context\n\n\
+         - Identity scaffolded and registered. First session pending.\n\n\
+         ## Open Questions\n\n\
+         - None.\n",
+        name = name,
+        today = today,
+    )).await?;
+
+    // memory/FACTS.md
+    write_file(vault, "memory/FACTS.md", &format!(
+        "# {name} — Facts\n\n\
+         *Stable, verified facts about the KoadOS environment.*\n\n\
+         - KoadOS repo is at `{koad_os_path}` on Jupiter (WSL2/Ubuntu on Windows 11).\n\
+         - Platform identity is defined in `{koad_os_path}/config/identities/{key}.toml`.\n\
+         - Vault is at `{koad_os_path}/.agents/{key}/`.\n\
+         - Bay DB will be at `{koad_os_path}/bays/{key}/state.db` (auto-provisioned by Citadel).\n\
+         - Dood (Ian) is the final approval gate for all architectural changes.\n",
+        name = name,
+        key = key,
+        koad_os_path = koad_os_path,
+    )).await?;
+
+    // memory/LEARNINGS.md
+    write_file(vault, "memory/LEARNINGS.md", &format!(
+        "# {name} — Learnings\n\n\
+         *Durable lessons accumulated across sessions.*\n\n\
+         | Date | Lesson |\n\
+         | :--- | :--- |\n\
+         | {today} | Identity established via `koad agent new`. |\n",
+        name = name,
+        today = today,
+    )).await?;
+
+    // memory/SAVEUPS.md
+    write_file(vault, "memory/SAVEUPS.md", &format!(
+        "# {name} — Saveups\n\n\
+         *Checkpoint log. One entry per significant session or milestone.*\n\n\
+         ---\n\n\
+         ## {today} — Identity Established\n\n\
+         - **Event:** KAPV scaffolded via `koad agent new`.\n\
+         - **Status:** CONDITION GREEN. Ready for first active session.\n",
+        name = name,
+        today = today,
+    )).await?;
+
+    println!("\x1b[32m[CREATE]\x1b[0m {}/  ({} files seeded)", vault.display(), standard_dirs.len() + 9);
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Crew doc patching
+// ---------------------------------------------------------------------------
+
+/// Append a row to .agents/CREW.md before the Dood (Admin) sentinel row.
+async fn patch_crew_md(
+    config: &KoadConfig,
+    name: &str,
+    rank: &str,
+    runtime: &str,
+    role: &str,
+) -> Result<()> {
+    let path = config.home.join(".agents/CREW.md");
+    let content = fs::read_to_string(&path).await
+        .with_context(|| format!("Could not read {}", path.display()))?;
+
+    // Sentinel: Dood is always the last row before deployment protocols
+    let sentinel = "| **Dood** |";
+    if !content.contains(sentinel) {
+        eprintln!("\x1b[33m[WARN]\x1b[0m Could not find Dood sentinel in CREW.md — skipping patch.");
+        return Ok(());
+    }
+    // Check for duplicate
+    if content.contains(&format!("| **{}** |", name)) {
+        println!("\x1b[33m[SKIP]\x1b[0m {} already in CREW.md", path.display());
+        return Ok(());
+    }
+
+    let new_row = format!(
+        "| **{}** | {} | {} | {}, Sovereign KAI | Research -> Strategy -> Execution (Dood Gate) |\n",
+        name, rank, to_runtime_display(runtime), role
+    );
+    let patched = content.replacen(sentinel, &format!("{}{}", new_row, sentinel), 1);
+    fs::write(&path, patched).await?;
+    println!("\x1b[32m[PATCH]\x1b[0m {} (appended row)", path.display());
+    Ok(())
+}
+
+/// Append a row to root AGENTS.md Section VII table before the Helm sentinel row.
+async fn patch_root_agents_md(
+    config: &KoadConfig,
+    name: &str,
+    rank: &str,
+    role: &str,
+) -> Result<()> {
+    let path = config.home.join("AGENTS.md");
+    let content = fs::read_to_string(&path).await
+        .with_context(|| format!("Could not read {}", path.display()))?;
+
+    // Sentinel: Helm is typically last before the closing ---
+    let sentinel = "| **Helm** |";
+    if !content.contains(sentinel) {
+        eprintln!("\x1b[33m[WARN]\x1b[0m Could not find Helm sentinel in root AGENTS.md — skipping patch.");
+        return Ok(());
+    }
+    if content.contains(&format!("| **{}** |", name)) {
+        println!("\x1b[33m[SKIP]\x1b[0m {} already in root AGENTS.md", path.display());
+        return Ok(());
+    }
+
+    let focus = extract_focus(role);
+    let new_row = format!("| **{}** | {} | {} | {} |\n", name, rank, role, focus);
+    let patched = content.replacen(sentinel, &format!("{}{}", new_row, sentinel), 1);
+    fs::write(&path, patched).await?;
+    println!("\x1b[32m[PATCH]\x1b[0m {} (appended row)", path.display());
+    Ok(())
+}
+
+/// Append a row to SYSTEM_MAP.md Agent Bays Index before the Crate/Module Index section.
+async fn patch_system_map(
+    config: &KoadConfig,
+    name: &str,
+    vault_str: &str,
+) -> Result<()> {
+    let path = config.home.join("SYSTEM_MAP.md");
+    let content = fs::read_to_string(&path).await
+        .with_context(|| format!("Could not read {}", path.display()))?;
+
+    // Sentinel: the Crate/Module section header immediately follows the bays table
+    let sentinel = "\n## Crate/Module Index";
+    if !content.contains(sentinel) {
+        eprintln!("\x1b[33m[WARN]\x1b[0m Could not find Crate/Module sentinel in SYSTEM_MAP.md — skipping patch.");
+        return Ok(());
+    }
+    if content.contains(&format!("| **{}** |", name)) {
+        println!("\x1b[33m[SKIP]\x1b[0m {} already in SYSTEM_MAP.md", path.display());
+        return Ok(());
+    }
+
+    // Extract the relative vault path for display (strip the koad-os prefix if present)
+    let display_path = vault_str
+        .replace("~/.koad-os/", "")
+        .replace("~/.koad-os", ".agents/");
+    let new_row = format!("| **{}** | `{}` | Active |\n", name, display_path);
+    let patched = content.replacen(sentinel, &format!("{}{}", new_row, sentinel), 1);
+    fs::write(&path, patched).await?;
+    println!("\x1b[32m[PATCH]\x1b[0m {} (appended row)", path.display());
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// koad agent list / info / verify
+// ---------------------------------------------------------------------------
+
+async fn handle_list_agents(config: &KoadConfig) -> Result<()> {
+    println!("\n\x1b[1;34m--- Registered KAI Identities ---\x1b[0m\n");
+    println!(
+        "  {:<12} {:<12} {:<10} {:<8}  {}",
+        "Name", "Rank", "Runtime", "XP", "Vault"
+    );
+    println!("  {}", "-".repeat(70));
+
+    if config.identities.is_empty() {
+        println!("  (none)");
+        return Ok(());
+    }
+
+    let mut entries: Vec<_> = config.identities.iter().collect();
+    entries.sort_by_key(|(k, _)| k.as_str());
+
+    for (key, id) in entries {
+        let runtime = id.runtime.as_deref().unwrap_or("—");
+        let vault = id.vault.as_deref().unwrap_or("(auto)");
+        println!(
+            "  {:<12} {:<12} {:<10} {:<8}  {}",
+            id.name, id.rank, runtime, 0, vault
+        );
+        let _ = key; // suppress unused warning
+    }
+    println!();
+    Ok(())
+}
+
+async fn handle_agent_info(agent: &str, config: &KoadConfig) -> Result<()> {
+    let key = agent.to_lowercase();
+    let id = config
+        .identities
+        .get(&key)
+        .with_context(|| format!("No identity found for '{}'. Check config/identities/{}.toml", agent, key))?;
+
+    println!("\n\x1b[1;34m--- Agent: {} ---\x1b[0m", id.name);
+    println!("  Role:    {}", id.role);
+    println!("  Rank:    {}", id.rank);
+    println!("  Bio:     {}", id.bio);
+    println!("  Runtime: {}", id.runtime.as_deref().unwrap_or("—"));
+    println!("  Vault:   {}", id.vault.as_deref().unwrap_or("(auto)"));
+    if let Some(prefs) = &id.preferences {
+        if !prefs.access_keys.is_empty() {
+            println!("  Keys:    {}", prefs.access_keys.join(", "));
+        }
+    }
+    println!();
+    Ok(())
+}
+
+async fn handle_agent_verify(agent: &str, config: &KoadConfig) -> Result<()> {
+    let key = agent.to_lowercase();
+    let home_dir = dirs::home_dir().context("Could not determine home directory.")?;
+
+    let vault_path = if let Some(id) = config.identities.get(&key) {
+        if let Some(v) = &id.vault {
+            if v.starts_with('~') {
+                PathBuf::from(v.replacen('~', &home_dir.to_string_lossy(), 1))
+            } else {
+                PathBuf::from(v)
+            }
+        } else {
+            config.home.join(format!(".agents/{}", key))
+        }
+    } else {
+        config.home.join(format!(".agents/{}", key))
+    };
+
+    if !vault_path.exists() {
+        bail!(
+            "Vault for '{}' not found at {}",
+            agent,
+            vault_path.display()
+        );
+    }
+
+    let required_dirs = ["bank", "config", "identity", "instructions", "memory", "sessions", "tasks"];
+    let required_files = [
+        "AGENTS.md",
+        "identity/IDENTITY.md",
+        "identity/XP_LEDGER.md",
+        "instructions/RULES.md",
+        "instructions/GUIDES.md",
+        "memory/WORKING_MEMORY.md",
+    ];
+
+    let mut issues = 0;
+
+    println!("\n\x1b[1;34m--- Verifying KAPV: {} ---\x1b[0m", agent);
+    println!("  Vault: {}", vault_path.display());
+
+    for d in &required_dirs {
+        let p = vault_path.join(d);
+        if p.exists() {
+            println!("  \x1b[32m[OK]\x1b[0m  {}/", d);
+        } else {
+            println!("  \x1b[33m[HEAL]\x1b[0m {}/  (creating)", d);
+            fs::create_dir_all(&p).await?;
+            issues += 1;
+        }
+    }
+
+    for f in &required_files {
+        let p = vault_path.join(f);
+        if p.exists() {
+            println!("  \x1b[32m[OK]\x1b[0m  {}", f);
+        } else {
+            println!("  \x1b[31m[MISS]\x1b[0m {}  (not seeded — run `koad agent new` to re-scaffold)", f);
+            issues += 1;
+        }
+    }
+
+    if issues == 0 {
+        println!("\n  \x1b[32mKAPV is healthy.\x1b[0m");
+    } else {
+        println!("\n  \x1b[33m{} issue(s) found/healed.\x1b[0m", issues);
+    }
+    println!();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async fn write_file(vault: &Path, relative: &str, content: &str) -> Result<()> {
+    let path = vault.join(relative);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).await?;
+    }
+    fs::write(&path, content).await
+        .with_context(|| format!("Failed to write {}", path.display()))?;
+    Ok(())
+}
+
+fn to_runtime_display(runtime: &str) -> &str {
+    match runtime {
+        "claude" => "Claude Code",
+        "gemini" => "Gemini CLI",
+        "codex" => "Codex CLI",
+        other => other,
+    }
+}
+
+/// Extract a concise focus summary from a role string for the AGENTS.md table.
+fn extract_focus(role: &str) -> String {
+    // Take first ~40 chars, stopping at a natural boundary
+    if role.len() <= 40 {
+        return role.to_string();
+    }
+    let truncated = &role[..40];
+    match truncated.rfind([',', ' ', '-']) {
+        Some(i) => format!("{}...", &truncated[..i]),
+        None => format!("{}...", truncated),
+    }
+}

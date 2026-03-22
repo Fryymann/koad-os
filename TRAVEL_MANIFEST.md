@@ -6,7 +6,7 @@
 ## Ⅰ. Crew (The Ghosts)
 - [ ] **Tyr:** Vault at `~/.tyr`, sanitized identity in `config/identities/tyr.toml`.
 - [ ] **Sky:** Identity sanitized (WSL path removed), ready for SLE re-link.
-- [ ] **Vigil:** Identity sanitized, vault at `~/.koad-os/.agents/.vigil`.
+- [ ] **Vigil:** Identity sanitized, vault at `~/.koad-os/.agents/vigil`.
 - [ ] **Scribe/Cid:** Ready for re-initialization.
 
 ## Ⅱ. Cargo (Essential Docs & Configs)

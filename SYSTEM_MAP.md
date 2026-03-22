@@ -24,13 +24,14 @@
 ~/.koad-os/
 ├── .admiral/          # The Dood's private directories
 ├── .agents/           # Shared agent artifacts, documentation, and private vaults
-│   ├── .cid/          # Cid personal vault (PRIVATE)
-│   ├── .claude/       # Claude-specific config/state
+│   ├── cid/           # Cid personal vault (PRIVATE)
+│   ├── claude/        # Claude personal vault (PRIVATE)
+│   ├── clyde/         # Clyde personal vault (PRIVATE)
 │   ├── .gemini/       # Gemini CLI system artifacts
 │   ├── .helm/         # Kubernetes/Helm deployment artifacts
-│   ├── .scribe/       # Scribe personal vault (PRIVATE)
-│   ├── .tyr/          # Tyr personal vault (PRIVATE)
-│   ├── .vigil/        # Vigil personal vault (PRIVATE)
+│   ├── scribe/        # Scribe personal vault (PRIVATE)
+│   ├── tyr/           # Tyr personal vault (PRIVATE)
+│   ├── vigil/         # Vigil personal vault (PRIVATE)
 │   ├── inbox/         # Shared agent communication inbox
 │   ├── CITADEL.md     # Project core definition
 │   └── CREW.md        # Personnel manifest
@@ -68,10 +69,11 @@
 ## Agent Bays Index
 | Agent | Path | Status |
 | :--- | :--- | :--- |
-| **Tyr** | `.agents/.tyr/` | Active |
-| **Scribe** | `.agents/.scribe/` | Active (This Vault) |
-| **Cid** | `.agents/.cid/` | Initialized |
-| **Vigil** | `.agents/.vigil/` | Initialized |
+| **Tyr** | `.agents/tyr/` | Active |
+| **Scribe** | `.agents/scribe/` | Active (This Vault) |
+| **Cid** | `.agents/cid/` | Initialized |
+| **Vigil** | `.agents/vigil/` | Initialized |
+| **Clyde** | `.agents/clyde/` | Active |
 | **Sky** | `/mnt/c/data/skylinks/.agents/.sky/` | Active |
 
 ## Crate/Module Index
@@ -95,5 +97,5 @@
 - **If you need an agent's identity:** Look in `config/identities/`, not `personas/`.
 - **If you are implementing a service:** Start with the `.proto` in `proto/`, then check `crates/koad-proto/`.
 - **If you need to know the mission status:** Read `AGENTS.md` and `new_world/DRAFT_PLAN_3.md`.
-- **ROOT DOCUMENTATION:** Always use the root `/docs/` folder for canon protocols. Files found in `/.agents/.claude/worktrees/` are isolated clones and should be ignored for canonical discovery.
+- **ROOT DOCUMENTATION:** Always use the root `/docs/` folder for canon protocols. Files found in `/.agents/claude/worktrees/` are isolated clones and should be ignored for canonical discovery.
 - **If you find yourself in `legacy/`:** STOP. Verify why you are there. Do not copy logic.

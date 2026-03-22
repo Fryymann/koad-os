@@ -80,15 +80,7 @@ impl<'a> BoardSyncer<'a> {
 
             // Extract Task Weight from body
             // Format: "## Task Weight\n[trivial | standard | complex]" or "## Task Weight\ntrivial"
-            let weight_choice = if body.contains("trivial") {
-                Some("Trivial")
-            } else if body.contains("complex") {
-                Some("Complex")
-            } else if body.contains("standard") {
-                Some("Standard")
-            } else {
-                None
-            };
+            let weight_choice = extract_task_weight(&body);
 
             // Check if the issue is already in the project
             let item_id = if !existing_numbers.contains(&number) {
@@ -149,5 +141,73 @@ impl<'a> BoardSyncer<'a> {
 
         info!("--- [SGP] Sync Complete. Foundation Stable. ---");
         Ok(())
+    }
+}
+
+/// Extracts the Task Weight classification from an issue body.
+///
+/// Checks for the keywords `trivial`, `complex`, and `standard` in that priority order.
+/// Returns `None` if no recognized weight keyword is found.
+fn extract_task_weight(body: &str) -> Option<&'static str> {
+    if body.contains("trivial") {
+        Some("Trivial")
+    } else if body.contains("complex") {
+        Some("Complex")
+    } else if body.contains("standard") {
+        Some("Standard")
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_weight_trivial() {
+        assert_eq!(
+            extract_task_weight("## Task Weight\ntrivial"),
+            Some("Trivial")
+        );
+    }
+
+    #[test]
+    fn extract_weight_complex() {
+        assert_eq!(
+            extract_task_weight("## Task Weight\ncomplex"),
+            Some("Complex")
+        );
+    }
+
+    #[test]
+    fn extract_weight_standard() {
+        assert_eq!(
+            extract_task_weight("## Task Weight\nstandard"),
+            Some("Standard")
+        );
+    }
+
+    #[test]
+    fn extract_weight_returns_none_when_no_keyword_present() {
+        assert_eq!(extract_task_weight("Fix the login bug"), None);
+        assert_eq!(extract_task_weight(""), None);
+    }
+
+    #[test]
+    fn extract_weight_trivial_takes_priority_over_standard() {
+        // "trivial" is checked before "standard" — this documents the priority order
+        assert_eq!(
+            extract_task_weight("trivial standard"),
+            Some("Trivial"),
+            "'trivial' should win when both keywords appear (checked first)"
+        );
+    }
+
+    #[test]
+    fn extract_weight_is_case_sensitive() {
+        // Keywords are lowercase-only; uppercase variants are not recognized
+        assert_eq!(extract_task_weight("TRIVIAL"), None);
+        assert_eq!(extract_task_weight("Complex"), None);
     }
 }

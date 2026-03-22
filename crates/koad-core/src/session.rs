@@ -57,3 +57,97 @@ impl AgentSession {
         (now - self.last_heartbeat).num_seconds() < timeout_secs
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::{Identity, Rank};
+    use crate::types::EnvironmentType;
+    use chrono::Duration;
+
+    fn make_session() -> AgentSession {
+        AgentSession::new(
+            "sess-001".to_string(),
+            Identity {
+                name: "test-agent".to_string(),
+                rank: Rank::Crew,
+                permissions: vec![],
+                access_keys: vec![],
+                tier: 3,
+            },
+            EnvironmentType::Wsl,
+            ProjectContext {
+                project_name: "test-project".to_string(),
+                root_path: "/home/user/.koad-os/.agents/clyde/project".to_string(),
+                allowed_paths: vec![
+                    "/home/user/.koad-os/.agents/clyde/".to_string(),
+                ],
+                stack: vec!["rust".to_string()],
+            },
+            "body-abc".to_string(),
+        )
+    }
+
+    #[test]
+    fn new_initializes_with_active_status() {
+        let session = make_session();
+        assert_eq!(session.status, "active", "New session should have 'active' status");
+        assert!(session.metadata.is_empty(), "Metadata should start empty");
+        assert!(session.hot_context.is_empty(), "Hot context should start empty");
+        assert_eq!(session.body_id, "body-abc");
+        assert_eq!(session.session_id, "sess-001");
+    }
+
+    #[test]
+    fn is_active_returns_true_for_fresh_session() {
+        let session = make_session();
+        // Heartbeat is Utc::now() from construction — well within any reasonable timeout
+        assert!(session.is_active(60), "Fresh session should be active within a 60s window");
+    }
+
+    #[test]
+    fn is_active_returns_false_when_heartbeat_exceeds_timeout() {
+        let mut session = make_session();
+        session.last_heartbeat = Utc::now() - Duration::seconds(120);
+        assert!(
+            !session.is_active(60),
+            "Session with heartbeat 120s ago should be inactive with 60s timeout"
+        );
+    }
+
+    #[test]
+    fn is_active_boundary_just_inside_timeout_is_active() {
+        let mut session = make_session();
+        // 59 seconds elapsed, 60s timeout — strictly less than, so still active
+        session.last_heartbeat = Utc::now() - Duration::seconds(59);
+        assert!(
+            session.is_active(60),
+            "Session 59s old with 60s timeout should still be active"
+        );
+    }
+
+    #[test]
+    fn is_active_boundary_at_exact_timeout_is_inactive() {
+        let mut session = make_session();
+        // Exactly 60s elapsed with 60s timeout — uses < (not <=), so this is inactive
+        session.last_heartbeat = Utc::now() - Duration::seconds(60);
+        assert!(
+            !session.is_active(60),
+            "Session exactly at the timeout boundary should be considered inactive (strict <)"
+        );
+    }
+
+    #[test]
+    fn agent_path_uses_non_dotted_agent_folder() {
+        let session = make_session();
+        // Verify path convention: .agents/<name> not .agents/.<name>
+        assert!(
+            session.context.root_path.contains(".agents/clyde"),
+            "Agent path should use '.agents/clyde', not '.agents/.clyde'"
+        );
+        assert!(
+            !session.context.root_path.contains(".agents/.clyde"),
+            "Dotted agent folder name is no longer valid"
+        );
+    }
+}

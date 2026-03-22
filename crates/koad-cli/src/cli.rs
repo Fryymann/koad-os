@@ -141,6 +141,68 @@ pub enum Commands {
         #[arg(short, long)]
         session: Option<String>,
     },
+
+    /// Manage KoadOS Agent Identities (KAI).
+    Agent {
+        #[command(subcommand)]
+        action: AgentAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum AgentAction {
+    /// Register a new KoadOS Agent Identity (KAI) and scaffold their KAPV vault.
+    New {
+        /// Agent name (e.g. "Clyde"). Will be lowercased as the identity key.
+        name: String,
+
+        /// Agent rank (Officer, Engineer, Crew, Specialist, Captain).
+        #[arg(short = 'k', long, default_value = "Officer")]
+        rank: String,
+
+        /// Agent role description.
+        #[arg(short = 'r', long)]
+        role: String,
+
+        /// Agent bio (short narrative description).
+        #[arg(short = 'b', long)]
+        bio: String,
+
+        /// Required runtime body (claude, gemini, codex).
+        #[arg(long, default_value = "claude")]
+        runtime: String,
+
+        /// Vault path override. Defaults to ~/.koad-os/.agents/.<key>.
+        #[arg(long)]
+        vault: Option<String>,
+
+        /// Comma-separated list of access key names (e.g. GITHUB_PAT).
+        #[arg(long, default_value = "")]
+        access_keys: String,
+
+        /// Agent tier level (1=Initiate, 2=Crew, 3=Officer, 4=Captain).
+        #[arg(long, default_value_t = 3)]
+        tier: u32,
+
+        /// Preview all changes without writing any files.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// List all registered agent identities.
+    List,
+
+    /// Show identity details for a specific agent.
+    Info {
+        /// Agent name to inspect.
+        agent: String,
+    },
+
+    /// Verify an agent's KAPV vault structure and auto-heal missing directories.
+    Verify {
+        /// Agent name to verify.
+        agent: String,
+    },
 }
 
 #[derive(Subcommand)]
