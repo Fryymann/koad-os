@@ -28,7 +28,7 @@
 │   ├── claude/        # Claude personal vault (PRIVATE)
 │   ├── clyde/         # Clyde personal vault (PRIVATE)
 │   ├── .gemini/       # Gemini CLI system artifacts
-│   ├── .helm/         # Kubernetes/Helm deployment artifacts
+│   ├── helm/          # Helm personal vault (PRIVATE)
 │   ├── scribe/        # Scribe personal vault (PRIVATE)
 │   ├── tyr/           # Tyr personal vault (PRIVATE)
 │   ├── vigil/         # Vigil personal vault (PRIVATE)
@@ -43,9 +43,17 @@
 │   ├── integrations/  # External service (Airtable, Slack, etc.) config
 │   └── kernel.toml    # Primary OS configuration
 ├── crates/            # Active Rust crates (The rebuild source)
-├── koad-core/     # Shared types and refactored logic
-├── koad-proto/    # gRPC protobuf bindings
-└── koad-watchdog/ # Citadel health and self-healing
+│   ├── koad-core/         # Shared primitives, config, session, logging
+│   ├── koad-proto/        # Auto-generated gRPC bindings (tonic)
+│   ├── koad-citadel/      # Citadel gRPC service (:50051)
+│   ├── koad-cass/         # CASS gRPC service (:50052) — agent cognition
+│   ├── koad-plugins/      # WASM plugin runtime (wasmtime)
+│   ├── koad-cli/          # koad, koad-agent, koad-map binaries
+│   ├── koad-board/        # Updates board service
+│   ├── koad-sandbox/      # Container execution sandbox
+│   ├── koad-codegraph/    # Static code graph analysis
+│   ├── koad-intelligence/ # AI inference routing
+│   └── koad-bridge-notion/ # Notion MCP bridge
 
 ├── docs/              # Architectural references and research
 │   ├── protocols/     # Engineering and contribution standards
@@ -75,11 +83,20 @@
 | **Vigil** | `.agents/vigil/` | Initialized |
 | **Clyde** | `.agents/clyde/` | Active |
 | **Sky** | `/mnt/c/data/skylinks/.agents/.sky/` | Active |
+| **Helm** | `.agents/helm/` | Active |
 
 ## Crate/Module Index
-- `crates/koad-core`: Shared primitives, types, and refactored legacy logic.
-- `crates/koad-proto`: Auto-generated gRPC code (via `tonic`).
-- `crates/koad-watchdog`: Heartbeats, signal checks, and Citadel self-healing.
+- `crates/koad-core`: Shared primitives, config, session management, logging.
+- `crates/koad-proto`: Auto-generated gRPC bindings (via `tonic`). Do not edit generated files.
+- `crates/koad-citadel`: Citadel gRPC service (`:50051`). Session bays, signal corps, kernel state.
+- `crates/koad-cass`: CASS gRPC service (`:50052`). Agent cognition, memory, updates board.
+- `crates/koad-plugins`: WASM plugin runtime (wasmtime). Phase 4 dynamic tool execution.
+- `crates/koad-cli`: `koad`, `koad-agent`, `koad-map` binaries. All CLI subcommands.
+- `crates/koad-sandbox`: Container execution sandbox (Phase 4.2).
+- `crates/koad-codegraph`: Static code graph for symbol analysis.
+- `crates/koad-intelligence`: AI inference routing layer.
+- `crates/koad-bridge-notion`: Notion MCP bridge (Noti remote agent integration).
+- `crates/koad-board`: Updates board service.
 
 ## Documentation Index
 - `docs/rebuild/DIRECTORY_CLEANUP.md`: Status of the `personas/` -> `config/identities/` move.
@@ -89,9 +106,10 @@
 - `docs/protocols/RUST_CANON.md`: [MANDATORY] Rust development and coding standards.
 
 ## Stale/Deprecated Items
-- `legacy/`: [ARCHIVE] All contents are retired Spine-era artifacts.
+- `legacy/`: [ARCHIVE] All contents are retired Spine-era artifacts. Do not migrate from here.
 - `new_world/old.DRAFT_PLAN*`: Superseded by `DRAFT_PLAN_3.md`.
-- `kcitadel.log*`: System log files (formerly kspine.log).
+- `kcitadel.log*`: System log files.
+- `koad-watchdog`: Removed. Citadel self-healing is now integrated into `koad-citadel`.
 
 ## Navigation Tips
 - **If you need an agent's identity:** Look in `config/identities/`, not `personas/`.

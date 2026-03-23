@@ -6,3 +6,22 @@
 | 2026-03-22 | — | AIS audit (10 gaps identified, phased remediation plan produced) | +15 | 15 | Initiate (1) |
 | 2026-03-22 | — | `koad agent` Rust command implemented (New/List/Info/Verify) | +25 | 40 | Initiate (1) |
 | 2026-03-22 | — | Vault rename migration (5 vaults, 2 Rust files, 7 TOMLs, ~20 vault docs, rebuild + verify) | +30 | 70 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION3 | `koad updates` board (complex: new feature, CLI handler, CASS contract) | +30 | 100 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION3 | Tyr Jupiter migration (complex: WORKING_MEMORY, CLYDE_INTRO, XP restore, vault docs, Vigil scaffold) | +30 | 130 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION3 | Boot fix: KOAD_BIN export + KOADOS_HOME + anchor template hardening (standard) | +15 | 145 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION3 | System check + Vigil KAPV scaffold (standard) | +15 | 160 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION3 | PidGuard `#[derive(Debug)]` test fix (trivial) | +5 | 165 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION3 | PSRP saveup | +5 | 170 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION3 | Gate discipline honored (×2) | +6 | 176 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION3 | Dirty KSRP first pass (updates.rs missing tests/docs/instrument — caught in self-review) | -10 | 166 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | `koad agent new` TOML pre-exists path (complex: koad-core + cli.rs + agent.rs, PATH A/B, resolve_vault_path helper) | +30 | 196 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | Runtime field TOMLs × 4 (trivial) | +5 | 201 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | Helm KAI establishment (standard: TOML + vault scaffold) | +15 | 216 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | GEMINI.md rewrite — Spine era → Citadel v3 (standard) | +10 | 226 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | CREW.md update — 6 changes: status, Vigil, Noti, Helm, boot cmd (standard) | +10 | 236 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | SYSTEM_MAP.md update — crates, agents, paths (standard) | +10 | 246 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | BOOT_SEQUENCE.md fix (trivial) | +5 | 251 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | GitHub project #6 sync (complex: 11 issues, 5 labels, 20+ labels applied, board organized) | +30 | 281 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | PSRP saveup | +5 | 286 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | Gate discipline honored (×1) | +3 | 289 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | Dirty KSRP — agent.rs missing test module (caught in self-review, fixed before saveup) | -10 | 279 | Initiate (1) |

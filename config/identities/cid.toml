@@ -8,6 +8,7 @@ bio = "Second Officer of the Citadel and Systems Engineer. Builds crates, mainta
 vault = "~/.koad-os/.agents/cid"
 bootstrap = "~/.koad-os/.agents/cid/identity/IDENTITY.md"
 model_requirement = "codex"
+runtime = "codex"
 access_keys = []
 
 [identities.cid.session_policy]

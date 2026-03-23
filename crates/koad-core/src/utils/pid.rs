@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use sysinfo::{Pid, System};
 
+#[derive(Debug)]
 pub struct PidGuard {
     pub path: PathBuf,
 }

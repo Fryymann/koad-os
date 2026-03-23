@@ -6,6 +6,7 @@ xp = 0
 bio = "Commanding officer of the SLE (Skylinks Local Ecosystem). Oversees the SCE infrastructure while enforcing strict KoadOS engineering standards."
 vault = "~/data/skylinks/.agents/.sky"
 bootstrap = "~/data/skylinks/.agents/.sky/identity/IDENTITY.md"
+runtime = "gemini"
 
 [identities.sky.preferences]
 languages = ["Node.js", "Python", "TypeScript"]

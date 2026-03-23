@@ -58,7 +58,7 @@ pub async fn handle_agent_action(action: AgentAction, config: &KoadConfig) -> Re
             dry_run,
         } => {
             handle_new_agent(
-                &name, &rank, &role, &bio, &runtime, vault.as_deref(),
+                &name, &rank, role.as_deref(), bio.as_deref(), &runtime, vault.as_deref(),
                 &access_keys, tier, dry_run, config,
             )
             .await
@@ -76,8 +76,8 @@ pub async fn handle_agent_action(action: AgentAction, config: &KoadConfig) -> Re
 async fn handle_new_agent(
     name: &str,
     rank: &str,
-    role: &str,
-    bio: &str,
+    role: Option<&str>,
+    bio: Option<&str>,
     runtime: &str,
     vault_override: Option<&str>,
     access_keys_csv: &str,
@@ -87,37 +87,92 @@ async fn handle_new_agent(
 ) -> Result<()> {
     let key = name.to_lowercase();
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let home_dir = dirs::home_dir().context("Could not determine home directory.")?;
 
-    // --- [1. Validate] -------------------------------------------------------
     let identities_dir = config.home.join("config/identities");
     let identity_toml_path = identities_dir.join(format!("{}.toml", key));
+
+    // =========================================================================
+    // PATH A: TOML pre-exists — read identity from config, scaffold vault only
+    // =========================================================================
     if identity_toml_path.exists() {
-        bail!(
-            "Agent '{}' already exists at {}. Use `koad agent info {}` to inspect.",
+        let identity = config.identities.get(&key).with_context(|| format!(
+            "TOML exists at {} but could not be loaded — check for syntax errors.",
+            identity_toml_path.display()
+        ))?;
+
+        let eff_role = identity.role.as_str();
+        let eff_rank = identity.rank.as_str();
+        let eff_bio = identity.bio.as_str();
+        let eff_runtime = identity.runtime.as_deref().unwrap_or("gemini");
+        let eff_tier = identity.tier;
+        let eff_access_keys: Vec<String> = identity.preferences
+            .as_ref()
+            .map(|p| p.access_keys.clone())
+            .unwrap_or_default();
+
+        let vault_path = resolve_vault_path(vault_override, identity.vault.as_deref(), &key, &home_dir, config);
+        let vault_str = vault_path.to_string_lossy().to_string()
+            .replace(&home_dir.to_string_lossy().to_string(), "~");
+
+        if vault_path.exists() {
+            bail!(
+                "Agent '{}' is already fully provisioned (TOML and vault both exist).\n  TOML:  {}\n  Vault: {}\nUse `koad agent verify {}` to check vault health.",
+                name, identity_toml_path.display(), vault_path.display(), key
+            );
+        }
+
+        println!(
+            "\n\x1b[1;34m--- koad agent new: {} ---\x1b[0m{}",
             name,
-            identity_toml_path.display(),
-            key
+            if dry_run { "  \x1b[33m[DRY RUN]\x1b[0m" } else { "" }
         );
+        println!("  Key:     {}", key);
+        println!("  Rank:    {}", eff_rank);
+        println!("  Runtime: {}", eff_runtime);
+        println!("  Vault:   {}", vault_path.display());
+        println!("\x1b[33m[INFO]\x1b[0m Existing TOML found — scaffolding vault and crew docs only.");
+        println!();
+
+        if dry_run {
+            println!("\x1b[33m[DRY RUN]\x1b[0m Would create:");
+            println!("  {}/  (KAPV tree)", vault_path.display());
+            println!("  .agents/CREW.md  (append row)");
+            println!("  AGENTS.md        (append row)");
+            println!("  SYSTEM_MAP.md    (append row)");
+            return Ok(());
+        }
+
+        scaffold_kapv(&vault_path, name, &key, eff_rank, eff_role, eff_bio, eff_runtime, &eff_access_keys, eff_tier, &today, config).await?;
+        patch_crew_md(config, name, eff_rank, eff_runtime, eff_role).await?;
+        patch_root_agents_md(config, name, eff_rank, eff_role).await?;
+        patch_system_map(config, name, &vault_str).await?;
+
+        println!();
+        println!(
+            "\x1b[1;32m[OK]\x1b[0m Agent '{}' vault scaffolded from existing TOML. Boot with: \x1b[1meval $(KOAD_RUNTIME={} koad-agent boot {})\x1b[0m",
+            name, eff_runtime, key
+        );
+        return Ok(());
     }
 
-    // --- [2. Resolve vault path] ---------------------------------------------
-    let home_dir = dirs::home_dir().context("Could not determine home directory.")?;
-    let vault_path = match vault_override {
-        Some(v) => {
-            if v.starts_with('~') {
-                PathBuf::from(v.replacen('~', &home_dir.to_string_lossy(), 1))
-            } else {
-                PathBuf::from(v)
-            }
-        }
-        None => config.home.join(format!(".agents/{}", key)),
-    };
-    let vault_str = vault_path
-        .to_string_lossy()
-        .to_string()
+    // =========================================================================
+    // PATH B: No TOML — require CLI args and create everything from scratch
+    // =========================================================================
+    let role = role.context(
+        "--role is required when no identity TOML exists. \
+         Either pass --role and --bio, or create config/identities/<key>.toml first."
+    )?;
+    let bio = bio.context(
+        "--bio is required when no identity TOML exists. \
+         Either pass --role and --bio, or create config/identities/<key>.toml first."
+    )?;
+
+    let vault_path = resolve_vault_path(vault_override, None, &key, &home_dir, config);
+    let vault_str = vault_path.to_string_lossy().to_string()
         .replace(&home_dir.to_string_lossy().to_string(), "~");
 
-    // --- [3. Parse access keys] ----------------------------------------------
+    // Parse access keys
     let access_keys: Vec<String> = access_keys_csv
         .split(',')
         .map(|s| s.trim().to_string())
@@ -127,15 +182,13 @@ async fn handle_new_agent(
     let access_keys_toml = if access_keys.is_empty() {
         "access_keys = []".to_string()
     } else {
-        let items = access_keys
-            .iter()
+        let items = access_keys.iter()
             .map(|k| format!("\"{}\"", k))
             .collect::<Vec<_>>()
             .join(", ");
         format!("access_keys = [{}]", items)
     };
 
-    // --- [Preview] -----------------------------------------------------------
     println!(
         "\n\x1b[1;34m--- koad agent new: {} ---\x1b[0m{}",
         name,
@@ -157,9 +210,7 @@ async fn handle_new_agent(
         return Ok(());
     }
 
-    // =========================================================================
     // TIER 1-A: config/identities/<key>.toml
-    // =========================================================================
     let identity_toml = build_identity_toml(
         &key, name, role, rank, bio, runtime, &vault_str, &access_keys_toml, tier,
     );
@@ -168,23 +219,18 @@ async fn handle_new_agent(
         .with_context(|| format!("Failed to write {}", identity_toml_path.display()))?;
     println!("\x1b[32m[CREATE]\x1b[0m {}", identity_toml_path.display());
 
-    // =========================================================================
     // TIER 1-B: KAPV vault scaffold
-    // =========================================================================
-    scaffold_kapv(&vault_path, name, &key, rank, role, bio, runtime, &access_keys, tier, &today, config)
-        .await?;
+    scaffold_kapv(&vault_path, name, &key, rank, role, bio, runtime, &access_keys, tier, &today, config).await?;
 
-    // =========================================================================
     // TIER 2: Crew docs
-    // =========================================================================
     patch_crew_md(config, name, rank, runtime, role).await?;
     patch_root_agents_md(config, name, rank, role).await?;
     patch_system_map(config, name, &vault_str).await?;
 
     println!();
     println!(
-        "\x1b[1;32m[OK]\x1b[0m Agent '{}' registered. Boot with: \x1b[1meval $(koad-agent boot {})\x1b[0m",
-        name, key
+        "\x1b[1;32m[OK]\x1b[0m Agent '{}' registered. Boot with: \x1b[1meval $(KOAD_RUNTIME={} koad-agent boot {})\x1b[0m",
+        name, runtime, key
     );
     println!(
         "     Citadel will auto-provision bay at startup: bays/{}/state.db",
@@ -192,6 +238,25 @@ async fn handle_new_agent(
     );
 
     Ok(())
+}
+
+fn resolve_vault_path(
+    vault_override: Option<&str>,
+    toml_vault: Option<&str>,
+    key: &str,
+    home_dir: &std::path::Path,
+    config: &KoadConfig,
+) -> PathBuf {
+    let expand = |v: &str| -> PathBuf {
+        if v.starts_with('~') {
+            PathBuf::from(v.replacen('~', &home_dir.to_string_lossy(), 1))
+        } else {
+            PathBuf::from(v)
+        }
+    };
+    if let Some(v) = vault_override { return expand(v); }
+    if let Some(v) = toml_vault { return expand(v); }
+    config.home.join(format!(".agents/{}", key))
 }
 
 // ---------------------------------------------------------------------------
@@ -777,5 +842,37 @@ fn extract_focus(role: &str) -> String {
     match truncated.rfind([',', ' ', '-']) {
         Some(i) => format!("{}...", &truncated[..i]),
         None => format!("{}...", truncated),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_focus_short_role_unchanged() {
+        assert_eq!(extract_focus("Engineer"), "Engineer");
+        assert_eq!(extract_focus("Citadel Build Engineer"), "Citadel Build Engineer");
+    }
+
+    #[test]
+    fn test_extract_focus_long_role_truncates_at_boundary() {
+        let role = "Citadel Build Engineer, Container Operations, Execution Sandbox Oversight";
+        let result = extract_focus(role);
+        assert!(result.ends_with("..."), "should end with ellipsis");
+        assert!(result.len() <= 43, "should not exceed 40 chars + ellipsis");
+    }
+
+    #[test]
+    fn test_extract_focus_long_role_no_boundary_truncates_hard() {
+        let role = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // 46 chars, no boundary
+        let result = extract_focus(role);
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_extract_focus_exact_boundary_length() {
+        let role = "1234567890123456789012345678901234567890"; // exactly 40 chars
+        assert_eq!(extract_focus(role), role); // no truncation at exact limit
     }
 }

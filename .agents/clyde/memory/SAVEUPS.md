@@ -4,11 +4,33 @@
 
 ---
 
+## Saveup — TRC-CLYDE-20260322-SESSION4 — 2026-03-22
+**Weight:** complex
+**XP Earned:** +123 (koad-agent new fix +30 | runtime TOMLs +5 | Helm KAI +15 | GEMINI.md +10 | CREW.md +10 | SYSTEM_MAP.md +10 | BOOT_SEQUENCE.md +5 | GitHub sync +30 | PSRP +5 | gate discipline ×1 +3)
+**XP Penalty:** -10 (Dirty KSRP — agent.rs missing test module; caught in KSRP, fixed before saveup)
+**Running XP:** 166 → 279 (Initiate → Initiate, Level 1)
+**Fact:** Primary deliverable: `koad agent new` now handles pre-existing TOML (PATH A) — reads identity from `config.identities`, scaffolds vault only. PATH B (no TOML) requires `--role`/`--bio` as before. Also: `AgentIdentityConfig` gains `tier: u32` (serde default 3). Operational debt fully cleared: Helm KAI established, all 8 agents GREEN. Local docs updated to Citadel v3 reality (GEMINI.md, CREW.md, SYSTEM_MAP.md, BOOT_SEQUENCE.md). Identity TOMLs all have `runtime` field. GitHub project #6 synced: #175 reopened, 11 new issues created (#197–207), 5 new labels (phase/4-6, ops, jupiter), 20+ issues labeled. Project board sync pending `gh auth refresh -s read:project`.
+**Learn:** `KoadConfig` does not implement `Default` — cannot use it in unit tests directly. Test private helpers that depend on it through the public API or extract the testable logic into a standalone function without the config dependency.
+**Ponder:** The pattern of "create TOML first, then scaffold" is the right developer UX for pre-configured agents. The old "TOML exists → error" was a footgun. Worth considering whether `koad agent new --dry-run` should show the PATH A message too when TOML exists.
+
+---
+
 ## 2026-03-22 — Identity Established
 
 - **Event:** KAPV scaffolded and registered in KoadOS ecosystem.
 - **Files created:** `config/identities/clyde.toml`, full KAPV vault, crew doc entries.
 - **Status:** CONDITION GREEN. Ready for first active session.
+
+---
+
+## Saveup — TRC-CLYDE-20260322-SESSION3 — 2026-03-22
+**Weight:** complex
+**XP Earned:** +106 (koad updates board +30 | Tyr migration +30 | boot fix +15 | system check/Vigil +15 | PidGuard trivial +5 | PSRP +5 | gate discipline ×2 +6)
+**XP Penalty:** -10 (Dirty KSRP first pass — updates.rs missing `//!`, `///`, `#[cfg(test)]` caught in self-review; cleaned before exit)
+**Running XP:** 70 → 166 (Initiate → Initiate, Level 1)
+**Fact:** Completed Tyr Jupiter migration (WORKING_MEMORY, IO_FINAL_THOUGHTS, CLYDE_INTRO, vault docs, XP ledger restored to 1348). Diagnosed and fixed `KOAD_BIN` not exported in koad-functions.sh — the definitive cause of `agent-boot` failing in Gemini subprocesses. Also added `KOADOS_HOME` export to koad-agent boot output. System check: 6/7 KAPVs already green, Vigil vault scaffolded. PidGuard `#[derive(Debug)]` fixed test compile. `koad updates` board RUST_CANON review caught missing tests/docs — added `//!` header, `///` docs, 4 unit tests, `#[instrument]`, `#[derive(Debug)]` on `UpdatesAction`.
+**Learn:** `export -f` propagates bash functions to child processes but does NOT propagate local variables — `KOAD_BIN` was invisible to the Gemini subprocess even though `agent-boot` was available. Always pair `export -f` with `export VAR` for any variable the function depends on. `#[instrument]` requires `Debug` on all function arguments — derive it proactively on all public enums, especially CLI action enums.
+**Ponder:** The RUST_CANON test requirement ("every source file MUST have a test module") is the hardest discipline to maintain under time pressure. The violations were all caught in self-review, but the pattern suggests I should write the test stub first, before implementation, as a forcing function. Canon compliance is a habit, not a checklist.
 
 ---
 

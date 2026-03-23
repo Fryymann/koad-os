@@ -212,6 +212,13 @@ pub struct AgentIdentityConfig {
     /// If set, boot will refuse to hydrate unless KOAD_RUNTIME matches.
     #[serde(default)]
     pub runtime: Option<String>,
+    /// Agent tier level (1=Initiate, 2=Crew, 3=Officer, 4=Captain).
+    #[serde(default = "default_agent_tier")]
+    pub tier: u32,
+}
+
+fn default_agent_tier() -> u32 {
+    3
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

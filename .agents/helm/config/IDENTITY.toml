@@ -1,0 +1,15 @@
+[helm]
+name = "helm"
+title = "Officer"
+rank = "Officer"
+tier = 3
+body = "Gemini CLI"
+role = "Citadel Build Engineer"
+status = "CONDITION GREEN"
+sanctuary = "~/.koad-os/.agents/helm"
+source_of_truth = [
+  "AGENTS.md",
+  "identity/IDENTITY.md",
+  "instructions/RULES.md",
+  "memory/WORKING_MEMORY.md",
+]

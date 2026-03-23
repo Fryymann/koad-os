@@ -147,6 +147,12 @@ pub enum Commands {
         #[command(subcommand)]
         action: AgentAction,
     },
+
+    /// Chronological codebase updates board — post, list, and hydrate changes.
+    Updates {
+        #[command(subcommand)]
+        action: UpdatesAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -160,13 +166,13 @@ pub enum AgentAction {
         #[arg(short = 'k', long, default_value = "Officer")]
         rank: String,
 
-        /// Agent role description.
+        /// Agent role description. Optional if config/identities/<key>.toml already exists.
         #[arg(short = 'r', long)]
-        role: String,
+        role: Option<String>,
 
-        /// Agent bio (short narrative description).
+        /// Agent bio (short narrative description). Optional if config/identities/<key>.toml already exists.
         #[arg(short = 'b', long)]
-        bio: String,
+        bio: Option<String>,
 
         /// Required runtime body (claude, gemini, codex).
         #[arg(long, default_value = "claude")]
@@ -789,6 +795,57 @@ pub enum MindAction {
         /// Detailed technical breakdown.
         #[arg(short, long)]
         detail: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum UpdatesAction {
+    /// Post a new entry to the updates board.
+    Post {
+        /// One-line summary — the hydration atom. Keep under 120 chars.
+        #[arg(short, long)]
+        summary: String,
+        /// Category: feature | fix | refactor | ops | identity | docs | infra [default: ops]
+        #[arg(short, long, default_value = "ops")]
+        category: String,
+        /// Optional extended body in markdown.
+        #[arg(short, long)]
+        body: Option<String>,
+        /// Board level: citadel | station | outpost (auto-detected from CWD if omitted).
+        #[arg(short, long)]
+        level: Option<String>,
+        /// Override author name (defaults to $KOAD_AGENT_NAME).
+        #[arg(short, long)]
+        author: Option<String>,
+    },
+    /// Show recent entries in reverse-chronological order.
+    List {
+        /// Maximum entries to show. [default: 20]
+        #[arg(short = 'n', long, default_value_t = 20)]
+        limit: usize,
+        /// Filter by author name.
+        #[arg(short, long)]
+        author: Option<String>,
+        /// Filter by category.
+        #[arg(short, long)]
+        category: Option<String>,
+        /// Board level (auto-detected from CWD if omitted).
+        #[arg(short, long)]
+        level: Option<String>,
+    },
+    /// Show the full detail of a specific entry.
+    Show {
+        /// Entry ID or partial filename to match.
+        id: String,
+    },
+    /// Output a compact markdown digest for CASS context hydration.
+    Digest {
+        /// Maximum entries to include. [default: 10]
+        #[arg(short = 'n', long, default_value_t = 10)]
+        limit: usize,
+        /// Board level (auto-detected from CWD if omitted).
+        #[arg(short, long)]
+        level: Option<String>,
     },
 }
 
