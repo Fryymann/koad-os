@@ -32,3 +32,9 @@
 | 2026-03-23 | TRC-CLYDE-20260323-SESSION6 | Updates delivery pipeline evaluation (standard) | +10 | 354 | Initiate (1) |
 | 2026-03-23 | TRC-CLYDE-20260323-SESSION6 | First KoadStream Notion post via MCP (trivial) | +5 | 359 | Initiate (1) |
 | 2026-03-23 | TRC-CLYDE-20260323-SESSION6 | PSRP saveup | +5 | 364 | Initiate (1) |
+| 2026-03-24 | TRC-CLYDE-20260324-SESSION78 | Jupiter service bring-up: koad-citadel + koad-cass online under systemd | +15 | 379 | Initiate (1) |
+| 2026-03-24 | TRC-CLYDE-20260324-SESSION78 | `koad system start/restart` new commands + stop/refresh fixes | +20 | 399 | Initiate (1) |
+| 2026-03-24 | TRC-CLYDE-20260324-SESSION78 | .env tilde fix + install-services.sh sudo resolution fix | +10 | 409 | Initiate (1) |
+| 2026-03-24 | TRC-CLYDE-20260324-SESSION78 | Peer review of Tyr Session 8 — caught + fixed agent-prep health check false negative | +15 | 424 | Initiate (1) |
+| 2026-03-24 | TRC-CLYDE-20260324-SESSION78 | Sessions log + working memory updates | +10 | 434 | Initiate (1) |
+| 2026-03-24 | TRC-CLYDE-20260324-SESSION78 | PSRP saveup | +5 | 439 | Initiate (1) |

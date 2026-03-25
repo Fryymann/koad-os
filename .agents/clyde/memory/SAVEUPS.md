@@ -4,6 +4,17 @@
 
 ---
 
+## Saveup — TRC-CLYDE-20260324-SESSION78 — 2026-03-24
+**Weight:** complex
+**XP Earned:** +75 (citadel/cass online +15 | system start/restart/stop commands +20 | env+install fixes +10 | peer review + health check fix +15 | sessions log + memory +10 | PSRP +5)
+**XP Penalty:** 0
+**Running XP:** 364 → 439 (Initiate, Level 1)
+**Fact:** Two sessions. (1) Jupiter service bring-up: root-caused agent-boot 3-min hang (gRPC calls to dark services, no timeout, WSL2 slow ECONNREFUSED). Brought koad-citadel (:50051) and koad-cass (:50052) online under systemd with auto-start on WSL boot. Added `koad system start/restart`, fixed `koad system stop` (was missing koad-cass), fixed `koad system refresh --restart` stale binary refs. Fixed `.env` tilde path (systemd doesn't expand `~`), fixed `install-services.sh` sudo `$HOME` resolution. (2) Reviewed Tyr's `agent-prep` implementation — caught and fixed false-negative Citadel health check (was testing for admin UDS socket `kcitadel.sock`, which doesn't exist; Citadel runs on TCP :50051). Tyr separately validated the CASS Tool Registry Service with a WASM hello-plugin at 69ms execution time.
+**Learn:** systemd EnvironmentFile is literal — no `~` expansion. Scripts run as sudo have `$HOME=/root`. The `kcitadel.sock` admin socket is distinct from Citadel's TCP listener. Tonic gRPC lazy connect means the first RPC call hangs on a dark service — always wrap with `tokio::time::timeout` in boot paths.
+**Ponder:** The gRPC timeout issue in `koad-agent.rs` (lines 166–227) is the last boot fragility. Even though dark-mode boot eventually completes, a 60s+ hang is a liability in automated or orchestrated contexts. It's a small fix — one timeout wrapper per call block — and it unlocks safe cold-boot behavior for contractor agents. Should be the first Phase 4 task next session.
+
+---
+
 ## Saveup — TRC-CLYDE-20260323-SESSION6 — 2026-03-23
 **Weight:** standard
 **XP Earned:** +20 (updates delivery evaluation +10 | KoadStream first post +5 | PSRP +5)

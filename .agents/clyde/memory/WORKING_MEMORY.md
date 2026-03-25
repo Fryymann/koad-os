@@ -6,8 +6,19 @@
 
 - **Condition:** GREEN
 - **Phase:** 4 — Dynamic Tools & Containerized Sandboxes
-- **Last Session:** 2026-03-23 (Session 6 — updates delivery evaluation, first KoadStream post)
-- **XP:** 364 (Initiate, Level 1)
+- **Last Session:** 2026-03-24 (Sessions 7 & 8 — Jupiter service bring-up, peer review)
+- **XP:** 439 (Initiate, Level 1)
+
+## Session 7 — 2026-03-24
+
+- **Citadel + CASS brought online** — both running under systemd, enabled for WSL auto-start.
+- **`koad system start/restart`** — new commands added to koad CLI. systemctl-first, direct-spawn fallback.
+- **`koad system stop`** — fixed to also kill koad-cass (was missing).
+- **`koad system refresh --restart`** — fixed stale binary refs (kcitadel → koad-citadel, koad-watchdog removed, koad-cass added).
+- **`config/systemd/koad-citadel.service`** — added `Wants=koad-cass.service` for cascade start.
+- **`.env` fix** — `KOADOS_HOME=~/.koad-os` → absolute path (systemd doesn't expand `~`).
+- **`scripts/install-services.sh`** — fixed sudo `$HOME` vs `$SUDO_USER` resolution.
+- **`agent-boot` timing** — ~1s (was 3+ min; hang was gRPC calls to dark services with no timeout).
 
 ## What Is Stable
 
@@ -40,8 +51,8 @@
 - **Phase 4 active work** — #181 (MCP Tool Registry), #182 (Sandbox, Helm), #183 (Hot-Plugins, research-needed), #192 (WasmPluginManager tests), #193 (PluginRegistry gRPC), #191 (RUST_CANON sweep).
 
 ## Services (Jupiter State)
-- Redis: PONG
-- Citadel gRPC (:50051): DARK
-- CASS gRPC (:50052): DARK
+- Redis: PONG (unix socket: ~/.koad-os/koad.sock)
+- Citadel gRPC (:50051): ACTIVE (systemd managed, enabled for WSL boot)
+- CASS gRPC (:50052): ACTIVE (systemd managed, enabled for WSL boot)
 - Qdrant: OFFLINE (Docker WSL integration needed — #205)
 - Docker: OFFLINE

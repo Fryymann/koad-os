@@ -4,7 +4,8 @@
 
 set -e
 
-KOAD_HOME="${KOADOS_HOME:-$HOME/.koad-os}"
+KOAD_HOME="${KOADOS_HOME:-${SUDO_HOME:+/home/$SUDO_USER}/.koad-os}"
+KOAD_HOME="${KOAD_HOME:-$HOME/.koad-os}"
 SYSTEMD_DIR="/etc/systemd/system"
 SERVICE_SRC="$KOAD_HOME/config/systemd"
 

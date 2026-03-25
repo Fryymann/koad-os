@@ -20,6 +20,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
 use tracing::{info, warn};
 
 pub struct RedisLockClient {
@@ -332,21 +333,9 @@ pub async fn handle_system_action(
 
                 if restart {
                     println!(">>> [3/3] Rebooting Core Systems...");
-                    let _ = Command::new("pkill").arg("-9").arg("kcitadel").status();
-                    let _ = Command::new("pkill").arg("-9").arg("koad-asm").status();
-                    let _ = Command::new("pkill")
-                        .arg("-9")
-                        .arg("koad-watchdog")
-                        .status();
-
-                    // Citadel handles autonomic restart of ASM when started
-                    let citadel_bin = bin_dir.join("kcitadel");
-                    let _ = Command::new(citadel_bin).env("KOADOS_HOME", &home).env("KOAD_HOME", &home).spawn();
-
-                    // Launch Watchdog
-                    let watchdog_bin = bin_dir.join("koad-watchdog");
-                    let _ = Command::new(watchdog_bin).env("KOADOS_HOME", &home).env("KOAD_HOME", &home).spawn();
-
+                    stop_citadel_processes();
+                    std::thread::sleep(Duration::from_millis(800));
+                    start_citadel_services(&KoadConfig::load()?)?;
                     println!("  [OK] Core systems energized.");
                 }
                 Ok::<(), anyhow::Error>(())
@@ -804,6 +793,14 @@ pub async fn handle_system_action(
                 let _ = child.wait();
             }
         }
+        SystemAction::Start => {
+            start_citadel_services(&config)?;
+        }
+        SystemAction::Restart => {
+            stop_citadel_processes();
+            std::thread::sleep(Duration::from_millis(800));
+            start_citadel_services(&config)?;
+        }
         SystemAction::Stop { drain, confirm } => {
             if !is_admin {
                 anyhow::bail!("Admin only.");
@@ -831,8 +828,7 @@ pub async fn handle_system_action(
             }
 
             println!(">>> [2/2] Terminating KoadOS Core...");
-            let _ = Command::new("pkill").arg("koad-citadel").status();
-            let _ = Command::new("pkill").arg("koad-watchdog").status();
+            stop_citadel_processes();
             println!("\x1b[32m[OK]\x1b[0m System halted.");
         }
         SystemAction::Context { action } => {
@@ -842,6 +838,87 @@ pub async fn handle_system_action(
             handle_heartbeat(daemon, session, config).await?;
         }
     }
+    Ok(())
+}
+
+/// Kill all running Citadel-stack processes (citadel + cass).
+fn stop_citadel_processes() {
+    let _ = Command::new("pkill").arg("koad-citadel").status();
+    let _ = Command::new("pkill").arg("koad-cass").status();
+}
+
+/// Start koad-citadel and koad-cass.
+///
+/// Tries systemctl first (when units are installed). Falls back to spawning
+/// the binaries directly from the koad-os bin/ directory with log file output.
+fn start_citadel_services(config: &KoadConfig) -> Result<()> {
+    let log_dir = config.home.join("logs");
+    let _ = std::fs::create_dir_all(&log_dir);
+
+    // Prefer systemctl when the unit is known to systemd.
+    let systemctl_known = Command::new("systemctl")
+        .args(["cat", "koad-citadel.service"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if systemctl_known {
+        // Starting citadel also starts cass via Wants=koad-cass.service.
+        let status = Command::new("systemctl")
+            .args(["start", "koad-citadel.service"])
+            .status()?;
+        if status.success() {
+            println!("\x1b[32m[OK]\x1b[0m Citadel and CASS started via systemctl.");
+        } else {
+            anyhow::bail!("systemctl start koad-citadel.service failed.");
+        }
+        return Ok(());
+    }
+
+    // Fallback: spawn binaries directly.
+    let bin_dir = config.home.join("bin");
+    let env_file = config.home.join(".env");
+
+    let open_log = |name: &str, suffix: &str| -> Result<std::process::Stdio> {
+        let path = log_dir.join(format!("{}.{}.log", name, suffix));
+        let f = fs::OpenOptions::new().create(true).append(true).open(path)?;
+        Ok(std::process::Stdio::from(f))
+    };
+
+    // Start Citadel.
+    Command::new(bin_dir.join("koad-citadel"))
+        .env("KOADOS_HOME", &config.home)
+        .env("KOAD_HOME", &config.home)
+        .env_remove("RUST_LOG")
+        .stdout(open_log("citadel", "out")?)
+        .stderr(open_log("citadel", "error")?)
+        .spawn()
+        .context("Failed to spawn koad-citadel")?;
+
+    println!("\x1b[32m[1/2]\x1b[0m koad-citadel started.");
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Start CASS.
+    let mut cass_cmd = Command::new(bin_dir.join("koad-cass"));
+    cass_cmd
+        .env("KOADOS_HOME", &config.home)
+        .env("KOAD_HOME", &config.home)
+        .env_remove("RUST_LOG")
+        .stdout(open_log("cass", "out")?)
+        .stderr(open_log("cass", "error")?)
+        .spawn()
+        .context("Failed to spawn koad-cass")?;
+
+    println!("\x1b[32m[2/2]\x1b[0m koad-cass started.");
+
+    // Source .env for KOADOS_PAT_NOTION_MAIN etc. if present — best-effort.
+    // (The spawned processes inherit this shell's env; actual secret resolution
+    //  happens inside each binary via KoadConfig::resolve_secret.)
+    drop(env_file); // not parsed here; binaries handle it internally.
+
+    println!("\x1b[32m[OK]\x1b[0m Citadel and CASS online.");
     Ok(())
 }
 

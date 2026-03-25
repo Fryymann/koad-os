@@ -432,6 +432,12 @@ pub enum SystemAction {
         follow: bool,
     },
 
+    /// Start the Citadel kernel and all dependent services (CASS).
+    Start,
+
+    /// Restart the Citadel kernel and all dependent services.
+    Restart,
+
     /// Gracefully stop the Citadel kernel and all background services.
     Stop {
         /// Trigger a full state drain before stopping.

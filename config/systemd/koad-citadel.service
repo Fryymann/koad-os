@@ -1,6 +1,7 @@
 [Unit]
 Description=KoadOS Citadel gRPC Control Plane
 After=network.target
+Wants=koad-cass.service
 
 [Service]
 Type=simple

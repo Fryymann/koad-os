@@ -22,3 +22,7 @@
 | 2026-03-22 | Vault `IDENTITY.md` files and `config/identities/*.toml` can drift silently. The canonical runtime is the TOML. If they disagree, trust the TOML and update the identity doc. |
 | 2026-03-23 | KoadStream Notion database data source ID: `310fe8ec-ae8f-8046-9172-000bfe5966cd`. Author field currently has no "Clyde" option — use "Claude" until the schema is updated. |
 | 2026-03-23 | `koad updates digest` works but has no delivery path to agents while CASS is dark. Agents following the documented boot sequence have no way to reach the board. The fix is a degraded-mode fallback step in AGENTS.md. |
+| 2026-03-24 | systemd `EnvironmentFile` values are literal strings — `~` is NOT shell-expanded. Any env file loaded by a systemd unit must use absolute paths (e.g. `/home/ideans/.koad-os`, not `~/.koad-os`). |
+| 2026-03-24 | `kcitadel.sock` is the admin UDS socket (`config/kernel.toml: citadel_socket`), not the main gRPC listener. Citadel's primary service listens on TCP `:50051`. Health checks must target the actual listener, not the admin socket. |
+| 2026-03-24 | Scripts run via `sudo` have `$HOME=/root`. Use `$SUDO_USER` (or require `KOADOS_HOME` to be passed explicitly) for any user-space path resolution in privileged install scripts. |
+| 2026-03-24 | Tonic gRPC `connect()` is lazy but the first RPC call blocks until TCP resolves. On WSL2, a non-listening local port does not return ECONNREFUSED immediately. Always wrap gRPC calls with `tokio::time::timeout` in boot-path code. |
