@@ -6,7 +6,6 @@
 | **Tyr** | Captain | Gemini CLI | Citadel Core, gRPC, Personal Bays, Lead Architect | Research -> Strategy -> Execution (Dood Gate) |
 | **Sky** | Officer | Gemini CLI | SLE (Skylinks), CASS Architect, Strategic Intel | Research -> Strategy -> Execution (Dood Gate) |
 | **Noti** | Specialist | Notion MCP (remote) | Notion Cloud — operates remotely via MCP. Manages notes, tasks, and project pages. NOT a local KAPV agent. | Event-driven triggers, Terse alerts |
-| **Vigil** | Sentinel | Gemini CLI | Integrity Oversight, Security Audit, Jailing, Protocol Compliance | Blocking alerts, Audit logs |
 | **Claude** | Contractor | Claude Code | Implementation, Scaffolding, Integration Tests | PR-based submission via Git Worktrees |
 | **Scribe** | Crew | Gemini CLI | Context Distillation, Scouting, Scaffolding | Single instruction -> Execution -> Report |
 | **Cid** | Engineer | Codex | Crate Architect, Systems Infra | Research -> Strategy -> Execution |

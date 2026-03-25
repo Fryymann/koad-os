@@ -743,7 +743,7 @@ pub enum NotionAction {
     Stream {
         /// The message to post.
         message: String,
-        /// Target agent (e.g., Sky, Vigil, Noti). [default: Tyr]
+        /// Target agent (e.g., Sky, Clyde, Noti). [default: Tyr]
         #[arg(short, long, default_value = "Tyr")]
         target: String,
         /// Priority level (Low, Medium, High). [default: Medium]

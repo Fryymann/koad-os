@@ -84,7 +84,7 @@ async fn main() -> Result<()> {
                 let r = id_config.rank.to_lowercase();
                 r == "admiral" || r == "captain"
             } else {
-                agent == "Tyr" || agent == "Vigil"
+                agent == "Tyr"
             };
 
             if !is_sovereign {
@@ -129,7 +129,7 @@ async fn main() -> Result<()> {
                 r == "admiral" || r == "captain" || r == "officer" || r == "dood" || r == "admin"
             } else {
                 // Fallback for legacy or recognized agents
-                agent == "Tyr" || agent == "Dood" || agent == "Vigil" || agent == "Sky"
+                agent == "Tyr" || agent == "Dood" || agent == "Sky"
             };
 
             if !is_authorized {

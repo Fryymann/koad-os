@@ -31,7 +31,6 @@
 │   ├── helm/          # Helm personal vault (PRIVATE)
 │   ├── scribe/        # Scribe personal vault (PRIVATE)
 │   ├── tyr/           # Tyr personal vault (PRIVATE)
-│   ├── vigil/         # Vigil personal vault (PRIVATE)
 │   ├── inbox/         # Shared agent communication inbox
 │   ├── CITADEL.md     # Project core definition
 │   └── CREW.md        # Personnel manifest
@@ -71,7 +70,7 @@
 ## Config Files Index
 - `config/kernel.toml`: System-level registry, environment, and jailing settings.
 - `config/registry.toml`: Identity and agent service registry.
-- `config/identities/*.toml`: Specific KAI persona definitions (Tyr, Sky, Vigil, Scribe).
+- `config/identities/*.toml`: Specific KAI persona definitions (Tyr, Sky, Scribe, Clyde, Helm).
 - `config/filesystem.toml`: Filesystem map and mount points.
 
 ## Agent Bays Index
@@ -80,7 +79,6 @@
 | **Tyr** | `.agents/tyr/` | Active |
 | **Scribe** | `.agents/scribe/` | Active (This Vault) |
 | **Cid** | `.agents/cid/` | Initialized |
-| **Vigil** | `.agents/vigil/` | Initialized |
 | **Clyde** | `.agents/clyde/` | Active |
 | **Sky** | `/mnt/c/data/skylinks/.agents/.sky/` | Active |
 | **Helm** | `.agents/helm/` | Active |

@@ -8,7 +8,7 @@ isolation = "bwrap"
 fallback = "chroot"
 
 [agents]
-active = ["tyr", "sky", "vigil"]
+active = ["tyr", "sky"]
 
 [roles]
 admiral = ["all"]

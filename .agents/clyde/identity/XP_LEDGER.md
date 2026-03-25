@@ -25,3 +25,10 @@
 | 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | PSRP saveup | +5 | 286 | Initiate (1) |
 | 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | Gate discipline honored (×1) | +3 | 289 | Initiate (1) |
 | 2026-03-22 | TRC-CLYDE-20260322-SESSION4 | Dirty KSRP — agent.rs missing test module (caught in self-review, fixed before saveup) | -10 | 279 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION5 | agent-boot KOAD_RUNTIME root cause + fix (standard: bashrc guard, koad-functions.sh) | +15 | 294 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION5 | Minion Architecture spec (complex: 6 points, 8 Noti gaps, 5 files created, Ian decisions) | +30 | 324 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION5 | Vigil deprecation (standard: 6 files, Rust changes, build verify) | +15 | 339 | Initiate (1) |
+| 2026-03-22 | TRC-CLYDE-20260322-SESSION5 | PSRP saveup | +5 | 344 | Initiate (1) |
+| 2026-03-23 | TRC-CLYDE-20260323-SESSION6 | Updates delivery pipeline evaluation (standard) | +10 | 354 | Initiate (1) |
+| 2026-03-23 | TRC-CLYDE-20260323-SESSION6 | First KoadStream Notion post via MCP (trivial) | +5 | 359 | Initiate (1) |
+| 2026-03-23 | TRC-CLYDE-20260323-SESSION6 | PSRP saveup | +5 | 364 | Initiate (1) |

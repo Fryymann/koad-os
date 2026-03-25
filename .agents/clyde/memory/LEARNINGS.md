@@ -17,3 +17,8 @@
 | 2026-03-22 | When `koad agent new` rejects because TOML exists, the right fix is PATH A: read from `config.identities` (already loaded by `KoadConfig::load()` before the handler runs), skip TOML write, scaffold vault + crew docs. No additional TOML parsing needed. |
 | 2026-03-22 | GitHub Projects v2 `item-add` and `item-list` require `read:project` OAuth scope — NOT included in the default `repo` scope. Always verify scope requirements for `gh project` commands before building a workflow that depends on them. |
 | 2026-03-22 | `gh label create` produces no output on success. Silent stdout ≠ failure. Use `gh label list \| grep <name>` to confirm creation if uncertain. |
+| 2026-03-22 | `~/.bashrc` interactive guard `[[ $- != *i* ]] && return` prevents any source-time initialization from running in non-interactive shells (e.g. Bash tool subshells). Never rely on source-time setup for env vars that need to be available to subprocesses. Set them lazily at the call site. |
+| 2026-03-22 | `cargo build -p koad-cli` is wrong — the crate package name is `koad`. Use `cargo build --bin koad` or `cargo build -p koad`. |
+| 2026-03-22 | Vault `IDENTITY.md` files and `config/identities/*.toml` can drift silently. The canonical runtime is the TOML. If they disagree, trust the TOML and update the identity doc. |
+| 2026-03-23 | KoadStream Notion database data source ID: `310fe8ec-ae8f-8046-9172-000bfe5966cd`. Author field currently has no "Clyde" option — use "Claude" until the schema is updated. |
+| 2026-03-23 | `koad updates digest` works but has no delivery path to agents while CASS is dark. Agents following the documented boot sequence have no way to reach the board. The fix is a degraded-mode fallback step in AGENTS.md. |

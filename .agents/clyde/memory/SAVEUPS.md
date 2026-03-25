@@ -4,6 +4,28 @@
 
 ---
 
+## Saveup — TRC-CLYDE-20260323-SESSION6 — 2026-03-23
+**Weight:** standard
+**XP Earned:** +20 (updates delivery evaluation +10 | KoadStream first post +5 | PSRP +5)
+**XP Penalty:** 0
+**Running XP:** 344 → 364 (Initiate, Level 1)
+**Fact:** Two items. (1) Evaluated Citadel's agent update delivery capability: `koad updates digest` works and board has 7 entries, but delivery pipeline is broken — CASS dark means TCH hydration fails silently at boot, and AGENTS.md has no fallback step for `koad updates digest`. Contractor agent arrives cold with no path to the board. Recommended: add `koad updates digest` as degraded-mode boot step in AGENTS.md + include digest in contractor briefing. (2) First KoadStream Notion post via MCP — learned schema (data source ID, Author/Type/Target/Status fields). Author field has no "Clyde" option yet, used "Claude" as proxy.
+**Learn:** KoadStream `Author` select field has no "Clyde" option — only Ian, Noti, Tyr, Claude. Need to add Clyde as an author option in the Notion database schema before posting as Clyde natively.
+**Ponder:** The `koad updates digest` → CASS → boot packet delivery chain is the right design, but every link except the digest itself is currently dark. Until CASS is live, agents are flying blind unless explicitly handed the digest. The degraded-mode fallback in AGENTS.md is load-bearing for contractor agents.
+
+---
+
+## Saveup — TRC-CLYDE-20260322-SESSION5 — 2026-03-22
+**Weight:** complex
+**XP Earned:** +65 (boot fix +15 | minion architecture +30 | Vigil deprecation +15 | PSRP +5)
+**XP Penalty:** 0
+**Running XP:** 279 → 344 (Initiate, Level 1)
+**Fact:** Three deliverables. (1) Root-caused and fixed `agent-boot` KOAD_RUNTIME failure: `~/.bashrc` interactive guard prevents `koad-functions.sh` from sourcing in non-interactive shells; `CLAUDE_CODE_ENTRYPOINT` was present in env but never read. Fix: moved runtime detection into `agent-boot` function body (fires at call time). (2) Produced Minion Architecture spec covering all 6 task points + Noti's 8 clarity gaps. Created `~/.claude/agents/clyde-minion.md` (native subagent def), `docs/MINION_BOOT.md`, registry + counter files, `docs/MINION_ARCHITECTURE.md`. Ian decisions locked in: promotion → Phase 5; no nested minions; pool ceiling = 4; items 3–5 deferred to Noti. (3) Vigil deprecated: TOML archived to `config/identities/deprecated/`, removed from `registry.toml` active list, `SYSTEM_MAP.md`, `CREW.md`, two legacy fallback checks in `main.rs`, cli.rs example text updated. Vault preserved as archive. Build clean. Clyde now formally the sole sovereign Claude KAI.
+**Learn:** The interactive guard `[[ $- != *i* ]] && return` in `~/.bashrc` silently neuters all source-time initialization for non-interactive shells. Any env var that needs to survive to subprocesses must be set lazily at the call site, not assumed to persist from source time.
+**Ponder:** Vigil's TOML said `runtime = "gemini"` but `IDENTITY.md` said `Runtime: Claude Code` — drift between vault identity docs and config TOMLs. Worth a periodic `koad agent verify` sweep to catch mismatches early.
+
+---
+
 ## Saveup — TRC-CLYDE-20260322-SESSION4 — 2026-03-22
 **Weight:** complex
 **XP Earned:** +123 (koad-agent new fix +30 | runtime TOMLs +5 | Helm KAI +15 | GEMINI.md +10 | CREW.md +10 | SYSTEM_MAP.md +10 | BOOT_SEQUENCE.md +5 | GitHub sync +30 | PSRP +5 | gate discipline ×1 +3)
