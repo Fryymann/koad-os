@@ -17,6 +17,8 @@ use koad_proto::cass::v1::hydration_service_client::HydrationServiceClient;
 use koad_proto::cass::v1::HydrationRequest;
 use koad_proto::citadel::v5::citadel_session_client::CitadelSessionClient;
 use koad_proto::citadel::v5::{LeaseRequest, TraceContext, WorkspaceLevel};
+use std::time::Duration;
+use tonic::transport::Endpoint;
 
 #[derive(Parser)]
 #[command(name = "koad-agent")]
@@ -50,6 +52,11 @@ enum Commands {
         agent: String,
     },
 }
+
+/// Timeout for boot-path gRPC connections to local Citadel/CASS services.
+/// Loopback services respond in <50ms when live — 3s is generous for live mode
+/// and fast enough for dark-mode degradation (~6s total vs 60s+ without timeout).
+const BOOT_SERVICE_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// The main entry point for the agent bootstrap process.
 /// 
@@ -163,10 +170,14 @@ async fn main() -> Result<()> {
                         .unwrap_or_default()
                         .to_string_lossy()
                         .to_string();
-                    if let Ok(client) =
-                        CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone()).await
+                    if let Ok(channel) = Endpoint::from_shared(config.network.citadel_grpc_addr.clone())
+                        .unwrap()
+                        .connect_timeout(BOOT_SERVICE_TIMEOUT)
+                        .timeout(BOOT_SERVICE_TIMEOUT)
+                        .connect()
+                        .await
                     {
-                        let mut client: CitadelSessionClient<tonic::transport::Channel> = client;
+                        let mut client = CitadelSessionClient::new(channel);
                         let request = tonic::Request::new(LeaseRequest {
                             context: Some(TraceContext {
                                 trace_id: format!("BOOT-{}", cache_hash),
@@ -205,8 +216,15 @@ async fn main() -> Result<()> {
 
                     // --- [CASS TCH Hydration (Phase 2)] ---
                     let mut cass_packet = String::new();
-                    match HydrationServiceClient::connect(config.network.cass_grpc_addr.clone()).await {
-                        Ok(mut cass_client) => {
+                    let cass_channel = Endpoint::from_shared(config.network.cass_grpc_addr.clone())
+                        .unwrap()
+                        .connect_timeout(BOOT_SERVICE_TIMEOUT)
+                        .timeout(BOOT_SERVICE_TIMEOUT)
+                        .connect()
+                        .await;
+                    match cass_channel {
+                        Ok(channel) => {
+                            let mut cass_client = HydrationServiceClient::new(channel);
                             let hydration_req = tonic::Request::new(HydrationRequest {
                                 agent_name: agent_name.clone(),
                                 project_root: project_root.clone(),
