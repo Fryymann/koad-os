@@ -32,18 +32,18 @@ pub const NOTION_API_BASE: &str = "https://api.notion.com/v1";
 pub const DND_BEYOND_CHAR_SERVICE: &str =
     "https://character-service.dndbeyond.com/character/v5/character";
 
-/// Default Redis socket filename
-pub const DEFAULT_REDIS_SOCK: &str = "koad.sock";
+/// Default Redis socket filename (relative to KOAD_HOME)
+pub const DEFAULT_REDIS_SOCK: &str = "run/koad.sock";
 
-/// Default Citadel socket filename
-pub const DEFAULT_CITADEL_SOCK: &str = "kcitadel.sock";
+/// Default Citadel socket filename (relative to KOAD_HOME)
+pub const DEFAULT_CITADEL_SOCK: &str = "run/kcitadel.sock";
 
-/// Default Admin socket filename
-pub const DEFAULT_ADMIN_SOCK: &str = "kadmin.sock";
+/// Default Admin socket filename (relative to KOAD_HOME)
+pub const DEFAULT_ADMIN_SOCK: &str = "run/kadmin.sock";
 
-/// Default PID filenames
-pub const DEFAULT_CITADEL_PID: &str = "kcitadel.pid";
-pub const DEFAULT_GATEWAY_PID: &str = "kgateway.pid";
+/// Default PID filenames (relative to KOAD_HOME)
+pub const DEFAULT_CITADEL_PID: &str = "run/kcitadel.pid";
+pub const DEFAULT_GATEWAY_PID: &str = "run/kgateway.pid";
 
 /// Redis Channels
 pub const REDIS_CHANNEL_TELEMETRY: &str = "koad:telemetry";

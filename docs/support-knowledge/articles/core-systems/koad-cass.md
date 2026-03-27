@@ -69,7 +69,7 @@ The `Hydrate` RPC accepts a `HydrationRequest` containing:
 The hydration process performs a **"Hierarchy Walk"**:
 1. Load recent `EpisodicMemory` records (the agent's last few session summaries)
 2. Load high-confidence `FactCard`s (sorted by `confidence` descending) for the agent
-3. Walk the filesystem at the appropriate hierarchy level — for Outpost level, this means the current repo's `AGENTS.md`, local `.agents/` folder, and recent git activity
+3. Walk the filesystem at the appropriate hierarchy level — for Outpost level, this means the current repo's `AGENTS.md`, local `agents/` folder, and recent git activity
 4. Add material until the `token_budget` is exhausted, prioritizing recency and confidence
 
 The result is a `HydrationResponse` containing the packed context. This is what allows an agent to boot and immediately "remember" where it left off — without re-reading the entire codebase.

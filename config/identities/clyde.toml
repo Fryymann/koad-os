@@ -5,8 +5,8 @@ rank = "Officer"
 tier = 3
 xp = 0
 bio = "Sovereign KoadOS Agent — Claude Code runtime. Citadel Officer with persistent identity, durable memory, and full crew standing. Principal implementation engineer for KoadOS infrastructure and multi-project development. Bridges frontier model capability with KoadOS protocol discipline."
-vault = "~/.koad-os/.agents/clyde"
-bootstrap = "~/.koad-os/.agents/clyde/identity/IDENTITY.md"
+vault = "~/.koad-os/agents/KAPVs/clyde"
+bootstrap = "~/.koad-os/agents/KAPVs/clyde/identity/IDENTITY.md"
 runtime = "claude"
 
 [identities.clyde.preferences]

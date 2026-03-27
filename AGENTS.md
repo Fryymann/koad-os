@@ -48,8 +48,8 @@ The Agent Information System (AIS) provides specialized tools to reduce your tok
 ## Ⅱ. Onboarding: Your First 5 Minutes
 
 If you are just booting into this workspace, follow this sequence:
-1. **Locate your Persona:** Read your specific role and active manifest in [.agents/CREW.md](.agents/CREW.md).
-2. **Scan the Plan:** Review [.agents/CITADEL.md](.agents/CITADEL.md) for the canonical project brief and current implementation phase.
+1. **Locate your Persona:** Read your specific role and active manifest in [agents/CREW.md](agents/CREW.md).
+2. **Scan the Plan:** Review [agents/CITADEL.md](agents/CITADEL.md) for the canonical project brief and current implementation phase.
 3. **Anchor your Context:** Read `KOAD_CONTEXT_FILE` (generated at boot). This file contains distilled session history, active facts, and hierarchy data.
 4. **Sync your XP:** Verify your `identity/XP_LEDGER.md` running total.
 
@@ -69,8 +69,8 @@ When you boot via `eval $(koad-agent boot <AgentName>)`, the system:
 
 ## Ⅳ. Beneficial Information Docs
 
-- **If working on agent orchestration:** Load [.agents/CITADEL.md](.agents/CITADEL.md).
-- **If resolving identity questions:** Load [.agents/CREW.md](.agents/CREW.md).
+- **If working on agent orchestration:** Load [agents/CITADEL.md](agents/CITADEL.md).
+- **If resolving identity questions:** Load [agents/CREW.md](agents/CREW.md).
 - **If navigating code:** Consult [SYSTEM_MAP.md](SYSTEM_MAP.md) (The Workspace Index).
 - **If searching for technical specs:** Consult the [Agent Reference Book](docs/agent_ref_book/agent_ref_book.md).
 
@@ -103,7 +103,7 @@ The **Koad Spine is retired.** It is archived in `legacy/`. We are building **Th
 
 | Agent | Rank | Role | Primary Focus |
 |---|---|---|---|
-| **Tyr** | Captain | Lead Architect | Citadel Core, gRPC Services, Personal Bays |
+| **Pic** | Captain | Lead Architect | Citadel Core, gRPC Services, Personal Bays |
 | **Claude** | Contractor | Foundation Builder | Implementation, Tests, Boilerplate Reduction |
 | **Sky** | Specialist | CASS Architect | Memory Stack, MCP Tool Design |
 | **Scribe** | Crew | Scout & Scribe | Context Distillation, Map Maintenance, Vault Scaffolding |
@@ -138,5 +138,5 @@ The Citadel is stable. Intelligence layer active. Phase 4 ignition.
 
 ## Ⅸ. Agent Communication Inbox
 
-*   **Location:** `~/.koad-os/.agents/inbox`
+*   **Location:** `~/.koad-os/agents/inbox`
 *   **Purpose:** This directory serves as a shared inbox for agent messages and communications. It is used for inter-agent messaging and potentially for receiving external inputs that require agent processing.

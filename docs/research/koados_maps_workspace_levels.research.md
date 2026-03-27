@@ -36,7 +36,7 @@ A map is a *compressed, purpose-built representation* of the environment — not
 
 **2. Maps should be queryable, not just readable**
 
-A static text file listing directories is a *chart*, not a map. A true navigation tool lets the agent ask questions: *"Where is the nearest `.agents/` folder above me?"* or *"Which Station owns this Outpost?"* or *"What agents are active at this level?"* The distinction matters because agents don't browse — they resolve. They have a goal and need the shortest path to the relevant resource.
+A static text file listing directories is a *chart*, not a map. A true navigation tool lets the agent ask questions: *"Where is the nearest `agents/` folder above me?"* or *"Which Station owns this Outpost?"* or *"What agents are active at this level?"* The distinction matters because agents don't browse — they resolve. They have a goal and need the shortest path to the relevant resource.
 
 **3. Maps should be level-aware**
 
@@ -47,7 +47,7 @@ Just as a game doesn't render dungeon interiors on the world map, an agent map s
 The biggest risk with any metadata artifact is staleness. If maps require manual updates every time a file moves or an agent is added, they rot quickly. Ideal map systems are either:
 
 - **Generated** — computed from the actual filesystem/environment on demand or on a schedule
-- **Convention-derived** — if the workspace structure follows strict conventions (like `.agents/` always existing), the map is partially implicit and only needs to track deviations or additions
+- **Convention-derived** — if the workspace structure follows strict conventions (like `agents/` always existing), the map is partially implicit and only needs to track deviations or additions
 - **Event-updated** — agents that modify the environment update the relevant map as a side effect of their work
 
 **5. Maps should support both orientation and wayfinding**
@@ -90,16 +90,16 @@ The hierarchy creates a natural tension between two needs:
 
 This tension is healthy and should be *designed into* the system rather than resolved entirely in one direction. Some resources genuinely need to cascade downward (e.g., canonical protocols, naming conventions). Others should be strictly local (e.g., project-specific build configs, local agent state).
 
-**The `.agents/` folder as a universal interface**
+**The `agents/` folder as a universal interface**
 
-The `.agents/` convention is arguably the most powerful element of this architecture. It provides:
+The `agents/` convention is arguably the most powerful element of this architecture. It provides:
 
 - **Discoverability** — any agent arriving at any level knows exactly where to look for agent-relevant data
 - **Namespace isolation** — each agent has its own subfolder (`.<agent>/`), preventing state collisions
 - **Shared space** — data outside personal subfolders is communal, enabling coordination without direct agent-to-agent communication
 - **Level-appropriate context** — the same agent can have different data at different levels, scoped to what's relevant there
 
-This pattern works because it's **invariant across levels**. The `.agents/` folder at the Citadel and the `.agents/` folder at an Outpost serve the same structural purpose with the same layout conventions — only the *contents* differ based on scope.
+This pattern works because it's **invariant across levels**. The `agents/` folder at the Citadel and the `agents/` folder at an Outpost serve the same structural purpose with the same layout conventions — only the *contents* differ based on scope.
 
 ### Resolution and escalation patterns
 
@@ -161,7 +161,7 @@ When an agent first activates (or activates in a new context), it faces a cold-s
 The solution is a **bootstrap sequence** — a minimal, deterministic set of steps the agent always performs on activation:
 
 1. **Orient** — determine current level (System, Citadel, Station, Outpost) from environmental cues (directory structure, presence of known marker files)
-2. **Locate local map** — find the `.agents/` folder at the current level and read the local map or manifest
+2. **Locate local map** — find the `agents/` folder at the current level and read the local map or manifest
 3. **Identify self** — locate own vault/folder at the current level, load personal context
 4. **Resolve upward pointers** — if the local map references higher-level resources, note them for lazy loading
 5. **Ready** — the agent now has enough context to begin work without needing the full system topology

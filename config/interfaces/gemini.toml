@@ -1,6 +1,6 @@
 [interfaces.gemini]
 name = "gemini"
-bootstrap = "~/.koad-os/bodies/gemini/BOOT.md"
+bootstrap = "~/.koad-os/agents/bodies/gemini/BOOT.md"
 mcp_enabled = true
 tools = [
     "save_memory",

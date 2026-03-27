@@ -360,7 +360,7 @@ fn find_vault(agent: &str, config: &KoadConfig, identity: Option<&koad_core::con
         dirs::home_dir()
             .context("No home")?
             .join(format!(".{}", &agent_lower)),
-        config.home.join(format!(".agents/{}", &agent_lower)),
+        config.home.join(format!("agents/{}", &agent_lower)),
     ];
     for path in paths {
         if path.exists() {

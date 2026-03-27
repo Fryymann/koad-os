@@ -51,7 +51,7 @@ Skills are **modular, on-demand instruction bundles** — Codex's equivalent of 
 - A skill = a directory with a `SKILL.md` (must have `name` + `description` in YAML frontmatter)
 - Optional subdirs: `scripts/`, `references/`, `assets/`, `agents/openai.yaml`
 - **Progressive disclosure**: Only metadata loaded at startup; full instructions loaded when Codex decides to use it
-- Discovered from: `$CWD/.agents/skills`, repo root `.agents/skills`, `~/.agents/skills`, `/etc/codex/skills`, and system-bundled
+- Discovered from: `$CWD/agents/skills`, repo root `agents/skills`, `~/agents/skills`, `/etc/codex/skills`, and system-bundled
 
 Enable in config:
 
@@ -128,7 +128,7 @@ From the `agents-os` repo, we already have:
     - Auth via `koad auth`
     - Sanctuary Rule enforcement
     - Saveup Protocol at session end
-- **Session logging** in `.agents/sessions/SESSION_LOG.md`
+- **Session logging** in `agents/sessions/SESSION_LOG.md`
 - **Memory/learnings** in `.koad/memory/LEARNINGS.md`
 
 For **Gemini**, the equivalent uses `GEMINI.md` files for context and `~/.gemini/settings.json` / `.gemini/settings.json` for config + MCP.
@@ -147,7 +147,7 @@ For **Gemini**, the equivalent uses `GEMINI.md` files for context and `~/.gemini
 | Boot hook | In [GEMINI.md](http://GEMINI.md) | In [AGENTS.md](http://AGENTS.md) ✅ (already done) |
 | Sanctuary Rule | In [GEMINI.md](http://GEMINI.md) | In [AGENTS.md](http://AGENTS.md) ✅ (already done) |
 | Saveup Protocol | In [GEMINI.md](http://GEMINI.md) | In [AGENTS.md](http://AGENTS.md) ✅ (already done) |
-| Reusable workflows | Extensions | Skills (`SKILL.md` in `.agents/skills/`) |
+| Reusable workflows | Extensions | Skills (`SKILL.md` in `agents/skills/`) |
 | Multi-agent delegation | Isolated agents (manual) | Native `[agents.*]` roles |
 | Named profiles | N/A | `[profiles.*]` in config.toml |
 | Override mechanism | N/A | `AGENTS.override.md` per-directory |
@@ -207,11 +207,11 @@ koad skill run global/saveup.py -- --summary "<desc>" --scope "<scope>" --fact "
 All async delegation occurs via the Koad Stream (Notion).
 ```
 
-### 5C. KoadOS Skills (`.agents/skills/`)
+### 5C. KoadOS Skills (`agents/skills/`)
 
 Convert your existing `koad skill` commands into native Codex skills for auto-discovery:
 
-**`~/.agents/skills/saveup/SKILL.md`:**
+**`~/agents/skills/saveup/SKILL.md`:**
 
 ```markdown
 ---
@@ -227,7 +227,7 @@ When the session is complete or the user requests a saveup:
 4. Confirm the saveup completed successfully
 ```
 
-**`~/.agents/skills/boot/SKILL.md`:**
+**`~/agents/skills/boot/SKILL.md`:**
 
 ```markdown
 ---

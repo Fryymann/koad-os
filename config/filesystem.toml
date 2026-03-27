@@ -4,5 +4,5 @@ workspace_symlink = "~/data"
 [filesystem.mappings]
 data = "~/data"
 projects = "~/data/projects"
-skylinks = "~/data/skylinks/.agents/.sky"
+skylinks = "~/data/SLE/.koados-station/agents/sky"
 personal = "~/data/personal"

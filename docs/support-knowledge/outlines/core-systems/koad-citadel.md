@@ -5,7 +5,7 @@
 - Complexity: advanced
 - Related Topics: tri-tier-model, agent-session-lifecycle, zero-trust-security, personal-bays
 - Key Source Files: `crates/koad-citadel/src/main.rs`, `crates/koad-citadel/src/kernel.rs`, `proto/citadel.proto`
-- Key Canon/Doc References: `.agents/CITADEL.md`
+- Key Canon/Doc References: `agents/CITADEL.md`
 
 ## Summary
 The `koad-citadel` crate is the "Body" of the KoadOS Tri-Tier model. It's a persistent, multi-service gRPC server that acts as the central operating system kernel. It is responsible for orchestrating agent sessions, managing shared state, enforcing security policies, and providing core infrastructure services that all other parts of the system rely on.

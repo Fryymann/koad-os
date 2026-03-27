@@ -391,7 +391,7 @@ pub async fn handle_system_action(
                 let backup_dir = home.join("backups");
                 std::fs::create_dir_all(&backup_dir)?;
                 let backup_path = backup_dir.join(format!("koad-{}.db", now_ts));
-                std::fs::copy(home.join("koad.db"), &backup_path)?;
+                std::fs::copy(home.join("data/db/koad.db"), &backup_path)?;
                 println!("  [OK] Database archived to: {}", backup_path.display());
 
                 // 4. Git Checkpoint
@@ -491,7 +491,7 @@ pub async fn handle_system_action(
 
             // Pass 3: Tool-Call Efficiency
             print!("{:<35}", "Pass 3: Logic (Context Cache):");
-            let cache_socket = config.home.join("koad.sock");
+            let cache_socket = config.home.join("run/koad.sock");
             if cache_socket.exists() {
                 println!("\x1b[32m[PASS]\x1b[0m Neural Bus Cache Active.");
             } else {

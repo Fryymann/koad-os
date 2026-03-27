@@ -1,5 +1,5 @@
 #!/bin/bash
-DB_PATH="$HOME/.koad-os/koad.db"
+DB_PATH="$HOME/.koad-os/data/db/koad.db"
 
 sqlite3 "$DB_PATH" <<SQL
 CREATE TABLE IF NOT EXISTS identities (

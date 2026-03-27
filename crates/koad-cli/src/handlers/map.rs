@@ -144,7 +144,7 @@ async fn render_verbose_header(dir: &Path, config: &KoadConfig) -> Result<()> {
 }
 
 async fn render_missions(config: &KoadConfig) -> Result<()> {
-    let db_path = config.home.join("data/notion-sync.db");
+    let db_path = config.home.join("data/db/notion-sync.db");
     if !db_path.exists() {
         return Ok(());
     }
@@ -222,7 +222,7 @@ async fn handle_where(query: &str, config: &KoadConfig, db: &KoadDB) -> Result<(
     }
 
     // 3. Check Missions (Notion)
-    let db_path = config.home.join("data/notion-sync.db");
+    let db_path = config.home.join("data/db/notion-sync.db");
     if db_path.exists() {
         if let Ok(conn) = rusqlite::Connection::open(db_path) {
             let mut stmt = conn.prepare("SELECT title, page_id FROM pages WHERE title LIKE ? AND is_deleted = 0")?;

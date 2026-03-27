@@ -967,7 +967,7 @@ The `identities/<agent>.toml` file is the **provisioning spec** for the bay. It 
 
 Each agent's bay includes a mutable **personal filesystem map**: an indexed set of paths the agent can fast-traverse without a full filesystem walk. This map has two sources:
 
-1. **Assigned paths** — defined in the identity TOML under `[filesystem]`. Set by Ian or Tyr when the agent is provisioned. Example: Sky is assigned `~/projects/koad-os/` and `/home/ideans/data/skylinks/.agents/.sky/`.
+1. **Assigned paths** — defined in the identity TOML under `[filesystem]`. Set by Ian or Tyr when the agent is provisioned. Example: Sky is assigned `~/projects/koad-os/` and `/home/ideans/data/skylinks/agents/sky/`.
 2. **Self-registered paths** — the agent can add paths to their own map during a session (e.g. `koad map add ~/new-project/`). These are persisted in the bay and survive session restarts.
 
 No agent can read or write to another agent's filesystem map. The Sanctuary Rule (`validate_path`) still applies — an agent cannot map a path outside their permitted scope.

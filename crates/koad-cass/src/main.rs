@@ -35,11 +35,11 @@ async fn main() -> Result<()> {
     let config = KoadConfig::load()?;
     let redis = Arc::new(RedisClient::new(&config.home.to_string_lossy(), true).await?);
     let storage = Arc::new(CassStorage::new(
-        &config.home.join("cass.db").to_string_lossy(),
+        &config.home.join("data/db/cass.db").to_string_lossy(),
     )?);
     let hierarchy = Arc::new(HierarchyManager::new(config.clone()));
     let signal_corps = Arc::new(SignalCorps::new(redis.clone(), "koad:stream:", 1000));
-    let codegraph = Arc::new(CodeGraph::new(&config.home.join("codegraph.db"))?);
+    let codegraph = Arc::new(CodeGraph::new(&config.home.join("data/db/codegraph.db"))?);
     let plugin_registry = PluginRegistry::new()?;
 
     let notion_key = std::env::var("KOADOS_PAT_NOTION_MAIN").unwrap_or_default();

@@ -128,7 +128,7 @@ Date: {}
         let mut layers = Vec::new();
         let mut temp_path = current_path.clone();
         for _ in 0..5 {
-            let agents_dir = temp_path.join(".agents");
+            let agents_dir = temp_path.join("agents");
             if agents_dir.is_dir() {
                 layers.push(temp_path.clone());
             }

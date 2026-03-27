@@ -78,9 +78,9 @@ mod tests {
             EnvironmentType::Wsl,
             ProjectContext {
                 project_name: "test-project".to_string(),
-                root_path: "/home/user/.koad-os/.agents/clyde/project".to_string(),
+                root_path: "/home/user/.koad-os/agents/KAPVs/clyde/project".to_string(),
                 allowed_paths: vec![
-                    "/home/user/.koad-os/.agents/clyde/".to_string(),
+                    "/home/user/.koad-os/agents/KAPVs/clyde/".to_string(),
                 ],
                 stack: vec!["rust".to_string()],
             },
@@ -138,16 +138,16 @@ mod tests {
     }
 
     #[test]
-    fn agent_path_uses_non_dotted_agent_folder() {
+    fn agent_path_uses_agents_folder() {
         let session = make_session();
-        // Verify path convention: .agents/<name> not .agents/.<name>
+        // Verify path convention: agents/<name> (no dot prefix on the agents dir)
         assert!(
-            session.context.root_path.contains(".agents/clyde"),
-            "Agent path should use '.agents/clyde', not '.agents/.clyde'"
+            session.context.root_path.contains("agents/KAPVs/clyde"),
+            "Agent path should use 'agents/KAPVs/clyde'"
         );
         assert!(
-            !session.context.root_path.contains(".agents/.clyde"),
-            "Dotted agent folder name is no longer valid"
+            !session.context.root_path.contains("agents/KAPVs/clyde"),
+            "Dotted agents/ prefix is no longer valid — use agents/ instead"
         );
     }
 }

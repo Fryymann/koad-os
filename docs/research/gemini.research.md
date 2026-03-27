@@ -297,12 +297,12 @@ The `koad` CLI's path-aware detection aligns with Gemini CLI's project-level `.g
 ├── settings.json          ← KoadOS kernel: Rust tool allowlists, kernel-specific MCP servers
 ├── GEMINI.md              ← KoadOS dev context: version strategy, Spine architecture notes
 
-/home/ideans/data/skylinks/.agents/.sky/.gemini/
+/home/ideans/data/skylinks/agents/sky/.gemini/
 ├── settings.json          ← Skylinks: GITHUB_SKYLINKS_PAT routing via env vars
 ├── GEMINI.md              ← Skylinks dev context: tech stack, SCE/SLE topology
 ```
 
-These files contain **project knowledge**, not agent identity. Any KAI booted in `/home/ideans/data/skylinks/.agents/.sky/` gets the Skylinks context regardless of whether they are Tyr, Sky, or Vigil.
+These files contain **project knowledge**, not agent identity. Any KAI booted in `/home/ideans/data/skylinks/agents/sky/` gets the Skylinks context regardless of whether they are Tyr, Sky, or Vigil.
 
 Project settings override user settings. Environment variables in project `.env` files are auto-loaded.
 

@@ -505,7 +505,7 @@ pub fn default_network() -> NetworkConfig {
 
 pub fn default_storage() -> StorageConfig {
     StorageConfig {
-        db_name: "koad.db".to_string(),
+        db_name: "data/db/koad.db".to_string(),
         drain_interval_secs: 30,
     }
 }

@@ -16,7 +16,7 @@ The system uses the `HierarchyManager` in `koad-core` to determine the current l
 The four levels are:
 1.  **Level 4: System:** The entire machine (`/`). This level is generally off-limits except for the `Admiral` or `Dood` for maintenance. An agent's personal vault (e.g., `~/.tyr`) resides here.
 2.  **Level 3: Citadel:** The core KoadOS platform directory (`~/.koad-os/`). This contains the running services, shared configuration, and canonical documentation. Only high-ranking agents like Scribe or Vigil operate primarily at this level.
-3.  **Level 2: Station:** A project hub or domain containing multiple related repositories (e.g., `/home/ideans/data/skylinks/.agents/.sky/`). This allows an agent to have context over a whole suite of applications.
+3.  **Level 2: Station:** A project hub or domain containing multiple related repositories (e.g., `/home/ideans/data/skylinks/agents/sky/`). This allows an agent to have context over a whole suite of applications.
 4.  **Level 1: Outpost:** A single git repository. This is the most common operational level for "Crew" agents, as it strictly jails their operations to the current codebase.
 
 When an agent boots, `koad-agent` passes the current path to the Citadel's `CreateLease` RPC. The Citadel uses its `HierarchyManager` to resolve the level and embeds this information in the session token. Every subsequent gRPC call from the agent carries this level, allowing services like CASS to make level-aware decisions. For example, the **Temporal Context Hydrator (TCH)** will load *only* local files at the Outpost level but may include high-level pointers from the Station level, preventing token-costly context pollution.
@@ -45,5 +45,5 @@ When an agent boots, `koad-agent` passes the current path to the Citadel's `Crea
 
 ## Raw Technical Notes
 - The hierarchy is a logical concept enforced by the Citadel. It's not a true OS-level chroot jail, but a gRPC-level one. An agent with direct shell access could, in theory, `cd` out of its workspace. The `koad-sandbox` is the next line of defense against this.
-- The `Hierarchy Walk` performed by the TCH is a key optimization. It avoids loading every file in a large monorepo by default, instead prioritizing local `.agents/` folders and high-level readme files.
+- The `Hierarchy Walk` performed by the TCH is a key optimization. It avoids loading every file in a large monorepo by default, instead prioritizing local `agents/` folders and high-level readme files.
 - This system is the technical implementation of the "Locality of Reference" principle mentioned in the canon docs.

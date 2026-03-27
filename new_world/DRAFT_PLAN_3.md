@@ -31,12 +31,12 @@ KoadOS adoption of the **Game Map Metaphor** for information topology:
 | **System** | Full Machine | Global configs, Officer vaults (~/.tyr) | Tyr (Captain) |
 | **Citadel** | Platform Core | Core protocols, platform-level data (~/.koad-os) | Scribe, Vigil |
 | **Station** | Project Hub | Shared domain resources (e.g., ~/skylinks) | Sky (Specialist) |
-| **Outpost** | Single Repo | Local code, task-specific state (.agents/) | Crew / Scouts |
+| **Outpost** | Single Repo | Local code, task-specific state (agents/) | Crew / Scouts |
 
 ### Key Principles
 - **Locality of Reference**: Most work is local (Outpost).
 - **Inheritance vs. Isolation**: Lower levels benefit from higher standards but remain jail-safe.
-- **The .agents/ Interface**: Universal entry point for agent data at every level.
+- **The agents/ Interface**: Universal entry point for agent data at every level.
 
 ---
 

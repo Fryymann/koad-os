@@ -11,7 +11,7 @@ github_owner = "KOADOS_MAIN_GITHUB_USER"
 credential_key = "GITHUB_PAT"
 
 [projects.skylinks]
-path = "/home/ideans/data/skylinks/.agents/.sky"
+path = "/home/ideans/data/skylinks/agents/sky"
 level = "station"
 station = "SLE"
 github_owner = "KOADOS_STATION_SLE_GITHUB_USER"

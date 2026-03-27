@@ -16,7 +16,7 @@ use tracing::{info, warn};
 /// The `BayStore` maintains a collection of open SQLite connections to ensure
 /// high-performance logging and querying of agent-specific state.
 pub struct BayStore {
-    /// Base path for bays: e.g., `~/.koad-os/bays/`
+    /// Base path for bays: e.g., `~/.koad-os/agents/bays/`
     base_path: PathBuf,
     /// Open connections keyed by agent name.
     connections: Arc<Mutex<HashMap<String, rusqlite::Connection>>>,

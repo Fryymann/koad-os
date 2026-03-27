@@ -24,8 +24,8 @@ impl RedisClient {
             home_path.join(crate::constants::DEFAULT_REDIS_SOCK)
         };
 
-        let pid_path = home_path.join("redis.pid");
-        let log_path = home_path.join("redis.log");
+        let pid_path = home_path.join("run/redis.pid");
+        let log_path = home_path.join("logs/redis.log");
         let data_dir = home_path.join("data/redis");
 
         let mut process = None;

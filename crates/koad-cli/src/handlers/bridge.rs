@@ -34,7 +34,7 @@ pub async fn handle_bridge_action(
                 .or_else(|_| env::var("NOTION_TOKEN"))
                 .map_err(|_| anyhow!("Notion token not set. Expected KOADOS_PAT_NOTION_MAIN in environment."))?;
             
-            let db_path = config.home.join("data/notion-sync.db");
+            let db_path = config.home.join("data/db/notion-sync.db");
             let proxy = NotionMcpProxy::new(api_key.clone(), db_path)?;
 
             match action {

@@ -5,7 +5,7 @@
 - Complexity: basic
 - Related Topics: body-ghost-model, koad-citadel, koad-cass, koad-cli
 - Key Source Files: `crates/koad-citadel/src/lib.rs`, `crates/koad-cass/src/lib.rs`, `crates/koad-cli/src/main.rs`
-- Key Canon/Doc References: `AGENTS.md`, `.agents/CITADEL.md`
+- Key Canon/Doc References: `AGENTS.md`, `agents/CITADEL.md`
 
 ## Summary
 The Tri-Tier Model is the foundational architecture of the KoadOS rebuild, replacing the monolithic "Spine". It separates concerns into three distinct layers: the Body (infrastructure), the Brain (cognition), and the Link (identity). This model provides clear boundaries, enhances security, and allows for independent development and scaling of each system component.

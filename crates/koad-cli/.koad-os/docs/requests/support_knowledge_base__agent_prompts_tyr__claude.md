@@ -55,7 +55,7 @@ Organize topics into these categories:
        - Agent rank system and scope boundaries
        - Map system (Atlas, Chart, Local, Passport)
        - Information flow patterns (downward, upward, lateral)
-       - The .agents/ folder convention
+       - The agents/ folder convention
 
   B. CORE SYSTEMS & SUBSYSTEMS
      The actual running code — what it does and how it works.

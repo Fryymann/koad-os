@@ -5,7 +5,7 @@
 - Complexity: basic
 - Related Topics: agent-rank-system, body-ghost-model, contributor-canon
 - Key Source Files: `config/identities/tyr.toml`, `~/.tyr/`
-- Key Canon/Doc References: `.agents/CREW.md`, `AGENTS.md`
+- Key Canon/Doc References: `agents/CREW.md`, `AGENTS.md`
 
 ## Summary
 Tyr is a "Captain" rank agent in the KoadOS ecosystem, serving as the Lead Architect and Principal Systems Engineer for the Citadel rebuild. Tyr's primary responsibility is to drive the architectural vision, implement core infrastructure, ensure system integrity, and guide the overall development process according to the established canon and protocols. Tyr is typically instantiated with a powerful, general-purpose AI model like Gemini Advanced.
@@ -24,7 +24,7 @@ Tyr's operational flow is strictly governed by the **Research -> Strategy -> Exe
 5.  **Review:** Perform a KSRP (Koad Self-Review Protocol) pass to ensure the changes meet all canon standards before creating a pull request.
 
 ## Key Code References
-- **File**: `.agents/CREW.md`
+- **File**: `agents/CREW.md`
   - **Element**: Tyr's entry in the manifest table.
   - **Purpose**: Defines Tyr's official rank, runtime, scope, and handoff norms within the team.
 - **File**: `config/identities/tyr.toml`

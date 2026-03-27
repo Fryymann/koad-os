@@ -5,8 +5,8 @@ rank = "Officer"
 tier = 3
 xp = 0
 bio = "Citadel Build Engineer. Responsible for container operations, execution sandbox oversight, and build pipeline integrity. Assigned to Phase 4.2 (Containerized Code Execution Sandbox)."
-vault = "~/.koad-os/.agents/helm"
-bootstrap = "~/.koad-os/.agents/helm/identity/IDENTITY.md"
+vault = "~/.koad-os/agents/KAPVs/helm"
+bootstrap = "~/.koad-os/agents/KAPVs/helm/identity/IDENTITY.md"
 runtime = "gemini"
 access_keys = []
 

@@ -129,7 +129,7 @@ The `Captain` rank (checked in `crates/koad-sandbox/src/lib.rs` via `Sandbox::ev
 ## Source Reference
 
 - `config/identities/tyr.toml` — Tyr's canonical Ghost identity definition
-- `.agents/CREW.md` — The crew manifest; Tyr's official entry with rank, runtime, scope, and handoff norms
+- `agents/CREW.md` — The crew manifest; Tyr's official entry with rank, runtime, scope, and handoff norms
 - `~/.tyr/memory/` — Tyr's personal vault: `SAVEUPS.md`, `LEARNINGS.md`, `PONDERS.md`
 - `crates/koad-sandbox/src/lib.rs` — `Sandbox::evaluate()`; where Captain-rank bypass logic is implemented
 - `AGENTS.md` — The operational directives all agents (including Tyr) must follow

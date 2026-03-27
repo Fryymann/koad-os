@@ -7,4 +7,4 @@ category  = "identity"
 summary   = "Established Clyde KAI identity (Officer, Claude Code runtime)"
 +++
 
-config/identities/clyde.toml, full KAPV vault at .agents/clyde/, CREW.md entry, AGENTS.md entry, SYSTEM_MAP.md entry. First sovereign Claude Code agent on the crew.
+config/identities/clyde.toml, full KAPV vault at agents/KAPVs/clyde/, CREW.md entry, AGENTS.md entry, SYSTEM_MAP.md entry. First sovereign Claude Code agent on the crew.

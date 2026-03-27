@@ -265,7 +265,7 @@ The Citadel gRPC service implementing the Koad Stream event bus. Provides `Broad
 The legacy monolithic KoadOS architecture, now archived in `legacy/`. The Spine combined sessions, security, memory, and orchestration into a single binary. Retired in favor of the Tri-Tier Model due to fragility and maintainability issues.
 
 **Station**
-Level 2 in the Workspace Hierarchy. A project hub directory containing multiple related repositories (e.g., `/home/ideans/data/skylinks/.agents/.sky/`). Defined by a `koad.toml` with a `[station]` section. Context hydration at Station level includes cross-repo summaries. See: [Workspace Hierarchy](./architecture/workspace-hierarchy.md).
+Level 2 in the Workspace Hierarchy. A project hub directory containing multiple related repositories (e.g., `/home/ideans/data/skylinks/agents/sky/`). Defined by a `koad.toml` with a `[station]` section. Context hydration at Station level includes cross-repo summaries. See: [Workspace Hierarchy](./architecture/workspace-hierarchy.md).
 
 **Storage trait**
 The Rust trait in `koad-cass/src/storage/mod.rs` that abstracts all `cass.db` interactions. Implemented by `CassStorage` (production) and `MockStorage` (tests). Allows CASS services to be tested without file I/O. See: [SQLite Storage](./data-storage/sqlite-cass-db.md).

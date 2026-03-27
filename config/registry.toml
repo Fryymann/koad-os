@@ -5,7 +5,7 @@ github_repo = "koad-os"
 credential_key = "GITHUB_PAT"
 
 [projects.skylinks]
-path = "~/data/skylinks/.agents/.sky"
+path = "~/data/SLE/.koados-station/agents/sky"
 github_owner = "KOADOS_STATION_SLE_GITHUB_USER"
 credential_key = "GITHUB_PAT"
 station = "SLE"

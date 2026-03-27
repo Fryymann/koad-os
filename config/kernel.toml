@@ -8,11 +8,11 @@ citadel_grpc_port = 50051
 citadel_grpc_addr = "http://127.0.0.1:50051"
 cass_grpc_port = 50052
 cass_grpc_addr = "http://127.0.0.1:50052"
-redis_socket = "koad.sock"
-citadel_socket = "kcitadel.sock"
+redis_socket = "run/koad.sock"
+citadel_socket = "run/kcitadel.sock"
 
 [storage]
-db_name = "koad.db"
+db_name = "data/db/koad.db"
 drain_interval_secs = 30
 
 [sessions]

@@ -118,7 +118,7 @@ impl KernelBuilder {
         info!("Kernel: Initializing at {}...", home_dir.display());
 
         let redis = Arc::new(RedisClient::new(&home_dir.to_string_lossy(), true).await?);
-        let db_path = home_dir.join("citadel.db");
+        let db_path = home_dir.join("data/db/citadel.db");
         let storage = Arc::new(CitadelStorageBridge::new(
             redis.clone(),
             &db_path.to_string_lossy(),
@@ -129,7 +129,7 @@ impl KernelBuilder {
         storage.hydrate_all().await?;
 
         let hierarchy = Arc::new(HierarchyManager::new(config.clone()));
-        let bays_path = home_dir.join("bays");
+        let bays_path = home_dir.join("agents/bays");
         let bay_store = Arc::new(BayStore::new(bays_path));
         let identities_dir = home_dir.join("config/identities");
         bay_store.auto_provision_all(&identities_dir).await?;

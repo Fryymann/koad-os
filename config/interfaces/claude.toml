@@ -1,6 +1,6 @@
 [interfaces.claude]
 name = "claude"
-bootstrap = "~/.koad-os/bodies/claude/BOOT.md"
+bootstrap = "~/.koad-os/agents/bodies/claude/BOOT.md"
 mcp_enabled = false
 tools = [
     "Bash",

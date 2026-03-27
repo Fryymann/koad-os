@@ -66,8 +66,8 @@ pub fn find_ghosts(home: &Path) -> Vec<(u32, String)> {
     sys.refresh_all();
     let mut ghosts = Vec::new();
 
-    // Check common PID files
-    let pid_files = vec!["redis.pid", "kcitadel.pid", "kgateway.pid", "koad-asm.pid"];
+    // Check common PID files (relative to KOAD_HOME, all live under run/)
+    let pid_files = vec!["run/redis.pid", "run/kcitadel.pid", "run/kgateway.pid", "run/koad-asm.pid"];
     for pf in pid_files {
         let pid_file = home.join(pf);
         if pid_file.exists() {
@@ -183,9 +183,11 @@ mod tests {
     #[test]
     fn find_ghosts_ignores_live_process() {
         let dir = tempdir().unwrap();
+        // PID files now live under run/ within KOAD_HOME
+        std::fs::create_dir_all(dir.path().join("run")).unwrap();
         // Write the current process's PID into a monitored file — should NOT be a ghost
         fs::write(
-            dir.path().join("redis.pid"),
+            dir.path().join("run/redis.pid"),
             std::process::id().to_string(),
         )
         .unwrap();

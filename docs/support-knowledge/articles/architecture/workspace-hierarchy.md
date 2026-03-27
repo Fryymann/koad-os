@@ -42,8 +42,8 @@ The resolved level is embedded in the session token the Citadel issues. Every su
 
 The primary consumer of the hierarchy level is CASS's **Temporal Context Hydration** (TCH) service, implemented in `CassHydrationService::hydrate()`. When an agent boots and requests its initial context packet, CASS uses the level to decide how broadly to search:
 
-- **Outpost (Level 1):** Walk only the current repository. Load `AGENTS.md`, local `.agents/` folder contents, recent commits, and nearby source files. Do not traverse to parent directories.
-- **Station (Level 2):** Walk the current repo plus high-level pointers from sibling repositories in the Station (e.g., their README files and `.agents/` summaries). Do not load full source trees from sibling repos.
+- **Outpost (Level 1):** Walk only the current repository. Load `AGENTS.md`, local `agents/` folder contents, recent commits, and nearby source files. Do not traverse to parent directories.
+- **Station (Level 2):** Walk the current repo plus high-level pointers from sibling repositories in the Station (e.g., their README files and `agents/` summaries). Do not load full source trees from sibling repos.
 - **Citadel (Level 3):** Load cross-cutting KoadOS platform documentation, shared config, and canonical plans. Appropriate for agents doing platform-level work.
 - **System (Level 4):** Reserved for administrative agents (Admiral/Dood). Unrestricted.
 

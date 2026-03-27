@@ -32,7 +32,7 @@ KoadOS adoption of the **Game Map Metaphor** for information topology:
 | **System** | Full Machine | Global configs, Officer vaults (~/.tyr) | Tyr (Captain) |
 | **Citadel** | Platform Core | Core protocols, platform-level data (~/.koad-os) | Scribe, Vigil |
 | **Station** | Project Hub | Shared domain resources (e.g., ~/skylinks) | Sky (Specialist) |
-| **Outpost** | Single Repo | Local code, task-specific state (.agents/) | Crew / Scouts |
+| **Outpost** | Single Repo | Local code, task-specific state (agents/) | Crew / Scouts |
 
 ---
 

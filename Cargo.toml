@@ -41,7 +41,7 @@ hyper = "0.14"
 
 # Persistence & State
 rusqlite = { version = "0.32", features = ["bundled"] }
-fred = { version = "9.0", features = ["unix-sockets"] }
+fred = { version = "9.0", features = ["unix-sockets", "default-nil-types"] }
 
 # CLI / TUI
 clap = { version = "4.4", features = ["derive"] }

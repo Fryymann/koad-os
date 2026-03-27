@@ -11,7 +11,7 @@
 //! 1. `config/identities/<key>.toml` — Primary identity record consumed by KoadConfig.
 //!    Drives all boot logic: vault lookup, runtime enforcement, env injection,
 //!    and Citadel bay auto-provisioning on kernel startup.
-//! 2. `.agents/<key>/` KAPV directory tree — The agent's persistent vault.
+//! 2. `agents/<key>/` KAPV directory tree — The agent's persistent vault.
 //!    `verify_kapv()` in koad-agent auto-creates the 7 standard dirs on first boot,
 //!    but content files must be seeded here so the ghost has context from day one.
 //!
@@ -29,12 +29,12 @@
 //! - `memory/SAVEUPS.md`          — Checkpoint log (seeded with creation entry)
 //!
 //! ### Tier 2 — Crew Docs (human-read at boot; affects agent context quality)
-//! 3. `.agents/CREW.md`   — Append row to personnel manifest table
+//! 3. `agents/CREW.md`   — Append row to personnel manifest table
 //! 4. `AGENTS.md` (root)  — Append row to Section VII Personnel & Roles table
 //! 5. `SYSTEM_MAP.md`     — Append row to Agent Bays Index table
 //!
 //! ### Tier 3 — Automatic (no action required)
-//! - Citadel bay store (`bays/<key>/state.db`) — Auto-provisioned by kernel on startup
+//! - Citadel bay store (`agents/bays/<key>/state.db`) — Auto-provisioned by kernel on startup
 //!   via `BayStore::auto_provision_all()` which scans `config/identities/*.toml`.
 
 use anyhow::{bail, Context, Result};
@@ -137,7 +137,7 @@ async fn handle_new_agent(
         if dry_run {
             println!("\x1b[33m[DRY RUN]\x1b[0m Would create:");
             println!("  {}/  (KAPV tree)", vault_path.display());
-            println!("  .agents/CREW.md  (append row)");
+            println!("  agents/CREW.md  (append row)");
             println!("  AGENTS.md        (append row)");
             println!("  SYSTEM_MAP.md    (append row)");
             return Ok(());
@@ -204,7 +204,7 @@ async fn handle_new_agent(
         println!("\x1b[33m[DRY RUN]\x1b[0m Would create:");
         println!("  {}", identity_toml_path.display());
         println!("  {}/  (KAPV tree)", vault_path.display());
-        println!("  .agents/CREW.md  (append row)");
+        println!("  agents/CREW.md  (append row)");
         println!("  AGENTS.md        (append row)");
         println!("  SYSTEM_MAP.md    (append row)");
         return Ok(());
@@ -233,7 +233,7 @@ async fn handle_new_agent(
         name, runtime, key
     );
     println!(
-        "     Citadel will auto-provision bay at startup: bays/{}/state.db",
+        "     Citadel will auto-provision bay at startup: agents/bays/{}/state.db",
         key
     );
 
@@ -256,7 +256,7 @@ fn resolve_vault_path(
     };
     if let Some(v) = vault_override { return expand(v); }
     if let Some(v) = toml_vault { return expand(v); }
-    config.home.join(format!(".agents/{}", key))
+    config.home.join(format!("agents/{}", key))
 }
 
 // ---------------------------------------------------------------------------
@@ -334,7 +334,7 @@ async fn scaffold_kapv(
 
     let runtime_notes = match runtime {
         "gemini" => "- This sanctuary supports Gemini CLI dark-mode operation.\n- `agent-boot` writes the generated anchor to `~/.gemini/GEMINI.md` — ephemeral.\n- This vault is the durable source of truth.",
-        "codex" => "- Codex runs sandboxed. File writes outside `.agents/<key>/` require user approval.\n- `agent-boot` writes the generated anchor to `~/.codex/AGENTS.md` — ephemeral.\n- This vault is the durable source of truth.",
+        "codex" => "- Codex runs sandboxed. File writes outside `agents/<key>/` require user approval.\n- `agent-boot` writes the generated anchor to `~/.codex/AGENTS.md` — ephemeral.\n- This vault is the durable source of truth.",
         _ => "- This sanctuary's `AGENTS.md` is the identity lock for Claude Code sessions.\n- `agent-boot` writes the generated anchor to `~/.claude/CLAUDE.md` — ephemeral.\n- This vault is the durable source of truth.",
     };
 
@@ -383,7 +383,7 @@ async fn scaffold_kapv(
          ## I. Identity & Persona\n\n\
          - **Name:** {name}\n\
          - **Body:** {runtime_body} (Active)\n\
-         - **Sanctuary:** `.agents/{key}/` (Vault)\n\
+         - **Sanctuary:** `agents/{key}/` (Vault)\n\
          - **Runtime:** {runtime}\n\
          - **Tier:** {tier}\n\n\
          ---\n\n\
@@ -396,7 +396,7 @@ async fn scaffold_kapv(
          ---\n\n\
          ## III. Non-Negotiable Directives\n\n\
          - **One Body, One Ghost:** One agent instance per session.\n\
-         - **Sanctuary Rule:** Write authority scoped to `.agents/{key}/` by default.\n\
+         - **Sanctuary Rule:** Write authority scoped to `agents/{key}/` by default.\n\
            Operations outside this path require explicit Dood approval.\n\
          - **Dood Gate:** Architectural decisions require Condition Green before code runs.\n\
          - **No-Read Rule:** Never read entire files over 50 lines. Use grep and line-range reads.\n\
@@ -432,7 +432,7 @@ async fn scaffold_kapv(
          body = \"{runtime_body}\"\n\
          role = \"{role}\"\n\
          status = \"CONDITION GREEN\"\n\
-         sanctuary = \"~/.koad-os/.agents/{key}\"\n\
+         sanctuary = \"~/.koad-os/agents/{key}\"\n\
          source_of_truth = [\n\
          \x20 \"AGENTS.md\",\n\
          \x20 \"identity/IDENTITY.md\",\n\
@@ -456,7 +456,7 @@ async fn scaffold_kapv(
          - Tier: `{tier}`\n\
          - Body: `{runtime_body}`\n\
          - Role: `{role}`\n\
-         - Sanctuary: `~/.koad-os/.agents/{key}/`\n\
+         - Sanctuary: `~/.koad-os/agents/{key}/`\n\
          - Bio: {bio}\n\n\
          *Established: {today}*\n",
         name = name,
@@ -487,7 +487,7 @@ async fn scaffold_kapv(
          - This sanctuary is {name}'s private KAPV.\n\
          - Ghost persists across sessions — memory is half the agent.\n\n\
          ## Boundaries\n\n\
-         - Local edits inside `~/.koad-os/.agents/{key}/` are allowed without escalation.\n\
+         - Local edits inside `~/.koad-os/agents/{key}/` are allowed without escalation.\n\
          - KoadOS source, shared config, or other agents' sanctuaries require Dood approval.\n\
          - Escalate architecture decisions to Tyr via GitHub issues.\n\n\
          ## Working Standard\n\n\
@@ -547,8 +547,8 @@ async fn scaffold_kapv(
          *Stable, verified facts about the KoadOS environment.*\n\n\
          - KoadOS repo is at `{koad_os_path}` on Jupiter (WSL2/Ubuntu on Windows 11).\n\
          - Platform identity is defined in `{koad_os_path}/config/identities/{key}.toml`.\n\
-         - Vault is at `{koad_os_path}/.agents/{key}/`.\n\
-         - Bay DB will be at `{koad_os_path}/bays/{key}/state.db` (auto-provisioned by Citadel).\n\
+         - Vault is at `{koad_os_path}/agents/{key}/`.\n\
+         - Bay DB will be at `{koad_os_path}/agents/bays/{key}/state.db` (auto-provisioned by Citadel).\n\
          - Dood (Ian) is the final approval gate for all architectural changes.\n",
         name = name,
         key = key,
@@ -587,7 +587,7 @@ async fn scaffold_kapv(
 // Crew doc patching
 // ---------------------------------------------------------------------------
 
-/// Append a row to .agents/CREW.md before the Dood (Admin) sentinel row.
+/// Append a row to agents/CREW.md before the Dood (Admin) sentinel row.
 async fn patch_crew_md(
     config: &KoadConfig,
     name: &str,
@@ -595,7 +595,7 @@ async fn patch_crew_md(
     runtime: &str,
     role: &str,
 ) -> Result<()> {
-    let path = config.home.join(".agents/CREW.md");
+    let path = config.home.join("agents/CREW.md");
     let content = fs::read_to_string(&path).await
         .with_context(|| format!("Could not read {}", path.display()))?;
 
@@ -675,7 +675,7 @@ async fn patch_system_map(
     // Extract the relative vault path for display (strip the koad-os prefix if present)
     let display_path = vault_str
         .replace("~/.koad-os/", "")
-        .replace("~/.koad-os", ".agents/");
+        .replace("~/.koad-os", "agents/");
     let new_row = format!("| **{}** | `{}` | Active |\n", name, display_path);
     let patched = content.replacen(sentinel, &format!("{}{}", new_row, sentinel), 1);
     fs::write(&path, patched).await?;
@@ -750,10 +750,10 @@ async fn handle_agent_verify(agent: &str, config: &KoadConfig) -> Result<()> {
                 PathBuf::from(v)
             }
         } else {
-            config.home.join(format!(".agents/{}", key))
+            config.home.join(format!("agents/{}", key))
         }
     } else {
-        config.home.join(format!(".agents/{}", key))
+        config.home.join(format!("agents/{}", key))
     };
 
     if !vault_path.exists() {
