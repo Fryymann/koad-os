@@ -1,116 +1,52 @@
 # KoadOS v3 Exhaustive Ignore Rules
 
-
-*cache/
-
-# --- Runtime (sockets, pids) ---
+# --- Instance-Specific State & Config ---
+config/kernel.toml
+config/redis.conf
+.env
+.env.*
+agents/crews/*.md
+!agents/crews/TEMPLATE.md
+agents/SESSIONS_LOG.md
+agents/sessions_archive/
+agents/bays/
+bays/
+cache/
+logs/
 run/
-
-# --- Local State & Telemetry ---
-koad.json
-SESSION_LOG.md
-NOTION_INDEX.md
+data/db/
+data/redis/
+backups/
+agents/KAPVs/*/memory/
 *.db
 *.db-shm
 *.db-wal
 *.log
 *.log.*
-*.pid
-*.sock
-*.sock.*
-data/redis/
 *.rdb
-legacy/
 
-# --- Build Artifacts (Rust) ---
+# --- Binaries & Build Artifacts ---
+bin/
+!bin/*.sh
 target/
 **/target/
+node_modules/
+**/node_modules/
 debug/
 release/
 .crates.toml
 .crates2.json
 
-# --- Memory Backups ---
-backups/
+# --- Standard Ignore Rules ---
+# Claude Code Agent Workspace (Root only)
+/.claude/
+agents/.claude/worktrees/
+**/.claude/worktrees/
 
-# --- Build Artifacts (Node/Web) ---
-node_modules/
-**/node_modules/
-dist/
-**/dist/
-.npm
-.eslintcache
-
-# --- Virtual Environments (Python) ---
-venv/
-.venv/
-**/venv/
-**/.venv/
-env/
-.env/
-__pycache__/
-**/__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
-.tox/
-.nox/
-.coverage
-htmlcov/
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-
-# --- IDE & OS ---
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# IDE & OS
 .vscode/
+.DS_Store
 .idea/
 .codex/
 *.swp
 *.swo
-
-# --- Secrets & Config ---
-.env
-.env.*
-.credentials.json
-*.pem
-*.key
-pub.key
-
-# --- Binaries ---
-bin/
-!bin/*.sh
-
-# --- Claude Code Agent Workspace ---
-# Worktrees are git-managed checkouts and must never be committed into the repo.
-# settings.local.json is a machine-local Claude Code config file.
-# Agent working-memory files (context.md, log.md, README.md) are ephemeral
-# per-session artefacts, not project source.
-# Rules scoped to /.claude/ (root only) so agents/.claude/ memory is tracked.
-/.claude/
-/.claude/worktrees/
-/.claude/settings.local.json
-/.claude/README.md
-/.claude/context.md
-/.claude/log.md
-/.claude/*.json
-/.claude/*.md
-# Worktree checkouts inside agent bays are git-managed, never committed.
-agents/.claude/worktrees/
-
-# --- Personal Agent Bays & Admiral Commands ---
-.admiral/
-.helm/
-.tyr/
-
-# -- Portal Symlinks ---
-
-/portals/*

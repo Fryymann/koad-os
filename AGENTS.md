@@ -1,7 +1,7 @@
 # KoadOS — AGENTS.md (The Rebuild Onboarding Portal)
 **Status:** Phase 4: Dynamic Tools & Containerized Sandboxes
 **Environment:** NEW WORLD (Citadel-First)
-**Date: 2026-03-15**
+**Date: 2026-03-27**
 
 ---
 
@@ -45,7 +45,7 @@ The Agent Information System (AIS) provides specialized tools to reduce your tok
 
 ---
 
-## Ⅱ. Onboarding: Your First 5 Minutes
+## Ⅲ. Onboarding: Your First 5 Minutes
 
 If you are just booting into this workspace, follow this sequence:
 1. **Locate your Persona:** Read your specific role and active manifest in [agents/CREW.md](agents/CREW.md).
@@ -55,7 +55,7 @@ If you are just booting into this workspace, follow this sequence:
 
 ---
 
-## Ⅲ. The Hydration Layer (Boot Process)
+## Ⅳ. The Hydration Layer (Boot Process)
 
 KoadOS utilizes the `koad-agent` tool to hydrate your shell environment *before* your AI CLI initializes.
 
@@ -67,7 +67,7 @@ When you boot via `eval $(koad-agent boot <AgentName>)`, the system:
 
 ---
 
-## Ⅳ. Beneficial Information Docs
+## Ⅴ. Beneficial Information Docs
 
 - **If working on agent orchestration:** Load [agents/CITADEL.md](agents/CITADEL.md).
 - **If resolving identity questions:** Load [agents/CREW.md](agents/CREW.md).
@@ -76,7 +76,7 @@ When you boot via `eval $(koad-agent boot <AgentName>)`, the system:
 
 ---
 
-## Ⅴ. Mission Brief: The Citadel Rebuild
+## Ⅵ. Mission Brief: The Citadel Rebuild
 
 The **Koad Spine is retired.** It is archived in `legacy/`. We are building **The Citadel** using a tri-tier model.
 
@@ -87,56 +87,58 @@ The **Koad Spine is retired.** It is archived in `legacy/`. We are building **Th
 
 ---
 
-## Ⅵ. Project Structure & Discovery (Mandatory)
+## Ⅶ. Project Structure & Discovery (Mandatory)
 
 **The Map-First Rule:** Before performing any recursive searches, agents MUST consult the **`SYSTEM_MAP.md`**.
 
 **Discovery Hierarchy:**
 1. **`SYSTEM_MAP.md`** — Primary workspace index.
 2. **`AGENTS.md`** — Core mission and onboarding details.
-3. **`DRAFT_PLAN_3.md`** — Current implementation roadmap.
+3. **`crates/AGENTS.md`** — Crate-level purpose and status index.
 4. **`ls / find`** — Use only if the map is stale.
 
 ---
 
-## Ⅶ. Personnel & Roles
+## Ⅷ. Personnel & Roles
 
 | Agent | Rank | Role | Primary Focus |
 |---|---|---|---|
-| **Pic** | Captain | Lead Architect | Citadel Core, gRPC Services, Personal Bays |
-| **Claude** | Contractor | Foundation Builder | Implementation, Tests, Boilerplate Reduction |
-| **Sky** | Specialist | CASS Architect | Memory Stack, MCP Tool Design |
-| **Scribe** | Crew | Scout & Scribe | Context Distillation, Map Maintenance, Vault Scaffolding |
-| **Cid** | Engineer | Systems Engineer | Crate Architect, CI/CD, Rust Modules |
-| **Clyde** | Officer | Citadel Officer | KoadOS Development, Multi-Project Engineering |
-| **helm** | Officer | Citadel Build Engineer | Citadel Build Engineer |
-| **Helm** | Security | Security Sentinel | Jailing, Sandboxing, Integrity |
+| **Tyr** | Captain | Admiral's Ghost | Principal Systems Engineer; Station Orchestration |
+| **Clyde** | Officer | Citadel Officer | Citadel Infrastructure & Multi-Project Development |
+| **Sky** | Officer | Specialist | Strategic Intel & CASS Memory Architecture |
+| **Helm** | Officer | Build Engineer | Container Operations & Execution Sandbox Oversight |
+| **Scribe** | Crew | Scout & Scribe | Context Distillation, Map Maintenance, Documentation |
+| **Cid** | Engineer | Systems Engineer | Crate Architect, Systems Infra, Rust Modules |
+| **Claude** | Contractor | Foundation Builder | Implementation, Scaffolding, Integration Tests |
+| **Noti** | Specialist | Notion Specialist | Notion Cloud Bridge (Remote Agent) |
+| **Dood** | Admin | Human Admin | Final Approval, Security, Strategic Direction (Ian) |
 
 ---
 
-## Ⅷ. Workspace Navigation (The "New World" Map)
+## Ⅸ. Workspace Navigation (The "New World" Map)
 
 - `/home/ideans/.koad-os/`
-  - `config/` -> identities and kernel settings.
-  - `crates/` -> Active rebuild source code.
+  - `config/` -> identities and system settings (defaults are in `config/defaults/`).
+  - `crates/` -> Active rebuild source code (11 active crates).
     - `koad-citadel/`: Core OS Kernel.
     - `koad-cass/`: Agent Support System (Memory/TCH).
+    - `koad-cli/`: `koad` and `koad-agent` binaries.
     - `koad-intelligence/`: Brain interface and local distillation.
     - `koad-sandbox/`: Config-driven security jailing.
+    - `koad-plugins/`: WASM plugin runtime.
     - `koad-codegraph/`: AST-based symbol indexing.
     - `koad-core/`: Shared types and utilities.
     - `koad-proto/`: gRPC protobuf definitions.
   - `legacy/` -> The Spine graveyard. Reference only.
-  - `new_world/` -> Planning, reviews, and blueprints.
 
 **Condition:** 🟢 GREEN
 **Current Phase:** 4 — Dynamic Tool Loading & Code Execution Sandbox
 **Gate:** MCP Registry / Sandbox Containerization passing integration tests → Dood approval.
-The Citadel is stable. Intelligence layer active. Phase 4 ignition.
+The Citadel is stable. CASS infrastructure active. Phase 4 ignition.
 
 ---
 
-## Ⅸ. Agent Communication Inbox
+## Ⅹ. Agent Communication Inbox
 
 *   **Location:** `~/.koad-os/agents/inbox`
-*   **Purpose:** This directory serves as a shared inbox for agent messages and communications. It is used for inter-agent messaging and potentially for receiving external inputs that require agent processing.
+*   **Purpose:** This directory serves as a shared inbox for agent messages and communications.

@@ -1,11 +1,19 @@
-# Domain: Documentation & Research (docs/)
-**Role:** Knowledge Base & Architectural Record
+# Domain: Documentation (docs/)
+**Role:** Architectural Reference & Research
 
-## Ⅰ. Core Protocols
-- [protocols/RUST_CANON.md](protocols/RUST_CANON.md): Rust coding standards.
-- [protocols/CONTRIBUTOR_CANON.md](protocols/CONTRIBUTOR_CANON.md): General station rules.
-- [protocols/EOW_SCHEMA.toml](protocols/EOW_SCHEMA.toml): EndOfWatch data schema.
+This directory contains the canonical documentation for the KoadOS platform, including protocols, research, and phase-specific implementation guides.
 
-## Ⅱ. Research & Strategy
-- [research/citadel_stability_roadmap.research.md](research/citadel_stability_roadmap.research.md): Rebuild build order.
-- [research/agent_toolset_inv_analysis.research.md](research/agent_toolset_inv_analysis.research.md): Tool ROI analysis.
+## Ⅰ. Documentation Structure
+
+- `protocols/`: **[MANDATORY]** Engineering standards, RUST_CANON, and contribution workflows.
+- `rebuild/`: Phase-specific implementation specifications and migration maps for the Citadel v3 rebuild.
+- `research/`: Technical feasibility studies and architectural research artifacts.
+- `agent_ref_book/`: Comprehensive reference for agent-specific tools and workflows.
+- `koados_philosophy/`: Strategic vision and core mission documentation.
+- `requests/`: Historical feature and skill requests (archived to `requests/archived/`).
+- `support-knowledge/`: Knowledge base artifacts for agent support.
+- `tasks/`: Historical task-specific documentation.
+
+## Ⅱ. Key Files
+- `MINION_BOOT.md`: Specification for the Minion Swarm architecture (Phase 9).
+- `AGENTS.md`: This file.

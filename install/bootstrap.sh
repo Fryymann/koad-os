@@ -71,18 +71,38 @@ else
     warn "Open $KOAD_HOME/.env and populate your secrets before running \`koad system init\`"
 fi
 
-# ── 3. Directories ────────────────────────────────────────────────────────────
-section "Directories"
+# ── 3. Directories & Configuration ────────────────────────────────────────────
+section "Directories & Configuration"
 
 for dir in "$BIN_DIR" "$LOG_DIR" \
     "$KOAD_HOME/cache" \
     "$KOAD_HOME/data/db" \
     "$KOAD_HOME/data/redis" \
     "$KOAD_HOME/run" \
-    "$KOAD_HOME/agents"; do
+    "$KOAD_HOME/agents" \
+    "$KOAD_HOME/agents/crews"; do
     mkdir -p "$dir"
     ok "$dir"
 done
+
+# Copy default config templates if no live version exists
+if [[ -f "$KOAD_HOME/config/defaults/kernel.toml" ]]; then
+    if [[ ! -f "$KOAD_HOME/config/kernel.toml" ]]; then
+        cp "$KOAD_HOME/config/defaults/kernel.toml" "$KOAD_HOME/config/kernel.toml"
+        ok "config/kernel.toml (created from default)"
+    else
+        ok "config/kernel.toml (already exists)"
+    fi
+fi
+
+if [[ -f "$KOAD_HOME/config/defaults/redis.conf" ]]; then
+    if [[ ! -f "$KOAD_HOME/config/redis.conf" ]]; then
+        cp "$KOAD_HOME/config/defaults/redis.conf" "$KOAD_HOME/config/redis.conf"
+        ok "config/redis.conf (created from default)"
+    else
+        ok "config/redis.conf (already exists)"
+    fi
+fi
 
 # ── 4. Script permissions ─────────────────────────────────────────────────────
 section "Script Permissions"
