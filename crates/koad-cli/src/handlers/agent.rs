@@ -708,7 +708,7 @@ async fn handle_list_agents(config: &KoadConfig) -> Result<()> {
         let vault = id.vault.as_deref().unwrap_or("(auto)");
         println!(
             "  {:<12} {:<12} {:<10} {:<8}  {}",
-            id.name, id.rank, runtime, 0, vault
+            id.name, id.rank, runtime, id.xp, vault
         );
         let _ = key; // suppress unused warning
     }
@@ -726,6 +726,7 @@ async fn handle_agent_info(agent: &str, config: &KoadConfig) -> Result<()> {
     println!("\n\x1b[1;34m--- Agent: {} ---\x1b[0m", id.name);
     println!("  Role:    {}", id.role);
     println!("  Rank:    {}", id.rank);
+    println!("  XP:      {}", id.xp);
     println!("  Bio:     {}", id.bio);
     println!("  Runtime: {}", id.runtime.as_deref().unwrap_or("—"));
     println!("  Vault:   {}", id.vault.as_deref().unwrap_or("(auto)"));

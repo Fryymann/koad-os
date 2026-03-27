@@ -78,14 +78,11 @@ pub struct KoadConfig {
 pub struct NetworkConfig {
     pub gateway_port: u32,
     pub gateway_addr: String,
-    #[serde(alias = "spine_grpc_port")]
     pub citadel_grpc_port: u32,
-    #[serde(alias = "spine_grpc_addr")]
     pub citadel_grpc_addr: String,
     pub cass_grpc_port: u32,
     pub cass_grpc_addr: String,
     pub redis_socket: String,
-    #[serde(alias = "spine_socket")]
     pub citadel_socket: String,
     #[serde(default = "default_admin_socket")]
     pub admin_socket: String,
@@ -215,6 +212,9 @@ pub struct AgentIdentityConfig {
     /// Agent tier level (1=Initiate, 2=Crew, 3=Officer, 4=Captain).
     #[serde(default = "default_agent_tier")]
     pub tier: u32,
+    /// Persistent XP total for this agent.
+    #[serde(default)]
+    pub xp: u32,
 }
 
 fn default_agent_tier() -> u32 {

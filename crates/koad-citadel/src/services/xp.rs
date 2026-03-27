@@ -24,9 +24,9 @@ pub struct CitadelXpService {
 impl CitadelXpService {
     /// Creates a new `CitadelXpService`.
     pub async fn new(db: Arc<Mutex<rusqlite::Connection>>, config: KoadConfig) -> Result<Self> {
-        // Initialize the XP ledger table
+        // Initialize the XP ledger table and seed from config if empty
         {
-            let conn = db.lock().await;
+            let mut conn = db.lock().await;
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS xp_ledger (
                     id INTEGER PRIMARY KEY,
@@ -39,6 +39,30 @@ impl CitadelXpService {
                 )",
                 [],
             )?;
+
+            // Check if table is empty
+            let count: i64 = conn.query_row("SELECT COUNT(*) FROM xp_ledger", [], |r| r.get(0))?;
+            if count == 0 {
+                info!("XP Ledger is empty — seeding from KoadConfig identities.");
+                let tx = conn.transaction()?;
+                for (key, id) in &config.identities {
+                    if id.xp > 0 {
+                        info!(agent = %id.name, xp = %id.xp, "Seeding initial XP balance");
+                        tx.execute(
+                            "INSERT INTO xp_ledger (agent_name, amount, reason, source, source_id) 
+                             VALUES (?1, ?2, ?3, ?4, ?5)",
+                            params![
+                                id.name,
+                                id.xp as i32,
+                                "Opening balance (migrated from identity TOML)",
+                                0, // Source: System
+                                format!("init:{}", key)
+                            ],
+                        )?;
+                    }
+                }
+                tx.commit()?;
+            }
         }
         Ok(Self { db, config })
     }
