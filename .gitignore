@@ -13,6 +13,7 @@ agents/bays/
 bays/
 cache/
 logs/
+portals/
 run/
 data/db/
 data/redis/
