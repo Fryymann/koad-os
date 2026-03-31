@@ -95,7 +95,9 @@ async fn main() -> Result<()> {
             }
         }
 
-        let vault_path = match find_vault(&agent_name, &config, identity_config) {
+        let vault_uri = config.resolve_vault_uri(&agent_name)
+            .context("Could not resolve vault URI for current agent.")?;
+        let vault_path = match config.resolve_vault_path(&vault_uri) {
             Ok(p) => p,
             Err(e) => {
                 if shell {
@@ -122,6 +124,8 @@ async fn main() -> Result<()> {
             if shell {
                 let mut cass_packet_size = 0;
                 let mut boot_status = "OK";
+                let mut cass_packet = String::new();
+                let mut git_status = String::new();
                 let now = chrono::Utc::now();
                 let timestamp = now.to_rfc3339();
 
@@ -131,6 +135,7 @@ async fn main() -> Result<()> {
 
                 println!("export KOADOS_HOME=\"{}\";", config.home.display());
                 println!("export KOAD_AGENT_NAME=\"{}\";", agent_name);
+                println!("export KOAD_VAULT_URI=\"{}\";", vault_uri);
                 println!("export KOAD_VAULT_PATH=\"{}\";", vault_path.display());
                 println!("export KOAD_BANK_PATH=\"{}/bank\";", vault_path.display());
                 println!(
@@ -165,12 +170,22 @@ async fn main() -> Result<()> {
                         }
                     }
 
-                    // --- [Citadel Handshake (Phase 1)] ---
-                    let project_root = std::env::current_dir()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string();
-                    if let Ok(channel) = Endpoint::from_shared(config.network.citadel_grpc_addr.clone())
+                // --- [Parallel Phase 1: Handshakes & Data] ---
+                let project_root = std::env::current_dir()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+
+                let citadel_addr = config.network.citadel_grpc_addr.clone();
+                let cass_addr = config.network.cass_grpc_addr.clone();
+                
+                let agent_name_lease = agent_name.clone();
+                let project_root_lease = project_root.clone();
+                let agent_name_hydra = agent_name.clone();
+                let project_root_hydra = project_root.clone();
+
+                let lease_task = tokio::spawn(async move {
+                    if let Ok(channel) = Endpoint::from_shared(citadel_addr)
                         .unwrap()
                         .connect_timeout(BOOT_SERVICE_TIMEOUT)
                         .timeout(BOOT_SERVICE_TIMEOUT)
@@ -182,112 +197,175 @@ async fn main() -> Result<()> {
                             context: Some(TraceContext {
                                 trace_id: format!("BOOT-{}", cache_hash),
                                 origin: "Bridge".to_string(),
-                                actor: agent_name.clone(),
+                                actor: agent_name_lease.clone(),
                                 timestamp: Some(prost_types::Timestamp {
                                     seconds: now.timestamp(),
                                     nanos: 0,
                                 }),
                                 level: WorkspaceLevel::LevelUnspecified as i32,
                             }),
-                            agent_name: agent_name.clone(),
-                            project_root: project_root.clone(),
+                            agent_name: agent_name_lease,
+                            project_root: project_root_lease,
                             force: true,
                             body_id: cache_hash.to_string(),
                             driver_id: "cli".to_string(),
                             metrics: None,
                         });
-
-                        if let Ok(response) = client.create_lease(request).await {
-                            let res = response.into_inner();
-                            println!("export KOAD_SESSION_ID=\"{}\";", res.session_id);
-                            println!("export KOAD_SESSION_TOKEN=\"{}\";", res.token);
-                        }
+                        client.create_lease(request).await.ok()
+                    } else {
+                        None
                     }
+                });
 
-                    // Telemetry (Phase 0)
-                    println!(
-                        "{}/scripts/koad-telemetry.sh boot {} {};",
-                        config.home.display(), agent_name, cache_hash
-                    );
-                    println!(
-                        "trap \"{}/scripts/koad-telemetry.sh shutdown {} {}\" EXIT;",
-                        config.home.display(), agent_name, cache_hash
-                    );
-
-                    // --- [CASS TCH Hydration (Phase 2)] ---
-                    let mut cass_packet = String::new();
-                    let cass_channel = Endpoint::from_shared(config.network.cass_grpc_addr.clone())
+                let hydration_task = tokio::spawn(async move {
+                    if let Ok(channel) = Endpoint::from_shared(cass_addr)
                         .unwrap()
                         .connect_timeout(BOOT_SERVICE_TIMEOUT)
                         .timeout(BOOT_SERVICE_TIMEOUT)
                         .connect()
-                        .await;
-                    match cass_channel {
-                        Ok(channel) => {
-                            let mut cass_client = HydrationServiceClient::new(channel);
-                            let hydration_req = tonic::Request::new(HydrationRequest {
-                                agent_name: agent_name.clone(),
-                                project_root: project_root.clone(),
-                                level: WorkspaceLevel::LevelUnspecified as i32,
-                                token_budget: 4000,
-                                task_id: String::new(),
-                            });
-
-                            match cass_client.hydrate(hydration_req).await {
-                                Ok(hydration_res) => {
-                                    cass_packet = hydration_res.into_inner().markdown_packet;
-                                    cass_packet_size = cass_packet.len();
-                                }
-                                Err(_) => boot_status = "FAIL (Hydration)",
-                            }
-                        }
-                        Err(_) => boot_status = "FAIL (CASS Connection)",
+                        .await
+                    {
+                        let mut cass_client = HydrationServiceClient::new(channel);
+                        let hydration_req = tonic::Request::new(HydrationRequest {
+                            agent_name: agent_name_hydra,
+                            project_root: project_root_hydra,
+                            level: WorkspaceLevel::LevelUnspecified as i32,
+                            token_budget: 4000,
+                            task_id: String::new(),
+                        });
+                        cass_client.hydrate(hydration_req).await.ok()
+                    } else {
+                        None
                     }
+                });
 
-                    // --- AI Anchor Generation ---
-                    let mut anchor_content = format!(
-                        "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`source ~/.koad-os/bin/koad-functions.sh && agent-boot {}`\n\n## 📂 Filesystem Protocol: Scoped MCP\nAll filesystem operations MUST be performed via the `koadFsMcp` toolset (read_text_file, write_file, list_directory, etc.). Raw shell commands for file manipulation are strictly prohibited to ensure Sanctuary compliance.\n\n## 🧭 Navigation Protocol: Game Map HUD\nUse `koad map` for instant situational awareness. \n- `koad map look` → Describe surroundings & POIs.\n- `koad map exits` → Show available paths.\n- `koad map goto <alias>` → Fast-travel to pinned locations.\n- `koad map nearby` → Scan for related configs/tasks.\n\n## ⚡ Efficiency Policy: The 'No-Read' Rule\nTo minimize token burn, you are STRICTLY FORBIDDEN from reading entire source files unless they are under 50 lines. \n1. **Use your Context Packet:** Structural maps of relevant crates are provided in the CASS section below. Use them first.\n2. **Discovery:** Use `grep_search` to locate specific logic or patterns.\n3. **Targeted Reading:** Use `read_file` ONLY with `start_line` and `end_line` parameters for surgical extraction.\n",
-                        timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, agent_key
-                    );
+                let git_task = tokio::spawn(async move {
+                    Command::new("git")
+                        .arg("status")
+                        .arg("-s")
+                        .output()
+                        .await
+                        .ok()
+                        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+                        .unwrap_or_default()
+                });
 
-                    if !cass_packet.is_empty() {
-                        anchor_content.push_str("\n## 🧠 Temporal Context Packet (CASS)\n");
-                        anchor_content.push_str(&cass_packet);
-                    }
-
-                    let _ = fs::write(home.join(".gemini/GEMINI.md"), &anchor_content).await;
-                    let _ = fs::write(home.join(".claude/CLAUDE.md"), &anchor_content).await;
-                    let _ = fs::write(home.join(".codex/AGENTS.md"), &anchor_content).await;
+                let (lease_res, hydration_res, git_res) = tokio::join!(lease_task, hydration_task, git_task);
+                
+                if let Ok(Some(lease_response)) = lease_res {
+                    let res = lease_response.into_inner();
+                    println!("export KOAD_SESSION_ID=\"{}\";", res.session_id);
+                    println!("export KOAD_SESSION_TOKEN=\"{}\";", res.token);
                 }
 
-                // PATH Hydration
-                let cargo_bin = home.join(".cargo/bin");
-                let koad_bin = config.home.join("bin");
+                if let Ok(Some(h_res)) = hydration_res {
+                    cass_packet = h_res.into_inner().markdown_packet;
+                    cass_packet_size = cass_packet.len();
+                } else {
+                    boot_status = "FAIL (CASS/Hydration)";
+                }
+
+                git_status = git_res.unwrap_or_default();
+
+                // Telemetry (Phase 0)
                 println!(
-                    "export PATH=\"{}:{}:$PATH\";",
-                    koad_bin.display(),
-                    cargo_bin.display()
+                    "{}/scripts/koad-telemetry.sh boot {} {};",
+                    config.home.display(), agent_name, cache_hash
+                );
+                println!(
+                    "trap \"{}/scripts/koad-telemetry.sh shutdown {} {}\" EXIT;",
+                    config.home.display(), agent_name, cache_hash
                 );
 
-                // Session Brief
-                let cache_dir = config.home.join("cache");
-                let _ = fs::create_dir_all(&cache_dir).await;
-
-                let git_status = Command::new("git")
-                    .arg("status")
-                    .arg("-s")
-                    .output()
-                    .await
-                    .ok()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-                    .unwrap_or_default();
-
-                let mut brief_content = format!(
-                    "# Session Brief: {}\nGenerated At: {}\n\n## Git Status\n```\n{}\n```\n",
-                    agent_name,
-                    timestamp,
-                    git_status.trim()
+                // --- AI Anchor Generation ---
+                let mut anchor_content = format!(
+                    "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`source ~/.koad-os/bin/koad-functions.sh && agent-boot {}`\n\n## 📂 Filesystem Protocol: Scoped MCP\nAll filesystem operations MUST be performed via the `koadFsMcp` toolset (read_text_file, write_file, list_directory, etc.). Raw shell commands for file manipulation are strictly prohibited to ensure Sanctuary compliance.\n\n## 🧭 Navigation Protocol: Game Map HUD\nUse `koad map` for instant situational awareness. \n- `koad map look` → Describe surroundings & POIs.\n- `koad map exits` → Show available paths.\n- `koad map goto <alias>` → Fast-travel to pinned locations.\n- `koad map nearby` → Scan for related configs/tasks.\n\n## ⚡ Efficiency Policy: The 'No-Read' Rule\nTo minimize token burn, you are STRICTLY FORBIDDEN from reading entire source files unless they are under 50 lines. \n1. **Use your Context Packet:** Structural maps of relevant crates are provided in the CASS section below. Use them first.\n2. **Discovery:** Use `grep_search` to locate specific logic or patterns.\n3. **Targeted Reading:** Use `read_file` ONLY with `start_line` and `end_line` parameters for surgical extraction.\n",
+                    timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, agent_key
                 );
+
+                if !cass_packet.is_empty() {
+                    anchor_content.push_str("\n## 🧠 Temporal Context Packet (CASS)\n");
+                    anchor_content.push_str(&cass_packet);
+                }
+
+                // Batch anchor writes (Global and Local Entry Point)
+                let _ = tokio::join!(
+                    fs::write(home.join(".gemini/GEMINI.md"), &anchor_content),
+                    fs::write(home.join(".claude/CLAUDE.md"), &anchor_content),
+                    fs::write(home.join(".codex/AGENTS.md"), &anchor_content),
+                    fs::write("GEMINI.md", &anchor_content),
+                    fs::write("CLAUDE.md", &anchor_content),
+                    fs::write("AGENTS.md", &anchor_content)
+                );
+            } else {
+                // If NO identity config, we still need a git_status for the brief below
+                let git_task = tokio::spawn(async move {
+                    Command::new("git")
+                        .arg("status")
+                        .arg("-s")
+                        .output()
+                        .await
+                        .ok()
+                        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+                        .unwrap_or_default()
+                });
+                git_status = git_task.await.unwrap_or_default();
+            }
+
+            // PATH Hydration
+            let home = dirs::home_dir().unwrap_or_default();
+            let cargo_bin = home.join(".cargo/bin");
+            let koad_bin = config.home.join("bin");
+            println!(
+                "export PATH=\"{}:{}:$PATH\";",
+                koad_bin.display(),
+                cargo_bin.display()
+            );
+
+            // Session Brief
+            let cache_dir = config.home.join("cache");
+            let _ = fs::create_dir_all(&cache_dir).await;
+
+            let mut brief_content = format!(
+                "# Session Brief: {}\nGenerated At: {}\n\n## Git Status\n```\n{}\n```\n",
+                agent_name,
+                timestamp,
+                git_status.trim()
+            );
+
+            // --- [ABC: Automated Boot Cognition] ---
+            // Officers (3) and Captains (4) receive a tactical brief.
+            // WE NOW BACKGROUND THIS to keep boot under 500ms.
+            if let Some(id) = identity_config {
+                if id.tier >= 3 {
+                    let config_clone = config.clone();
+                    let vault_clone = vault_path.clone();
+                    let agent_clone = agent_name.clone();
+                    let agent_key_clone = agent_key.clone();
+                    let cache_dir_clone = cache_dir.clone();
+                    let brief_content_clone = brief_content.clone();
+
+                    tokio::spawn(async move {
+                        if let Ok(tactical_brief) = koad::handlers::abc::run_abc(&config_clone, &vault_clone, &agent_clone).await {
+                            let mut final_brief = brief_content_clone;
+                            final_brief.push_str("\n## Tactical Brief (Citadel ABC)\n");
+                            final_brief.push_str(&tactical_brief);
+                            final_brief.push_str("\n");
+                            
+                            let wm_path = vault_clone.join("memory/WORKING_MEMORY.md");
+                            if let Ok(mem) = fs::read_to_string(&wm_path).await {
+                                final_brief.push_str("\n## Working Memory\n");
+                                final_brief.push_str(&mem);
+                            }
+                            let _ = fs::write(
+                                cache_dir_clone.join(format!("session-brief-{}.md", agent_key_clone)),
+                                &final_brief,
+                            ).await;
+                        }
+                    });
+                }
+            }
+
                 let working_memory_path = vault_path.join("memory/WORKING_MEMORY.md");
                 if let Ok(mem) = fs::read_to_string(&working_memory_path).await {
                     brief_content.push_str("\n## Working Memory\n");
@@ -324,9 +402,9 @@ async fn main() -> Result<()> {
             }
         },
         Commands::Verify { agent } => {
-            let agent_key = agent.to_lowercase();
-            let identity_config = config.identities.get(&agent_key);
-            let vault_path = find_vault(&agent, &config, identity_config)?;
+            let vault_uri = config.resolve_vault_uri(&agent)
+                .context("Could not resolve vault URI for current agent.")?;
+            let vault_path = config.resolve_vault_path(&vault_uri)?;
             verify_kapv(&vault_path).await?;
             println!("\x1b[32m[OK]\x1b[0m Vault for '{}' is valid.", agent);
         },
@@ -336,38 +414,6 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn find_vault(agent: &str, config: &KoadConfig, identity: Option<&koad_core::config::AgentIdentityConfig>) -> Result<PathBuf> {
-    // 1. Check if an explicit vault path is configured
-    if let Some(id_config) = identity {
-        if let Some(v_path) = &id_config.vault {
-            let expanded = if v_path.starts_with("~") {
-                let home = dirs::home_dir().context("Could not find home directory for tilde expansion.")?;
-                PathBuf::from(v_path.replacen("~", &home.to_string_lossy(), 1))
-            } else {
-                PathBuf::from(v_path)
-            };
-            if expanded.exists() {
-                return Ok(expanded);
-            }
-        }
-    }
-
-    // 2. Fallback to discovery paths
-    let agent_lower = agent.to_lowercase();
-    let paths = [
-        dirs::home_dir()
-            .context("No home")?
-            .join(format!(".{}", &agent_lower)),
-        config.home.join(format!("agents/{}", &agent_lower)),
-    ];
-    for path in paths {
-        if path.exists() {
-            return Ok(path);
-        }
-    }
-    anyhow::bail!("Vault for agent '{}' not found. Please configure 'vault' in your identity TOML or ensure it exists at a standard path.", agent)
 }
 
 async fn verify_kapv(path: &Path) -> Result<()> {

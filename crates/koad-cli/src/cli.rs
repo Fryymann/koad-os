@@ -75,10 +75,22 @@ pub enum Commands {
         action: BridgeAction,
     },
 
+    /// Automated code review and Canon compliance audit.
+    Review {
+        /// The file path to review.
+        file: PathBuf,
+    },
+
     /// Asynchronous agent-to-agent messaging (A2A-S).
     Signal {
         #[command(subcommand)]
         action: SignalAction,
+    },
+
+    /// KoadOS Field Guide: Protocols, Prime Directives, and Quick Start.
+    Guide {
+        /// Topic: quick, canon, workflow, ais.
+        topic: Option<String>,
     },
 
     /// Manage agent Experience Points (XP) and Skills.
@@ -106,6 +118,10 @@ pub enum Commands {
         /// Attempt to fix any identified minor issues.
         #[arg(short, long)]
         fix: bool,
+
+        /// Perform a deep GPU and Ollama offloading verification.
+        #[arg(short, long)]
+        gpu: bool,
     },
 
     /// Manage and sync the GitHub Command Deck (Project Board).
@@ -148,11 +164,61 @@ pub enum Commands {
         action: AgentAction,
     },
 
+    /// Secure, command-based access layer for agent identity and credentials.
+    Vault {
+        #[command(subcommand)]
+        action: VaultAction,
+    },
+
     /// Chronological codebase updates board — post, list, and hydrate changes.
     Updates {
         #[command(subcommand)]
         action: UpdatesAction,
     },
+}
+
+#[derive(Subcommand)]
+pub enum VaultAction {
+    /// Return current agent identity and vault root.
+    Whoami,
+    /// Export vault-derived environment variables.
+    Env,
+    /// Read a file/value from the agent's vault sanctuary.
+    Get {
+        /// Relative path inside the vault.
+        path: String,
+    },
+    /// List vault contents (skills, config, secrets).
+    Ls {
+        /// Optional relative path to list.
+        path: Option<String>,
+    },
+    /// Manage scoped agent credentials.
+    Secret {
+        #[command(subcommand)]
+        action: VaultSecretAction,
+    },
+    /// Load a skill instance from the vault. [STUB]
+    Skill {
+        /// Skill name.
+        name: String,
+    },
+    /// Synchronize vault state from Citadel. [STUB]
+    Sync,
+    /// Create a ghost config bundle for offline use. [STUB]
+    Pack,
+    /// Show vault connection status and cache freshness. [STUB]
+    Status,
+}
+
+#[derive(Subcommand)]
+pub enum VaultSecretAction {
+    /// Read a scoped secret (API key, token).
+    Get { key: String },
+    /// Write a secret (Operator only).
+    Set { key: String, value: String },
+    /// List available secret keys (not values).
+    Ls,
 }
 
 #[derive(Subcommand)]

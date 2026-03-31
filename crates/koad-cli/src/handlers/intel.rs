@@ -91,8 +91,8 @@ pub async fn handle_intel_action(
 
             println!("Reflection recorded via Citadel.");
         }
-        IntelAction::Guide { topic: _ } => {
-            feature_gate("koad guide", None);
+        IntelAction::Guide { topic } => {
+            crate::handlers::guide::handle_guide_action(topic, config).await?;
         }
         IntelAction::Scan { path: _ } => {
             feature_gate("koad scan", None);

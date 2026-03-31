@@ -52,7 +52,7 @@ Both Citadels share the same codebase (same repo, `nightly` branch). They differ
 | **Scribe** | Gemini Flash-Lite | Context distillation, map maintenance, [AGENTS.md](http://AGENTS.md) updates | Cheap doc generation |
 | **Ian + Noti** | Notion AI | Planning, architecture review, spec writing, task dispatch, idea capture | Strategic / coordination |
 
-## 1.2 Parallel Execution Model
+## 1.3 Parallel Execution Model
 
 The goal: **3 coding agents running simultaneously** on non-overlapping crates/features.
 
@@ -81,7 +81,7 @@ git worktree add ../koad-cid nightly     # Codex
 
 **Rule:** Each worktree works on a different crate or a different file set within the same crate. The task manifest (see below) enforces this.
 
-## 1.3 Token Efficiency Playbook
+## 1.4 Token Efficiency Playbook
 
 Every technique here targets the same goal: **give each agent exactly what it needs and nothing more.**
 
@@ -102,19 +102,63 @@ Every technique here targets the same goal: **give each agent exactly what it ne
 - [ ]  **No exploratory scanning** — If it's not in the task manifest or API map, the agent asks (via inbox message) rather than exploring.
 - [ ]  **Single-purpose commits** — One task = one commit = one PR. No scope creep inside agent sessions.
 
-### Tier 4 — Infrastructure (Build once, saves forever)
+### Tier 4 — Agent Wandering Prevention (Config-Level Enforcement)
 
-- [ ]  **`koad-agent context` command** — (This is the koad-agent MVP — see Phase 1 below.) Auto-generates the context packet from crate metadata + git log + SYSTEM_MAP. Replaces manual context prep.
+Behavioral rules only work if the runtime enforces them. Each agent platform has config-level guardrails:
+
+- [ ]  **Claude Code:** `.claude/settings.local.json` — restrict file access via `allowedTools`, scope to worktree.
+- [ ]  **Gemini:** `.gemini/settings.json` — scope working directory to worktree root.
+- [ ]  **Codex:** `.codex/config.toml` — explicit `sandbox_permissions` for worktree only.
+- [ ]  **All agents:** Only wire MCP tools relevant to the current task. No ambient tool access.
+
+### Tier 5 — Infrastructure (Build once, saves forever)
+
+- [ ]  **`koad-agent context` command** — (This is the koad-agent MVP — see Phase 5 below.) Auto-generates the context packet from crate metadata + git log + SYSTEM_MAP. Replaces manual context prep.
 - [ ]  **Token budget per task** — Set a soft limit in the task manifest. Agent should checkpoint progress and hand off if approaching limit.
 
 <aside>
 📊
 
-**Expected Impact:** Tier 1 + 2 alone should reduce per-agent token usage by 40-60%. Tier 4 (`koad-agent context`) is the long-term force multiplier.
+**Expected Impact:** Tier 1 + 2 alone should reduce per-agent token usage by 40-60%. Tier 5 (`koad-agent context`) is the long-term force multiplier.
 
 </aside>
 
-## 1.4 Idea Discipline Protocol
+## 1.5 Session Discipline Protocol
+
+These rules keep agent sessions tight and prevent context drift:
+
+- **One task per session.** Don't let sessions drift into "while you're at it" territory.
+- **Kill and re-launch** rather than extending a session that's lost focus.
+- **Save session notes** at end of each session — becomes warm-start context for next session on that worktree.
+- **Task manifest is the contract** — if the agent proposes work outside the manifest, it's a deviation. Redirect or kill.
+
+## 1.6 Task Manifest Template
+
+Standardized format at `templates/TASK_MANIFEST.md`. Tyr can fill these out when dispatching work:
+
+```
+# Task: [Title]
+## Scope
+- File: [target file path]
+- Proto: [proto file if applicable]
+- Tests: [test file path]
+## Context files to read
+- [file 1]
+- [file 2]
+## Do NOT read
+- Any archived crates
+- Any docs/ files (context already provided above)
+## Acceptance criteria
+- [ ] `cargo build` passes
+- [ ] `cargo test [module]` passes
+- [ ] [specific functional requirement]
+## Constraints
+- Every public function accepts TraceContext
+- Use anyhow::Result for error handling
+- Redis keys follow koad:[namespace]:{id} pattern
+```
+
+## 1.7 Idea Discipline Protocol
 
 <aside>
 🧊
@@ -154,6 +198,15 @@ Every technique here targets the same goal: **give each agent exactly what it ne
 | `koad-bridge-notion` | Built | Notion MCP bridge |
 | Minion Swarm / Hangar | Not started | Design only (Notion brainstorm). No code, no proto, no crate. |
 
+### Unresolved 🔴 Design Decisions
+
+These open questions span multiple phases and should be resolved before the relevant phase begins:
+
+- **Dark Mode local persistence format** — needs a concrete schema decision (structured `.md` with TOML frontmatter is the current proposal). *Blocks Phase 7 CASS work.*
+- **Data migration protocol schema** — how legacy state (Redis dump, SQLite export) maps to new CASS memory layers. *Blocks Phase 8 `koad system migrate-v5`.*
+- **Tier 1 Zero-Trust enforcement approach** — specific enforcement strategy at gRPC layer. *Should be audited in Phase 4.*
+- **EndOfWatch schema** — structured format for session close-out records. *Blocks Phase 8 `koad-agent eow`.*
+
 ## Revised Phase Map
 
 <aside>
@@ -178,7 +231,7 @@ Every technique here targets the same goal: **give each agent exactly what it ne
 
 ---
 
-### Phase 5 — koad-agent MVP (Context Generation Engine) (NEW — Force Multiplier)
+### Phase 5 — koad-agent MVP (Context Generation Engine) (Force Multiplier)
 
 **Goal:** Make `koad-agent` the tool that makes all other agents faster. Context generation, not Citadel dependency.
 
@@ -194,6 +247,10 @@ Every technique here targets the same goal: **give each agent exactly what it ne
 - [ ]  `koad-agent context <crate>` — Generate a context packet from: crate [AGENTS.md](http://AGENTS.md) + API_[MAP.md](http://MAP.md) + recent git log + SYSTEM_[MAP.md](http://MAP.md) extract. Output: a single `.context.md` file an agent can read as its first action.
 - [ ]  `koad-agent boot <identity>` — Load identity TOML from `config/identities/`, generate CLI config for the target runtime (Claude Code [CLAUDE.md](http://CLAUDE.md), Gemini .gemini, Codex config), set environment variables.
 - [ ]  `koad-agent task <manifest>` — Validate a task manifest against crate boundaries, check for file overlap with other active tasks (worktree-aware).
+- [ ]  `koad-agent inspect` — Show current shell state (KoadOS env vars, active identity, worktree info).
+- [ ]  `koad-agent clear` — Unset all KoadOS environment variables (clean shell reset).
+- [ ]  **Preflight validator** — Check required env vars, report READY / NOT READY before agent launch.
+- [ ]  **Env var exporter** — `eval $(koad-agent --ghost sky --export)` pattern for shell integration.
 - [ ]  Degraded mode: all of the above works with **zero running services** (no Citadel, no CASS, no Redis). Just filesystem reads.
 
 **Parallelizable:** `context` subcommand (Clyde) ∥ `boot` subcommand (Cid) ∥ Identity TOML cleanup (Tyr)
@@ -208,6 +265,8 @@ Every technique here targets the same goal: **give each agent exactly what it ne
 
 - [ ]  Distill Citadel Refactor brainstorm (Notion [Citadel Refactor — Brainstorm & Research](https://www.notion.so/Citadel-Refactor-Brainstorm-Research-ff598ede2a0048998e3262119fd13cef?pvs=21)) into `docs/rebuild/ARCHITECTURE.md` — canonical architecture reference
 - [ ]  Write `docs/rebuild/MINION_SWARM_SPEC.md` — extracted from Notion Minion Architecture page, frozen as implementation spec
+- [ ]  Write `docs/CONVENTIONS.md` — coding standards, TraceContext requirement, error handling, Redis key patterns
+- [ ]  Write `docs/PROTO_GUIDE.md` — how to read and extend `citadel.proto`
 - [ ]  Update all crate [AGENTS.md](http://AGENTS.md) files to reflect current state (post-Phase 4/5)
 - [ ]  Update SYSTEM_[MAP.md](http://MAP.md) with any new paths/crates
 - [ ]  Archive `new_world/DRAFT_PLAN_3.md` → `new_world/archived/` and replace with a pointer to this Notion plan page
@@ -222,10 +281,32 @@ Every technique here targets the same goal: **give each agent exactly what it ne
 
 **Goal:** Full cognitive support. CASS becomes the memory backbone that agents query at boot and during work.
 
+**Memory Layer Architecture:**
+
+The four-layer memory stack that CASS implements:
+
+- **L1:** Redis Stack upgrade + vector search config (hot working memory)
+- **L2:** SQLite WAL episodic store (schema, write/read, 90-day retention cron)
+- **L3:** Qdrant deployment + per-agent collection provisioning (semantic long-term)
+- **L4:** SQLite procedural memory (separate schema, no decay — skills and procedures)
+- **Memory Insurance:** WORM ledger (`ledger.jsonl`), automatic vault snapshots
+
+**Implementation Tasks:**
+
 - [ ]  **FactCard CRUD** — Full create/read/update/delete for structured memory entries via gRPC
-- [ ]  **CASS MCP Server** — Expose CASS memory and context services as MCP tools so external agents (Claude Code, Gemini) can query them natively
-- [ ]  **Three-Tier Context Hydration** — Implement the full TCH pipeline: Boot Context → Working Set → Deep Recall, with token-budget-aware truncation
+- [ ]  **CASS MCP Server** — Expose CASS memory and context services as MCP tools so external agents (Claude Code, Gemini) can query them natively. Tool inventory:
+    - `koad_intel_commit` — commit new intelligence/facts
+    - `koad_intel_query` — query existing intelligence
+    - `koad_memory_hydrate` — hydrate agent context from memory
+    - `koad_status` — report system/session status
+    - `koad_session_save` — persist session state
+    - `koad_session_restore` — restore session from saved state
+    - `koad_context_archive` — archive context for later retrieval
+    - `koad_map_add` — add entries to agent knowledge maps
+- [ ]  **Three-Tier Context Hydration (TCH)** — Implement the full pipeline: Boot Context → Working Set → Deep Recall, with token-budget-aware truncation
 - [ ]  **Dark Mode reconciliation** — Offline-to-online memory sync (agent works offline, reconnects, CASS merges)
+- [ ]  **Brain Drain Protocol** — Clean shutdown sequence: flush L1 → L2, commit pending intel, release lease
+- [ ]  **Post-compaction recovery hook** — Recovery path after memory compaction events
 
 **Parallelizable:** MCP Server (Clyde) ∥ FactCard CRUD (Cid) ∥ TCH pipeline design doc (Tyr)
 
@@ -238,8 +319,10 @@ Every technique here targets the same goal: **give each agent exactly what it ne
 **Goal:** `koad-agent` connects to live CASS. Context packets now include memory hydration from CASS, not just filesystem.
 
 - [ ]  `koad-agent context` now queries CASS for relevant FactCards and injects them into the context packet
-- [ ]  `koad-agent eow` — Triggers End-of-Watch pipeline: session summary → CASS storage → XP ledger update
+- [ ]  `koad-agent eow` — Triggers End-of-Watch pipeline: session summary → CASS storage → XP ledger update (depends on EndOfWatch schema resolution)
 - [ ]  `koad-agent status` — Reports current session state, active tasks, token usage estimate
+- [ ]  `koad system migrate-v5` — CLI command to import legacy knowledge (Redis dump, SQLite export) into new CASS memory stack (depends on data migration protocol schema resolution)
+- [ ]  **KoadOS Core Contract v2.4** — Version bump and update to Operational Infrastructure section reflecting CASS integration
 - [ ]  Graceful degradation: if CASS is down, falls back to Phase 5 behavior (filesystem-only)
 
 **Gate:** Full boot → work → EoW cycle completes with CASS integration → Ian approval.
@@ -274,13 +357,34 @@ Every technique here targets the same goal: **give each agent exactly what it ne
 
 **Goal:** The vision features. Only start these after Phase 9 is stable.
 
-- [ ]  **A2A-S (Agent-to-Agent Signaling)** — Real-time inter-agent pub/sub via Signal Corps
-- [ ]  **Citadel Federation Protocol** — Optional cross-Citadel knowledge sync, fleet-level task coordination, shared fact replication. Sovereign by default — federation is opt-in per Citadel pair.
+**Agent-to-Agent Signaling (A2A-S):**
+
+- [ ]  **Ghost Mailbox** — Redis keys for per-agent message queues
+- [ ]  **`koad signal` CLI** — Send signals between agents from command line
+- [ ]  **Boot-time signal delivery** — Agents check their mailbox on boot and process queued messages
+- [ ]  **Real-time pub/sub via Signal Corps** — Full inter-agent event streaming
+
+**Citadel Federation:**
+
+- [ ]  **Federation Protocol** — Optional cross-Citadel knowledge sync, fleet-level task coordination, shared fact replication. Sovereign by default — federation is opt-in per Citadel pair.
+
+**Growth & Intelligence:**
+
 - [ ]  **Growth System** — XP ledger → level progression → capability unlocks
+- [ ]  **Mem0 advanced hooks** — Interaction loop, semantic cache, contradiction detection
 - [ ]  **Neo4j Knowledge Graph** — Replace/augment SQLite memory with graph-based knowledge store
+
+**Infrastructure & Interface:**
+
 - [ ]  **KoadStream Integration** — Live event stream for real-time monitoring dashboard
 - [ ]  **koad-bridge-notion enhancements** — Two-way Notion sync for specs, task status, memory
 - [ ]  **Plugin Marketplace** — Community/internal WASM plugin distribution
+- [ ]  **TUI / Web Deck (v6+)** — Interface layer for KoadOS monitoring and control
+- [ ]  **Crew Briefings generator** — Auto-generated briefing docs for crew coordination
+
+**Portability:**
+
+- [ ]  **Clean clone + `koad install`** — Streamlined setup for external devs (portability and shareability)
 
 *These are Icebox items until Phase 9 gate passes.*
 
@@ -297,6 +401,29 @@ Each phase = 1 sprint. Sprints have a fixed structure:
 3. **Daily Merge Window (Ian)** — Review PRs, merge to `nightly`, update SYSTEM_MAP if needed
 4. **Gate Check (Ian + Tyr)** — Phase acceptance criteria met? Ship it or iterate.
 5. **Phase Retro (Ian + Noti)** — What worked, what burned tokens, update efficiency playbook
+
+## Daily Execution Pattern
+
+**Morning (15 min):**
+
+1. Check what's in progress across worktrees
+2. Review any completed Codex background tasks
+3. Pick the highest-priority unfinished task from the current phase
+4. Write or update the task manifest for today's focus agent
+
+**Work session:**
+
+1. Launch agent in the scoped worktree with its task manifest
+2. Monitor progress — redirect if agent wanders
+3. If one agent completes, dispatch next task or switch to a different worktree
+4. If tokens run low on one provider, switch to another agent/provider
+
+**End of day (10 min):**
+
+1. Save session notes for each active worktree
+2. Update phase checklist (check off completed items)
+3. Ice any new ideas that came up
+4. Note what the next morning should start on
 
 ## Immediate Next Actions (This Week)
 
@@ -325,9 +452,20 @@ Each phase = 1 sprint. Sprints have a fixed structure:
 
 ---
 
+# Reference Links
+
+- [Vigil — CLAUDE.md](https://www.notion.so/Vigil-CLAUDE-md-321fe8ecae8f806780abd3c65016de36?pvs=21) — Codebase audit and hardcoded values inventory
+- [KoadOS Mission](https://www.notion.so/KoadOS-Mission-dc4e13f70ab5497395e055c4eaf000fa?pvs=21) — The vision this all serves
+- [Citadel Refactor — Brainstorm & Research](https://www.notion.so/Citadel-Refactor-Brainstorm-Research-ff598ede2a0048998e3262119fd13cef?pvs=21) — Original brainstorm (Notion is for ideas, repo is for truth post-Phase 6)
+- [KoadOS Minion Architecture](https://www.notion.so/KoadOS-Minion-Architecture-095b5309831d41588ec4fe6a97a38ac2?pvs=21) — Minion swarm design reference
+
+---
+
 <aside>
 🏴
 
 **Devil's Advocate Note:** This plan assumes Phases 0-3 are genuinely complete and stable. If there's hidden tech debt in `koad-citadel` or `koad-cass` (e.g., incomplete gRPC methods, missing error handling, placeholder implementations), that will surface during Phase 4 and should be addressed as hotfixes, not as a reason to reopen earlier phases. Tyr should audit this during the first sprint planning.
 
 </aside>
+
+[Workspace Prep Plan — Tyr Task Brief](https://www.notion.so/Workspace-Prep-Plan-Tyr-Task-Brief-f04f12ebe9e3405cb9407327488415a2?pvs=21)

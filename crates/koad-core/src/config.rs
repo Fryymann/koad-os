@@ -203,6 +203,8 @@ pub struct AgentIdentityConfig {
     pub rank: String,
     pub bio: String,
     pub vault: Option<String>,
+    /// URI for vault resolution (e.g. file://~/.tyr/ or ghost://tyr).
+    pub vault_uri: Option<String>,
     pub bootstrap: Option<String>,
     pub preferences: Option<AgentPreferences>,
     /// Required runtime body for this agent (e.g. "gemini", "claude", "codex").
@@ -349,6 +351,62 @@ impl KoadConfig {
             return agent;
         }
         "Admiral".to_string()
+    }
+
+    /// Resolves the vault URI for the current agent.
+    pub fn resolve_vault_uri(&self, agent_name: &str) -> Option<String> {
+        // 1. Check for explicit environment override
+        if let Ok(uri) = env::var("KOAD_VAULT_URI") {
+            if !uri.is_empty() {
+                return Some(uri);
+            }
+        }
+
+        // 2. Check agent identity config
+        if let Some(id_config) = self.identities.get(&agent_name.to_lowercase()) {
+            if let Some(uri) = &id_config.vault_uri {
+                return Some(uri.clone());
+            }
+            // If only vault path is set, convert it to a file:// URI
+            if let Some(path) = &id_config.vault {
+                return Some(format!("file://{}", path));
+            }
+        }
+
+        // 3. Fallback to standard local discovery (file://~/.koad-os/agents/<name>)
+        let home = dirs::home_dir()?;
+        let path = self.home.join(format!("agents/{}", agent_name.to_lowercase()));
+        if path.exists() {
+             return Some(format!("file://{}", path.display()));
+        }
+
+        // 4. Final fallback: ~/.<name>
+        let legacy_path = home.join(format!(".{}", agent_name.to_lowercase()));
+        if legacy_path.exists() {
+             return Some(format!("file://{}", legacy_path.display()));
+        }
+
+        None
+    }
+
+    /// Resolves a vault URI to a local PathBuf.
+    /// Currently only supports file:// scheme.
+    pub fn resolve_vault_path(&self, uri: &str) -> Result<PathBuf> {
+        if let Some(path_str) = uri.strip_prefix("file://") {
+            let mut p_str = path_str.to_string();
+            if p_str.starts_with('~') {
+                let home = dirs::home_dir().context("Could not determine home directory for tilde expansion.")?;
+                p_str = p_str.replacen('~', &home.to_string_lossy(), 1);
+            }
+            let path = PathBuf::from(p_str);
+            if path.exists() {
+                Ok(path)
+            } else {
+                anyhow::bail!("Vault path does not exist: {}", path.display())
+            }
+        } else {
+            anyhow::bail!("Unsupported vault URI scheme: {}. Currently only 'file://' is supported.", uri)
+        }
     }
 
     pub fn get_github_owner(&self, project: Option<&str>) -> String {

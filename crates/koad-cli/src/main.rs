@@ -184,7 +184,10 @@ async fn main() -> Result<()> {
             handle_bridge_action(action, &config, &db).await?;
         }
         Commands::Signal { action } => {
-            crate::handlers::signal::handle_signal_action(action, &config, &agent_name).await?;
+            crate::handlers::signal::handle_signal_action(action, &config, &agent_name).await?
+        }
+        Commands::Guide { topic } => {
+            crate::handlers::guide::handle_guide_action(topic, &config).await?
         }
         Commands::Xp { action } => {
             handle_xp_command(action, &config).await?;
@@ -213,14 +216,17 @@ async fn main() -> Result<()> {
         Commands::Project { action } => {
             crate::handlers::project::handle_project(action, &config).await?;
         }
+        Commands::Review { file } => {
+            crate::handlers::review::handle_review(&file, &config).await?;
+        }
         Commands::Status { json, full } => {
             if full && !json {
                 let _ = crate::handlers::motd::show_motd(&agent_name, &config).await;
             }
-            handle_status_command(json, full, &config, &db).await?;
+            handle_status_command(json, full, false, &config, &db).await?;
         }
-        Commands::Doctor { fix } => {
-            handle_status_command(false, true, &config, &db).await?;
+        Commands::Doctor { fix, gpu } => {
+            handle_status_command(false, true, gpu, &config, &db).await?;
             if fix {
                 println!("\n\x1b[1m--- Autonomic Self-Healing Initiated ---\x1b[0m");
                 // Trigger any specific local fixes here if needed
@@ -258,6 +264,9 @@ async fn main() -> Result<()> {
         }
         Commands::Agent { action } => {
             crate::handlers::agent::handle_agent_action(action, &config).await?;
+        }
+        Commands::Vault { action } => {
+            crate::handlers::vault::handle_vault_action(action, &config).await?;
         }
         Commands::Updates { action } => {
             crate::handlers::updates::handle_updates_action(action, &config).await?;

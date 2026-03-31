@@ -48,7 +48,10 @@ impl InferenceClient for OllamaClient {
             .json(&json!({
                 "model": self.model,
                 "prompt": prompt,
-                "stream": false
+                "stream": false,
+                "options": {
+                    "num_gpu": 99
+                }
             }))
             .send()
             .await

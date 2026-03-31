@@ -1,17 +1,21 @@
+pub mod abc;
 pub mod agent;
 pub mod board;
 pub mod boot;
 pub mod bridge;
 pub mod cognitive;
 pub mod fleet;
+pub mod guide;
 pub mod import;
 pub mod intel;
 pub mod map;
 pub mod motd;
 pub mod project;
+pub mod review;
 pub mod signal;
 pub mod status;
 pub mod system;
+pub mod vault;
 
 pub mod updates;
 pub mod whoami;

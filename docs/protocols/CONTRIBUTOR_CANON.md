@@ -88,8 +88,10 @@ Contributors MUST use the `KOADOS_` hierarchical namespace for all project-relat
 - Use `KOADOS_OUTPOST_<NAME>_<KEY>` for project-specific overrides.
 
 ### 2. Context Detection
-- **Outposts:** All projects requiring specific overrides MUST include a `.agent-outpost` marker file.
-- **Stations:** All stations MUST include a `.agent-station` marker file.
+- **Ghost Worktrees:** Agents MUST verify they are operating within their assigned `~/koad-<agent>/` worktree.
+- **Outposts:** All projects requiring specific overrides MUST include a `.koados-outpost/` directory.
+- **Stations:** All stations MUST include a `.koados-station/` directory.
+- **Citadel:** The root Citadel environment is marked by the presence of `crates/`, `proto/`, and `SYSTEM_MAP.md`.
 - **Indirect Mapping:** Hardcoding personal names (e.g. `Fryymann`) in core logic is a **Tier 2 Code Quality Violation**. Always use generic variables and map them in your local `.env`.
 
 ---
