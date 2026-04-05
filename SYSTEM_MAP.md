@@ -69,7 +69,7 @@ KoadOS follows a strict separation between the **Distribution** (the shared plat
 │   └── SESSIONS_LOG.md        # [LOCAL] Cross-session activity log
 │
 ├── bin/                       # Compiled binaries and shell functions
-│   ├── koad                   # Primary CLI binary
+│   ├── koad                   # Primary CLI binary (includes Review & Skill)
 │   ├── koad-agent             # Agent boot / identity binary
 │   ├── koad-citadel           # Citadel gRPC server binary
 │   ├── koad-cass              # CASS gRPC server binary
@@ -132,6 +132,7 @@ KoadOS follows a strict separation between the **Distribution** (the shared plat
 │   └── redis.pid
 │
 ├── scripts/                   # Maintenance and init scripts
+│   └── verify-services.sh     # Qdrant readiness check (PreExec)
 ├── skills/                    # Agent skill bundles
 ├── templates/                 # Reusable scaffolding templates
 ├── tests/                     # Stress and integration test scripts
@@ -190,7 +191,7 @@ KoadOS follows a strict separation between the **Distribution** (the shared plat
 | `koad-citadel` | `koad-citadel` | `:50051` | Session bays, signal corps, kernel state |
 | `koad-cass` | `koad-cass` | `:50052` | Agent cognition, memory, updates board |
 | `koad-plugins` | — | — | WASM plugin runtime (wasmtime) — Phase 4 |
-| `koad-cli` | `koad`, `koad-agent` | — | All CLI subcommands |
+| `koad-cli` | `koad`, `koad-agent` | — | All CLI subcommands; includes `review` and `bridge skill` |
 | `koad-board` | — | — | Updates board service |
 | `koad-sandbox` | — | — | Config-driven sandbox; containerized execution active |
 | `koad-codegraph` | — | — | Static code graph for symbol analysis |

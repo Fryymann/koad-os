@@ -846,10 +846,30 @@ pub enum StreamAction {
 
 #[derive(Subcommand)]
 pub enum SkillAction {
-    /// List all currently available Skills.
+    /// List all currently registered Skills.
     List,
-    /// Execute a specific Skill by name.
-    Run { name: String, args: Vec<String> },
+    /// Register a WASM-based Skill with the CASS ToolRegistry.
+    Register {
+        /// Skill name.
+        name: String,
+        /// Absolute path to the .wasm component file.
+        path: String,
+    },
+    /// Deregister a Skill from the CASS ToolRegistry.
+    Deregister {
+        /// Skill name.
+        name: String,
+    },
+    /// Invoke a registered Skill by name.
+    Run {
+        /// Skill name.
+        name: String,
+        /// Topic/action to invoke.
+        topic: String,
+        /// JSON payload for the skill.
+        #[arg(default_value = "{}")]
+        payload: String,
+    },
 }
 
 #[derive(Subcommand)]

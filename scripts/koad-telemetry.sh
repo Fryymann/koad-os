@@ -1,7 +1,8 @@
 #!/bin/bash
 # KoadOS Telemetry Emitter (Phase 0)
 
-LOG_FILE="/home/ideans/.koad-os/logs/telemetry.log"
+KOAD_HOME="${KOAD_HOME:-$HOME/.koad-os}"
+LOG_FILE="$KOAD_HOME/logs/telemetry.log"
 EVENT=$1
 AGENT=$2
 SESSION_ID=$3

@@ -9,7 +9,6 @@ use koad_proto::citadel::v5::citadel_session_client::CitadelSessionClient;
 use koad_proto::citadel::v5::{CloseRequest, LeaseRequest, TurnMetrics};
 use crate::handlers::motd::show_motd;
 use std::env;
-use std::io::Write;
 
 /// Options for booting an agent session.
 pub struct BootOptions {
@@ -63,53 +62,79 @@ pub async fn handle_boot_command(opts: BootOptions, config: &KoadConfig) -> Resu
 
     // 2. Pre-boot Hydration (CASS)
     // We do this BEFORE the lease so we can report the token cost in the CreateLease call.
-    let mut cass = HydrationServiceClient::connect(config.network.cass_grpc_addr.clone())
-        .await
-        .context("Failed to connect to CASS Hydration service.")?;
-
-    let hydration_resp = cass
-        .hydrate(HydrationRequest {
-            agent_name: agent.clone(),
-            project_root: current_dir.to_string_lossy().to_string(),
-            level,
-            token_budget: budget,
-            task_id: opts.task.unwrap_or_default(),
-        })
-        .await?;
-
-    let packet = hydration_resp.into_inner();
     let context_file = config.home.join("current_context.md");
-    let mut f = std::fs::File::create(&context_file)?;
-    f.write_all(packet.markdown_packet.as_bytes())?;
+    let mut is_degraded = false;
+    let mut estimated_tokens = 0;
+
+    let cass_connect_result = HydrationServiceClient::connect(config.network.cass_grpc_addr.clone()).await;
+    match cass_connect_result {
+        Ok(mut cass) => {
+            match cass.hydrate(HydrationRequest {
+                agent_name: agent.clone(),
+                project_root: current_dir.to_string_lossy().to_string(),
+                level,
+                token_budget: budget,
+                task_id: opts.task.unwrap_or_default(),
+            }).await {
+                Ok(hydration_resp) => {
+                    let packet = hydration_resp.into_inner();
+                    estimated_tokens = packet.estimated_tokens;
+                    tokio::fs::write(&context_file, packet.markdown_packet.as_bytes()).await?;
+                }
+                Err(e) => {
+                    is_degraded = true;
+                    eprintln!("\x1b[33m[DEGRADED MODE] CASS Hydration failed: {}\x1b[0m", e);
+                    tokio::fs::write(&context_file, b"# [SYSTEM DEGRADED: CASS OFFLINE]\nCould not fetch Temporal Context Hydration.").await?;
+                }
+            }
+        }
+        Err(e) => {
+            is_degraded = true;
+            eprintln!("\x1b[33m[DEGRADED MODE] Failed to connect to CASS: {}\x1b[0m", e);
+            tokio::fs::write(&context_file, b"# [SYSTEM DEGRADED: CASS OFFLINE]\nCould not connect to CASS gRPC service.").await?;
+        }
+    }
 
     // 3. Citadel Handshake (Lease + Telemetry)
-    let mut citadel = CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone())
-        .await
-        .context("Failed to connect to Citadel.")?;
+    let mut session_id = format!("local-fallback-{}", uuid::Uuid::new_v4());
+    let citadel_connect_result = CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone()).await;
+    
+    match citadel_connect_result {
+        Ok(mut citadel) => {
+            let context = Some(crate::utils::get_trace_context(&agent, 3));
+            match citadel.create_lease(LeaseRequest {
+                context: context.clone(),
+                agent_name: agent.clone(),
+                project_root: current_dir.to_string_lossy().to_string(),
+                force,
+                body_id: body_id.clone(),
+                driver_id: "gemini-cli".to_string(),
+                metrics: Some(TurnMetrics {
+                    input_tokens: 0,
+                    output_tokens: estimated_tokens,
+                    thinking_tokens: 0,
+                    tool_calls: 0,
+                    ..Default::default()
+                }),
+            }).await {
+                Ok(lease_resp) => {
+                    session_id = lease_resp.into_inner().session_id;
+                }
+                Err(e) => {
+                    is_degraded = true;
+                    eprintln!("\x1b[33m[DEGRADED MODE] Citadel Lease Denied: {}\x1b[0m", e.message());
+                }
+            }
+        }
+        Err(e) => {
+            is_degraded = true;
+            eprintln!("\x1b[33m[DEGRADED MODE] Failed to connect to Citadel: {}\x1b[0m", e);
+        }
+    }
 
-    let context = Some(crate::utils::get_trace_context(&agent, 3));
-
-    let lease_resp = citadel
-        .create_lease(LeaseRequest {
-            context: context.clone(),
-            agent_name: agent.clone(),
-            project_root: current_dir.to_string_lossy().to_string(),
-            force,
-            body_id: body_id.clone(),
-            driver_id: "gemini-cli".to_string(),
-            metrics: Some(TurnMetrics {
-                input_tokens: 0,
-                output_tokens: packet.estimated_tokens, // Reporting hydration cost as tokens_out
-                thinking_tokens: 0,
-                tool_calls: 0,
-                ..Default::default()
-            }),
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("Lease Denied: {}", e.message()))?;
-
-    let lease = lease_resp.into_inner();
-    let session_id = lease.session_id;
+    if is_degraded {
+        eprintln!("\x1b[1;31mWARNING: You are operating in DEGRADED MODE. Governance, shared memory, and telemetry are offline.\x1b[0m");
+    }
 
     // 4. Environment Export (The Link)
     if compact {

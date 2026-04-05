@@ -38,3 +38,11 @@
 | 2026-03-24 | TRC-CLYDE-20260324-SESSION78 | Peer review of Tyr Session 8 — caught + fixed agent-prep health check false negative | +15 | 424 | Initiate (1) |
 | 2026-03-24 | TRC-CLYDE-20260324-SESSION78 | Sessions log + working memory updates | +10 | 434 | Initiate (1) |
 | 2026-03-24 | TRC-CLYDE-20260324-SESSION78 | PSRP saveup | +5 | 439 | Initiate (1) |
+| 2026-04-03 | TRC-CLYDE-20260403-SESSION9 | AIS Phase C: boot.rs async safety fix — 3 tokio::fs replacements, cargo check clean (standard) | +15 | 454 | Initiate (1) |
+| 2026-04-03 | TRC-CLYDE-20260403-SESSION9 | AIS Phase C: verify-services.sh + koad-cass.service hardening (standard) | +15 | 469 | Initiate (1) |
+| 2026-04-03 | TRC-CLYDE-20260403-SESSION9 | Agent teams research + permission model diagnosis (standard) | +10 | 479 | Initiate (1) |
+| 2026-04-03 | TRC-CLYDE-20260403-SESSION9 | PSRP saveup | +5 | 484 | Initiate (1) |
+| 2026-04-03 | TRC-CLYDE-20260403-SESSION12 | Phase 4 Skill Integration: SkillAction enum (Register/Deregister/Run), ToolRegistryServiceClient gRPC wired, hello-plugin WASM E2E, ACR clean (complex) | +30 | 514 | Initiate (1) |
+| 2026-04-03 | TRC-CLYDE-20260403-SESSION12 | PSRP saveup | +5 | 519 | Initiate (1) |
+| 2026-04-03 | TRC-CLYDE-20260403-SESSION13 | Phase 7 Tiered Memory Stack: MemoryTier trait, SqliteTier/RedisTier/QdrantTier/TieredStorage, main.rs wired, 3/3 tests, L3 Qdrant verified (complex) | +30 | 549 | Initiate (1) |
+| 2026-04-03 | TRC-CLYDE-20260403-SESSION13 | PSRP saveup | +5 | 554 | Initiate (1) |

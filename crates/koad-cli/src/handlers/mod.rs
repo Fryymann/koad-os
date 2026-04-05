@@ -15,6 +15,7 @@ pub mod review;
 pub mod signal;
 pub mod status;
 pub mod system;
+pub mod system_init;
 pub mod vault;
 
 pub mod updates;

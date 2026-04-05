@@ -140,14 +140,10 @@ mod tests {
     #[test]
     fn agent_path_uses_agents_folder() {
         let session = make_session();
-        // Verify path convention: agents/<name> (no dot prefix on the agents dir)
+        // Verify path convention: agents/KAPVs/<name> (no dot prefix on the agents dir)
         assert!(
             session.context.root_path.contains("agents/KAPVs/clyde"),
             "Agent path should use 'agents/KAPVs/clyde'"
-        );
-        assert!(
-            !session.context.root_path.contains("agents/KAPVs/clyde"),
-            "Dotted agents/ prefix is no longer valid — use agents/ instead"
         );
     }
 }

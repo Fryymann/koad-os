@@ -3,6 +3,7 @@
 # --- Instance-Specific State & Config ---
 config/kernel.toml
 config/redis.conf
+config/integrations/*.toml
 .env
 .env.*
 agents/crews/*.md

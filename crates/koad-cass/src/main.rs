@@ -8,7 +8,7 @@ use koad_cass::services::memory::CassMemoryService;
 use koad_cass::services::stream::CassStreamService;
 use koad_cass::services::symbol::CassSymbolService;
 use koad_cass::services::tool_registry::CassToolRegistryService;
-use koad_cass::storage::CassStorage;
+use koad_cass::storage::{QdrantTier, RedisTier, SqliteTier, TieredStorage};
 use koad_codegraph::CodeGraph;
 use koad_core::config::KoadConfig;
 use koad_core::hierarchy::HierarchyManager;
@@ -34,9 +34,12 @@ async fn main() -> Result<()> {
 
     let config = KoadConfig::load()?;
     let redis = Arc::new(RedisClient::new(&config.home.to_string_lossy(), true).await?);
-    let storage = Arc::new(CassStorage::new(
+    let sqlite = Arc::new(SqliteTier::new(
         &config.home.join("data/db/cass.db").to_string_lossy(),
     )?);
+    let redis_tier = Arc::new(RedisTier::new(redis.pool.clone()));
+    let qdrant = Arc::new(QdrantTier::new("http://127.0.0.1:6334").await?);
+    let storage = Arc::new(TieredStorage::new(redis_tier, sqlite, qdrant));
     let hierarchy = Arc::new(HierarchyManager::new(config.clone()));
     let signal_corps = Arc::new(SignalCorps::new(redis.clone(), "koad:stream:", 1000));
     let codegraph = Arc::new(CodeGraph::new(&config.home.join("data/db/codegraph.db"))?);

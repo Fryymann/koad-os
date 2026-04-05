@@ -67,6 +67,8 @@ impl RedisClient {
         // 1. Start Redis Process if managed and socket doesn't exist
         if manage_process && !socket_path.exists() {
             std::fs::create_dir_all(&data_dir)?;
+            std::fs::create_dir_all(home_path.join("run"))?;
+            std::fs::create_dir_all(home_path.join("logs"))?;
             process = Some(
                 Command::new("redis-server")
                     .arg("--port")

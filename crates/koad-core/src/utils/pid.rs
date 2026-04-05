@@ -169,13 +169,14 @@ mod tests {
     #[test]
     fn find_ghosts_detects_stale_kcitadel_pid() {
         let dir = tempdir().unwrap();
-        fs::write(dir.path().join("kcitadel.pid"), "999999999").unwrap();
+        fs::create_dir_all(dir.path().join("run")).unwrap();
+        fs::write(dir.path().join("run/kcitadel.pid"), "999999999").unwrap();
 
         let ghosts = find_ghosts(dir.path());
         assert_eq!(ghosts.len(), 1, "Expected exactly one ghost");
         assert_eq!(ghosts[0].0, 999999999u32, "Ghost PID should match the file contents");
         assert!(
-            ghosts[0].1.contains("kcitadel.pid"),
+            ghosts[0].1.contains("run/kcitadel.pid"),
             "Ghost description should name the PID file"
         );
     }

@@ -4,8 +4,9 @@
 echo "Starting environmental failure stress test..."
 
 # Backup current kernel.toml if it exists
-CONFIG_PATH="/home/ideans/.koad-os/config/kernel.toml"
-BACKUP_PATH="/home/ideans/.koad-os/config/kernel.toml.bak"
+KOAD_HOME="${KOAD_HOME:-$HOME/.koad-os}"
+CONFIG_PATH="$KOAD_HOME/config/kernel.toml"
+BACKUP_PATH="$KOAD_HOME/config/kernel.toml.bak"
 
 if [ -f "$CONFIG_PATH" ]; then
     cp "$CONFIG_PATH" "$BACKUP_PATH"

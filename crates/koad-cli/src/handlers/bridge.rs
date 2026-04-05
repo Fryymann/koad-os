@@ -1,9 +1,11 @@
-use crate::cli::{BridgeAction, FsAction, NotionAction, StreamAction};
+use crate::cli::{BridgeAction, FsAction, NotionAction, SkillAction, StreamAction};
 use crate::db::KoadDB;
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use koad_bridge_notion::{NotionClient, NotionMcpProxy};
 use koad_core::config::KoadConfig;
+use koad_proto::cass::v1::tool_registry_service_client::ToolRegistryServiceClient;
+use koad_proto::cass::v1::{DeregisterToolRequest, InvokeToolRequest, ListToolsRequest, RegisterToolRequest};
 use koad_proto::citadel::v5::admin_client::AdminClient;
 use koad_proto::citadel::v5::{EventSeverity, SystemEvent};
 use std::env;
@@ -118,14 +120,54 @@ pub async fn handle_bridge_action(
                 println!(">>> [UPLINK] Message broadcast to KoadStream.");
             }
         },
-        BridgeAction::Skill { action } => match action {
-            crate::cli::SkillAction::List => {
-                println!("Listing skills...");
+        BridgeAction::Skill { action } => {
+            let mut client = ToolRegistryServiceClient::connect(config.network.cass_grpc_addr.clone())
+                .await
+                .context("Failed to connect to CASS gRPC (ToolRegistry)")?;
+            let trace_ctx = Some(crate::utils::get_trace_context(&agent_name, 3));
+            match action {
+                SkillAction::List => {
+                    let req = ListToolsRequest { context: trace_ctx };
+                    let resp = client.list_tools(req).await?.into_inner();
+                    if resp.tool_names.is_empty() {
+                        println!("No skills registered.");
+                    } else {
+                        println!("Registered skills:");
+                        for name in &resp.tool_names {
+                            println!("  - {}", name);
+                        }
+                    }
+                }
+                SkillAction::Register { name, path } => {
+                    let req = RegisterToolRequest {
+                        context: trace_ctx,
+                        name: name.clone(),
+                        component_path: path,
+                    };
+                    let resp = client.register_tool(req).await?.into_inner();
+                    println!(">>> [OK] Skill '{}' registered. Status: {}", name, resp.message);
+                }
+                SkillAction::Deregister { name } => {
+                    let req = DeregisterToolRequest {
+                        context: trace_ctx,
+                        name: name.clone(),
+                    };
+                    let resp = client.deregister_tool(req).await?.into_inner();
+                    println!(">>> [OK] Skill '{}' deregistered. Status: {}", name, resp.message);
+                }
+                SkillAction::Run { name, topic, payload } => {
+                    let req = InvokeToolRequest {
+                        context: trace_ctx,
+                        name: name.clone(),
+                        topic,
+                        payload,
+                    };
+                    let resp = client.invoke_tool(req).await?.into_inner();
+                    println!(">>> [OK] Skill '{}' executed in {}ms ({} bytes).", name, resp.duration_ms, resp.memory_bytes);
+                    println!("{}", resp.output);
+                }
             }
-            crate::cli::SkillAction::Run { name, args } => {
-                println!("Running skill '{}' with args: {:?}", name, args);
-            }
-        },
+        }
         _ => {
             println!("Bridge action placeholder.");
         }

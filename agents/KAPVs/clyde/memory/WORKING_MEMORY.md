@@ -5,15 +5,40 @@
 ## Current Status
 
 - **Condition:** GREEN
-- **Phase:** 4 — Dynamic Tools & Containerized Sandboxes
-- **Last Session:** 2026-03-25 (Session 9 — gRPC timeout fix + CASS EoW spam fix)
-- **XP:** 464 (Initiate, Level 1)
+- **Phase:** 4 / 7 — Dynamic Tools & Tiered Memory Stack delivered
+- **Last Session:** 2026-04-03 (Session 13 — Phase 7 Tiered Memory Stack COMPLETE)
+- **XP:** 554 (Initiate, Level 1)
 
-## Session 9 — 2026-03-25
+## Session 13 — 2026-04-03
 
-- **gRPC boot timeout** — `koad-agent.rs` Block 1 (Citadel) + Block 2 (CASS) replaced with `Endpoint::connect_timeout(3s).timeout(3s)`. Committed `380a4b2`, merged to `nightly` `06c971d`. Boot no longer hangs on dark services.
-- **CASS EndOfWatch spam fix** — `XREADGROUP failed` every 10s was fred 9.x converting Redis nil (BLOCK timeout, no messages) to `HashMap` without `default-nil-types` feature; `into_map()` on null errored. Fix: added `"default-nil-types"` to fred workspace features. CASS error log now static.
-- **Plan executed + closed** — `validated-jumping-charm.md` plan followed exactly. Both changes committed to `nightly`. Worktree removed.
+- **Phase 7 — CASS Tiered Memory Stack (L1-L4)** — COMPLETE.
+- **Implementation** — Refactored `CassStorage` into `SqliteTier`, implemented `RedisTier` (hot cache) and `QdrantTier` (semantic index).
+- **Orchestration** — `TieredStorage` now manages the multi-tier sync (L1/L2 sync, L3 fire-and-forget).
+- **Verification** — All tests pass, live Qdrant write confirmed, ACR clean.
+
+## Session 12 — 2026-04-03
+
+
+- **Phase 7 Tiered Memory Stack** — `tasks/phase_7_memory_stack/mission_brief.md` COMPLETE. Implemented `MemoryTier` trait, `SqliteTier` (L2), `RedisTier` (L1, fred), `QdrantTier` (L3, qdrant-client 1.17, 32-dim cosine), `TieredStorage` orchestrator. Updated `main.rs` to boot tiered stack. 3/3 tests pass. L3 Qdrant write confirmed live. ACR clean.
+- **Qdrant gRPC port** — `:6334` (gRPC), `:6333` (REST). qdrant-client uses gRPC.
+- **`CassStorage` type alias** — `pub type CassStorage = SqliteTier` retained in `storage/mod.rs` for backward compat.
+
+## Session 12 — 2026-04-03
+
+- **Phase 4 Skill Integration** — `tasks/phase_4_skill_integration/mission_brief.md` COMPLETE (all 3 phases). `koad bridge skill register/list/run/deregister` wired to CASS `ToolRegistryService`. E2E verified live. ACR clean. Binary installed.
+- **hello-plugin WASM** — Built and validated: `crates/koad-plugins/examples/hello-plugin/target/wasm32-unknown-unknown/release/hello_plugin.component.wasm` (23K).
+
+## Session 11 — 2026-04-03
+
+- **Handoff from Tyr** — New SDD plan prepped for Phase 4 Tool Registry & CLI Integration.
+- **Team Assignment** — Assigned `clyde-dev` and `clyde-qa` to connect the `koad bridge skill` subcommands to CASS.
+
+## Session 10 — 2026-04-03
+
+- **Handoff from Tyr** — Transitioned to Spec Driven Development (SDD). AIS Phase C SDD plan approved.
+- **Phase 1 Complete** — Tyr implemented initial gRPC degradation logic in `boot.rs`.
+- **Team Assignment** — Assigned `clyde-dev` and `clyde-qa` to stabilize the boot sequence and infrastructure dependencies.
+- **SUCCESS** — AIS Phase C complete.
 
 ## Session 7 — 2026-03-24
 
@@ -47,7 +72,7 @@
 ## Open Items
 
 - **AGENTS.md degraded-mode boot step** — add `koad updates digest` as a fallback step when CASS is offline, so contractor/cold agents can reach the board. Blocker for contractor Claude agent awareness.
-- **KoadStream Author: "Clyde"** — Notion KoadStream schema needs "Clyde" added to the Author select field. Currently posting as "Claude" as proxy.
+- **KoadStream Author: "Clyde"** — ✅ RESOLVED. Tyr added "Clyde" to the Author select field in the Notion KoadStream schema (2026-04-03). Posts now authored as Clyde directly.
 - **Contractor Claude agent briefing** — needs `koad updates digest` output + current crew state before starting Notion sync work.
 - **Minion Architecture open items (deferred to Noti)** — Desktop env detection, counter race condition, report retention policy.
 - **GitHub project board sync** — needs `gh auth refresh -s read:project` (Dood), then: `for issue in 189 190 191 192 193 194 195 196 197 198 199 200 201 202 203 204 205 206 207; do gh project item-add 6 --owner Fryymann --url "https://github.com/Fryymann/koad-os/issues/$issue"; done`

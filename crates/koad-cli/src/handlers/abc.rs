@@ -198,12 +198,10 @@ mod tests {
     #[test]
     fn test_abc_collector_new() {
         let config = KoadConfig::load().unwrap_or_else(|_| {
-            // Provide a dummy config if load fails during CI/Test
-            serde_json::from_str("{}").unwrap_or_else(|_| {
-                KoadConfig::from_json("{}").expect("Failed to parse empty config")
-            })
+            KoadConfig::from_json("{}").expect("Failed to parse empty config")
         });
-        let collector = AbcCollector::new(config, PathBuf::from("/tmp"));
+        let collector = AbcCollector::new(config, PathBuf::from("/tmp"), "tyr".to_string());
         assert_eq!(collector.vault_path, PathBuf::from("/tmp"));
+        assert_eq!(collector.agent_name, "tyr");
     }
 }

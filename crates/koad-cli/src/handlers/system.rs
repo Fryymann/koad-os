@@ -922,9 +922,8 @@ fn start_citadel_services(config: &KoadConfig) -> Result<()> {
     Ok(())
 }
 
-fn system_init(_config: &KoadConfig, _force: bool) -> Result<()> {
-    println!("[KoadOS] system init - not yet implemented");
-    Ok(())
+fn system_init(config: &KoadConfig, force: bool) -> Result<()> {
+    crate::handlers::system_init::run(config, force)
 }
 
 pub async fn handle_heartbeat(
