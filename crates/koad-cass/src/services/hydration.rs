@@ -5,6 +5,7 @@
 //! This service integrates structural code maps and intelligent history 
 //! distillation into a single, high-density markdown packet.
 
+use crate::storage::PulseTier;
 use koad_codegraph::CodeGraph;
 use koad_core::hierarchy::HierarchyManager;
 use koad_core::utils::tokens::count_tokens;
@@ -22,6 +23,7 @@ pub struct CassHydrationService {
     hierarchy: Arc<HierarchyManager>,
     codegraph: Arc<CodeGraph>,
     intelligence: Arc<InferenceRouter>,
+    pulse_store: Option<Arc<dyn PulseTier>>,
 }
 
 impl CassHydrationService {
@@ -37,7 +39,14 @@ impl CassHydrationService {
             hierarchy,
             codegraph,
             intelligence,
+            pulse_store: None,
         }
+    }
+
+    /// Attaches an optional pulse store for Global Pulses section in TCH.
+    pub fn with_pulse_store(mut self, store: Arc<dyn PulseTier>) -> Self {
+        self.pulse_store = Some(store);
+        self
     }
 }
 
@@ -182,6 +191,22 @@ Date: {}
             packet.push_str(&api_section);
         }
 
+        // 5. Global Pulses
+        if let Some(pulse_store) = &self.pulse_store {
+            let agent_role = "global"; // In future, derive from agent identity
+            if let Ok(pulses) = pulse_store.get_active_pulses(agent_role).await {
+                if !pulses.is_empty() {
+                    let mut pulse_section = "\n## Ⅴ. Global Pulses\n".to_string();
+                    for p in &pulses {
+                        pulse_section.push_str(&format!("- [{}] {}: {}\n", p.role, p.author, p.message));
+                    }
+                    if count_tokens(&packet) + count_tokens(&pulse_section) < budget {
+                        packet.push_str(&pulse_section);
+                    }
+                }
+            }
+        }
+
         let tokens = count_tokens(&packet);
         Ok(Response::new(HydrationResponse {
             markdown_packet: packet,
@@ -194,7 +219,8 @@ Date: {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::mock::MockStorage;
+    use crate::storage::mock::{MockPulseStore, MockStorage};
+    use koad_proto::cass::v1::Pulse;
 
     #[tokio::test]
     async fn test_hydration_bundles_sections() -> anyhow::Result<()> {
@@ -218,6 +244,52 @@ mod tests {
         let packet = response.into_inner().markdown_packet;
 
         assert!(packet.contains("# Temporal Context Hydration"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_hydration_includes_pulse_section() -> anyhow::Result<()> {
+        let storage = Arc::new(MockStorage::new());
+        let config = koad_core::config::KoadConfig::load()?;
+        let hierarchy = Arc::new(HierarchyManager::new(config));
+        let codegraph = Arc::new(CodeGraph::new_with_memory()?);
+        let intelligence = Arc::new(InferenceRouter::new_default()?);
+
+        let pulse_store = Arc::new(MockPulseStore::new());
+        pulse_store
+            .seed(Pulse {
+                id: "test-pulse-1".to_string(),
+                author: "test-agent".to_string(),
+                role: "global".to_string(),
+                message: "Test pulse active".to_string(),
+                ttl_seconds: 3600,
+                created_at: None,
+            })
+            .await;
+
+        let service =
+            CassHydrationService::new(storage, hierarchy, codegraph, intelligence)
+                .with_pulse_store(pulse_store);
+
+        let request = Request::new(HydrationRequest {
+            agent_name: "test-agent".to_string(),
+            project_root: "/tmp".to_string(),
+            level: 0,
+            token_budget: 10000,
+            task_id: "".to_string(),
+        });
+
+        let response = service.hydrate(request).await?;
+        let packet = response.into_inner().markdown_packet;
+
+        assert!(
+            packet.contains("Global Pulses"),
+            "TCH packet missing Global Pulses section"
+        );
+        assert!(
+            packet.contains("Test pulse active"),
+            "TCH packet missing pulse message"
+        );
         Ok(())
     }
 }

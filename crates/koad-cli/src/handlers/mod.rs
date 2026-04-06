@@ -18,6 +18,8 @@ pub mod system;
 pub mod system_init;
 pub mod vault;
 
+pub mod pulse;
+pub mod sandbox;
 pub mod updates;
 pub mod whoami;
 pub mod xp;

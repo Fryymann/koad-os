@@ -143,6 +143,7 @@ pub async fn handle_bridge_action(
                         context: trace_ctx,
                         name: name.clone(),
                         component_path: path,
+                        container_image: String::new(),
                     };
                     let resp = client.register_tool(req).await?.into_inner();
                     println!(">>> [OK] Skill '{}' registered. Status: {}", name, resp.message);

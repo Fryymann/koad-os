@@ -21,10 +21,15 @@ const COLLECTION: &str = "fact_cards";
 const VECTOR_DIM: u64 = 32;
 
 pub struct QdrantTier {
-    client: Qdrant,
+    client: Option<Qdrant>,
 }
 
 impl QdrantTier {
+    /// Create a no-op offline tier for degraded-mode boot (Qdrant unreachable).
+    pub fn new_offline() -> Self {
+        Self { client: None }
+    }
+
     pub async fn new(url: &str) -> Result<Self> {
         let client = Qdrant::from_url(url)
             .build()
@@ -40,7 +45,7 @@ impl QdrantTier {
                 .context("Failed to create Qdrant collection")?;
         }
 
-        Ok(Self { client })
+        Ok(Self { client: Some(client) })
     }
 
     /// Deterministic u64 point ID from fact UUID string.
@@ -105,11 +110,12 @@ impl QdrantTier {
 #[async_trait]
 impl MemoryTier for QdrantTier {
     async fn commit_fact(&self, fact: FactCard) -> Result<()> {
+        let Some(client) = &self.client else { return Ok(()); };
         let vector = Self::content_vector(&fact.content);
         let payload = Self::make_payload(&fact);
         let point = PointStruct::new(Self::point_id(&fact.id), vector, payload);
 
-        self.client
+        client
             .upsert_points(UpsertPointsBuilder::new(COLLECTION, vec![point]))
             .await
             .context("QdrantTier: upsert failed")?;
@@ -117,10 +123,10 @@ impl MemoryTier for QdrantTier {
     }
 
     async fn query_facts(&self, domain: &str, _tags: &[String], limit: u32) -> Result<Vec<FactCard>> {
+        let Some(client) = &self.client else { return Ok(vec![]); };
         let filter = Filter::must([Condition::matches("domain", domain.to_string())]);
 
-        let result = self
-            .client
+        let result = client
             .scroll(
                 ScrollPointsBuilder::new(COLLECTION)
                     .filter(filter)

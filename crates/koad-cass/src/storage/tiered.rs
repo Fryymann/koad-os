@@ -95,7 +95,10 @@ mod tests {
             false,
         ).await?;
         let l1 = Arc::new(RedisTier::new(redis_client.pool.clone()));
-        let l3 = Arc::new(QdrantTier::new("http://127.0.0.1:6334").await?);
+        let l3 = Arc::new(match QdrantTier::new("http://127.0.0.1:6334").await {
+            Ok(q) => q,
+            Err(_) => QdrantTier::new_offline(),
+        });
         Ok(TieredStorage::new(l1, sqlite, l3))
     }
 

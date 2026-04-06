@@ -43,6 +43,8 @@ fred = { workspace = true, features = ["unix-sockets", "subscriber-client", "i-s
 # Internal
 koad-core = { path = "../koad-core" }
 koad-proto = { path = "../koad-proto" }
+koad-codegraph = { path = "../koad-codegraph" }
+koad-sandbox = { path = "../koad-sandbox", features = ["container"] }
 koad-board = { path = "../koad-board" }
 koad-bridge-notion = { path = "../koad-bridge-notion" }
 koad-intelligence = { path = "../koad-intelligence" }

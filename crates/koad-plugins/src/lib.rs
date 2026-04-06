@@ -3,6 +3,9 @@
 //! # Modules
 //! - Root: [`WasmPluginManager`] — low-level component loader.
 //! - [`registry`]: [`PluginRegistry`] — named plugin registry with invocation metrics.
+//! - [`NativePluginManager`] — `.so`/`.dll` dynamic library loader (unsafe, trusted plugins only).
+
+#![allow(unsafe_code)]
 
 pub mod registry;
 
@@ -95,6 +98,80 @@ impl WasmPluginManager {
     }
 }
 
+/// Dynamic library plugin loader (`.so` / `.dll`).
+///
+/// # Safety
+/// Dynamic library loading is inherently unsafe. The loaded library receives
+/// host process memory access and must be trusted. Only load plugins from
+/// verified, signed sources. Unloading is not supported at runtime due to
+/// reference invalidation risks — registered libraries live for the process lifetime.
+pub struct NativePluginManager {
+    // Libraries are retained to prevent unloading (dropping a Library is UB if
+    // any function pointers derived from it are still live).
+    _libs: tokio::sync::RwLock<Vec<libloading::Library>>,
+}
+
+impl NativePluginManager {
+    pub fn new() -> Self {
+        Self { _libs: tokio::sync::RwLock::new(vec![]) }
+    }
+
+    /// Load a `.so`/`.dll` plugin and invoke its `koad_invoke` export.
+    ///
+    /// The plugin must export:
+    /// ```c
+    /// extern "C" char* koad_invoke(const char* topic, const char* payload);
+    /// ```
+    /// The returned pointer must be a valid UTF-8 C string. The host does NOT
+    /// free it — the plugin is responsible for static or leaked allocation.
+    ///
+    /// # Safety
+    /// - `path` must point to a trusted, compiled shared library.
+    /// - The `koad_invoke` symbol must have the expected signature.
+    /// - The returned pointer must remain valid for the duration of this call.
+    pub async fn invoke(
+        &self,
+        path: &std::path::Path,
+        topic: &str,
+        payload: &str,
+    ) -> anyhow::Result<String> {
+        use std::ffi::{CStr, CString};
+
+        let topic_c = CString::new(topic)?;
+        let payload_c = CString::new(payload)?;
+
+        // SAFETY: Loading an untrusted library is unsafe. Callers must ensure
+        // the library is from a trusted, verified source.
+        let lib = unsafe { libloading::Library::new(path) }
+            .map_err(|e| anyhow::anyhow!("Failed to load native plugin {:?}: {}", path, e))?;
+
+        // SAFETY: The symbol must exist and match the expected extern "C" signature.
+        let result_ptr = {
+            let invoke_fn: libloading::Symbol<
+                unsafe extern "C" fn(*const i8, *const i8) -> *const i8,
+            > = unsafe { lib.get(b"koad_invoke\0") }
+                .map_err(|e| anyhow::anyhow!("Symbol 'koad_invoke' not found: {}", e))?;
+
+            // SAFETY: Calling the foreign function with valid, null-terminated C strings.
+            unsafe { invoke_fn(topic_c.as_ptr(), payload_c.as_ptr()) }
+        };
+
+        if result_ptr.is_null() {
+            anyhow::bail!("NativePlugin returned null pointer");
+        }
+
+        // SAFETY: The pointer must be a valid C string returned by the plugin for
+        // the duration of this call. The library remains loaded (retained below)
+        // so the pointer stays valid until we copy it into an owned String.
+        let result = unsafe { CStr::from_ptr(result_ptr) }.to_string_lossy().into_owned();
+
+        // Retain the library so symbols remain valid for the process lifetime.
+        self._libs.write().await.push(lib);
+
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,6 +182,29 @@ mod tests {
     async fn test_plugin_manager_new() {
         let manager = WasmPluginManager::new();
         assert!(manager.is_ok(), "WasmPluginManager::new() should succeed");
+    }
+
+    /// Smoke test: confirms NativePluginManager constructs without error.
+    #[tokio::test]
+    async fn test_native_plugin_manager_new() {
+        let _manager = NativePluginManager::new();
+        // No panic — construction succeeds.
+    }
+
+    /// Smoke test: invoking a non-existent .so returns an error, not a panic.
+    #[tokio::test]
+    async fn test_native_plugin_manager_missing_lib_returns_error() {
+        let manager = NativePluginManager::new();
+        let result = manager
+            .invoke(std::path::Path::new("/tmp/nonexistent_koad_plugin.so"), "topic", "{}")
+            .await;
+        assert!(result.is_err(), "Expected error for missing library");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("Failed to load native plugin"),
+            "Unexpected error message: {}",
+            msg
+        );
     }
 
     /// Integration test: loads the hello-plugin WASM component and drives the

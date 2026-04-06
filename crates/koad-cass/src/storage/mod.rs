@@ -7,7 +7,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use koad_proto::cass::v1::{EpisodicMemory, FactCard};
+use koad_proto::cass::v1::{EpisodicMemory, FactCard, Pulse};
 
 pub mod mock;
 pub mod qdrant_tier;
@@ -35,3 +35,10 @@ pub trait MemoryTier: Send + Sync {
 
 /// Backward-compatible alias for the storage trait.
 pub use MemoryTier as Storage;
+
+/// Trait for pulse storage — implemented by RedisTier only (L1 hot signals).
+#[async_trait]
+pub trait PulseTier: Send + Sync {
+    async fn add_pulse(&self, pulse: Pulse) -> Result<()>;
+    async fn get_active_pulses(&self, role: &str) -> Result<Vec<Pulse>>;
+}

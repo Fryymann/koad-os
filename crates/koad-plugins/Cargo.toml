@@ -9,3 +9,5 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 wasmtime = { version = "22.0", features = ["component-model", "async"] }
 async-trait = "0.1"
+koad-sandbox = { path = "../koad-sandbox", features = ["container"] }
+libloading = "0.8"

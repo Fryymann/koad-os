@@ -175,6 +175,37 @@ pub enum Commands {
         #[command(subcommand)]
         action: UpdatesAction,
     },
+
+    /// Broadcast a short-lived signal to all agents at session boot.
+    Pulse {
+        /// The pulse message to broadcast.
+        message: Option<String>,
+        /// Filter pulses by agent role (default: global).
+        #[arg(long)]
+        role: Option<String>,
+        /// List active pulses instead of broadcasting.
+        #[arg(long)]
+        list: bool,
+    },
+
+    /// Run a command in an isolated Docker/Podman sandbox container.
+    Sandbox {
+        /// The shell command to execute inside the container.
+        #[arg(trailing_var_arg = true)]
+        command: Vec<String>,
+        /// Container image to use (default: alpine:3.19).
+        #[arg(long, default_value = "alpine:3.19")]
+        image: String,
+        /// Allow network access (default: off).
+        #[arg(long)]
+        network: bool,
+        /// Memory limit (e.g. 64m).
+        #[arg(long, default_value = "64m")]
+        memory: String,
+        /// Use podman instead of docker.
+        #[arg(long)]
+        podman: bool,
+    },
 }
 
 #[derive(Subcommand)]

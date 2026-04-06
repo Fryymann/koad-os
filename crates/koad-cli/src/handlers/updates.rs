@@ -43,7 +43,29 @@ pub async fn handle_updates_action(action: UpdatesAction, config: &KoadConfig) -
     let cwd = env::current_dir().unwrap_or_default();
     match action {
         UpdatesAction::Post { summary, category, body, level, author } => {
+            let pulse_summary = summary.clone();
+            let pulse_author = author.clone();
             post_update(config, &cwd, summary, category, body, level, author)?;
+            // Trigger a best-effort pulse signal — silent on CASS offline.
+            let pulse_msg = format!("Update posted: {}", pulse_summary);
+            let pulse_author_str = pulse_author.unwrap_or_else(|| {
+                env::var("KOAD_AGENT_NAME").unwrap_or_else(|_| "unknown".to_string())
+            });
+            if let Ok(mut client) = koad_proto::cass::v1::pulse_service_client::PulseServiceClient::connect(
+                config.network.cass_grpc_addr.clone(),
+            )
+            .await
+            {
+                let _ = client
+                    .add_pulse(koad_proto::cass::v1::AddPulseRequest {
+                        context: None,
+                        author: pulse_author_str,
+                        role: "global".to_string(),
+                        message: pulse_msg,
+                        ttl_seconds: 3600,
+                    })
+                    .await;
+            }
         }
         UpdatesAction::List { limit, author, category, level } => {
             list_updates(config, &cwd, limit, author, category, level)?;

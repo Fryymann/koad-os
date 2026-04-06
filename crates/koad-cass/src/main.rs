@@ -5,6 +5,7 @@ use koad_bridge_notion::NotionClient;
 use koad_cass::services::eow::EndOfWatchPipeline;
 use koad_cass::services::hydration::CassHydrationService;
 use koad_cass::services::memory::CassMemoryService;
+use koad_cass::services::pulse::CassPulseService;
 use koad_cass::services::stream::CassStreamService;
 use koad_cass::services::symbol::CassSymbolService;
 use koad_cass::services::tool_registry::CassToolRegistryService;
@@ -19,6 +20,7 @@ use koad_plugins::registry::PluginRegistry;
 
 use koad_proto::cass::v1::hydration_service_server::HydrationServiceServer;
 use koad_proto::cass::v1::memory_service_server::MemoryServiceServer;
+use koad_proto::cass::v1::pulse_service_server::PulseServiceServer;
 use koad_proto::cass::v1::stream_service_server::StreamServiceServer;
 use koad_proto::cass::v1::symbol_service_server::SymbolServiceServer;
 use koad_proto::cass::v1::tool_registry_service_server::ToolRegistryServiceServer;
@@ -38,8 +40,24 @@ async fn main() -> Result<()> {
         &config.home.join("data/db/cass.db").to_string_lossy(),
     )?);
     let redis_tier = Arc::new(RedisTier::new(redis.pool.clone()));
-    let qdrant = Arc::new(QdrantTier::new("http://127.0.0.1:6334").await?);
-    let storage = Arc::new(TieredStorage::new(redis_tier, sqlite, qdrant));
+    let qdrant = match tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        QdrantTier::new("http://127.0.0.1:6334"),
+    ).await {
+        Ok(Ok(q)) => {
+            tracing::info!("Qdrant L3: ONLINE");
+            Arc::new(q)
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "Qdrant L3: OFFLINE — starting in degraded mode (L1+L2 only)");
+            Arc::new(QdrantTier::new_offline())
+        }
+        Err(_) => {
+            tracing::warn!("Qdrant L3: TIMEOUT — starting in degraded mode (L1+L2 only)");
+            Arc::new(QdrantTier::new_offline())
+        }
+    };
+    let storage = Arc::new(TieredStorage::new(Arc::clone(&redis_tier), sqlite, qdrant));
     let hierarchy = Arc::new(HierarchyManager::new(config.clone()));
     let signal_corps = Arc::new(SignalCorps::new(redis.clone(), "koad:stream:", 1000));
     let codegraph = Arc::new(CodeGraph::new(&config.home.join("data/db/codegraph.db"))?);
@@ -64,7 +82,9 @@ async fn main() -> Result<()> {
         hierarchy.clone(),
         codegraph.clone(),
         intelligence.clone(),
-    );
+    )
+    .with_pulse_store(Arc::clone(&redis_tier) as Arc<dyn koad_cass::storage::PulseTier>);
+    let pulse_svc = CassPulseService::new(Arc::clone(&redis_tier) as Arc<dyn koad_cass::storage::PulseTier>);
     let stream_svc = CassStreamService::new(notion_client.clone(), stream_db);
     let symbol_svc = CassSymbolService::new(codegraph.clone());
     let tool_svc = CassToolRegistryService::new(plugin_registry);
@@ -85,6 +105,7 @@ async fn main() -> Result<()> {
     Server::builder()
         .add_service(MemoryServiceServer::new(memory_svc))
         .add_service(HydrationServiceServer::new(hydration_svc))
+        .add_service(PulseServiceServer::new(pulse_svc))
         .add_service(StreamServiceServer::new(stream_svc))
         .add_service(SymbolServiceServer::new(symbol_svc))
         .add_service(ToolRegistryServiceServer::new(tool_svc))

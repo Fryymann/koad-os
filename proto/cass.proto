@@ -43,12 +43,20 @@ service ToolRegistryService {
   rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
 }
 
+service PulseService {
+  // Broadcast a short-lived signal to all agents.
+  rpc AddPulse(AddPulseRequest) returns (koad.citadel.v5.StatusResponse);
+  // Retrieve active pulses for an agent role or "global".
+  rpc GetPulses(GetPulsesRequest) returns (GetPulsesResponse);
+}
+
 // --- Data Structures ---
 
 message RegisterToolRequest {
   koad.citadel.v5.TraceContext context = 1;
   string name = 2;
   string component_path = 3; // Absolute path to the .wasm component
+  string container_image = 4; // Optional: if set, tool is invoked via ContainerSandbox
 }
 
 message DeregisterToolRequest {
@@ -154,4 +162,30 @@ message SymbolResponse {
 message IndexRequest {
   koad.citadel.v5.TraceContext context = 1;
   string project_root = 2;
+}
+
+message Pulse {
+  string id = 1;
+  string author = 2;
+  string role = 3;       // agent role filter, or "global"
+  string message = 4;
+  google.protobuf.Timestamp created_at = 5;
+  uint32 ttl_seconds = 6;
+}
+
+message AddPulseRequest {
+  koad.citadel.v5.TraceContext context = 1;
+  string author = 2;
+  string role = 3;       // "global" or specific role
+  string message = 4;
+  uint32 ttl_seconds = 5; // 0 = use default (3600)
+}
+
+message GetPulsesRequest {
+  koad.citadel.v5.TraceContext context = 1;
+  string role = 2;  // Return pulses matching this role OR "global"
+}
+
+message GetPulsesResponse {
+  repeated Pulse pulses = 1;
 }

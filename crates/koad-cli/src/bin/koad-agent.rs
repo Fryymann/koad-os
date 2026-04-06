@@ -51,6 +51,22 @@ enum Commands {
         /// The name of the agent to inspect.
         agent: String,
     },
+    /// Generate a high-density context packet for a crate.
+    Context {
+        /// Name of the crate (e.g. "koad-core", "koad-cass").
+        crate_name: String,
+        /// Output path (defaults to ./<crate_name>.context.md).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Validate and register a task manifest for the current agent.
+    Task {
+        /// Path to the task manifest (.md or .toml file).
+        manifest: PathBuf,
+        /// Release the current active task (mark as complete).
+        #[arg(long)]
+        done: bool,
+    },
 }
 
 /// Timeout for boot-path gRPC connections to local Citadel/CASS services.
@@ -152,6 +168,9 @@ async fn main() -> Result<()> {
                 if let Some(identity_config) = identity_config {
                     println!("export KOAD_AGENT_ROLE=\"{}\";", identity_config.role);
                     println!("export KOAD_AGENT_RANK=\"{}\";", identity_config.rank);
+                    if let Some(rt) = &identity_config.runtime {
+                        println!("export KOAD_RUNTIME=\"{}\";", rt);
+                    }
 
                     if let Some(prefs) = &identity_config.preferences {
                         for key in &prefs.access_keys {
@@ -412,7 +431,249 @@ async fn main() -> Result<()> {
             println!("Agent Identity: {}", agent);
             // ... add more info here if needed
         }
+        Commands::Context { crate_name, output } => {
+            handle_context(&config, &crate_name, output).await?;
+        }
+        Commands::Task { manifest, done } => {
+            handle_task(&config, manifest, done).await?;
+        }
     }
+    Ok(())
+}
+
+async fn handle_context(config: &KoadConfig, crate_name: &str, output: Option<PathBuf>) -> Result<()> {
+    use std::process::Command as StdCommand;
+
+    let out_path = output.unwrap_or_else(|| PathBuf::from(format!("{}.context.md", crate_name)));
+
+    // Locate crate directory
+    let crate_dir = config.home.join("crates").join(crate_name);
+    let crate_exists = crate_dir.exists();
+
+    let mut packet = format!("# Context Packet: {}\nGenerated: {}\n\n", crate_name, chrono::Utc::now().format("%Y-%m-%d"));
+
+    // 1. Crate purpose from lib.rs or main.rs doc comment
+    if crate_exists {
+        let candidates = ["src/lib.rs", "src/main.rs"];
+        for candidate in &candidates {
+            let candidate_path = crate_dir.join(candidate);
+            if candidate_path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&candidate_path) {
+                    let doc_lines: String = content.lines()
+                        .take_while(|l| l.starts_with("//!") || l.trim().is_empty())
+                        .map(|l| l.trim_start_matches("//!").trim())
+                        .filter(|l| !l.is_empty())
+                        .take(10)
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if !doc_lines.is_empty() {
+                        packet.push_str(&format!("## Purpose\n{}\n\n", doc_lines));
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    // 2. Public symbols via koad-codegraph
+    if crate_exists {
+        match koad_codegraph::CodeGraph::new_with_memory() {
+            Ok(graph) => {
+                if let Ok(()) = graph.index_project(&crate_dir) {
+                    if let Ok(summary) = graph.get_crate_summary(&crate_dir.to_string_lossy()) {
+                        if !summary.is_empty() {
+                            packet.push_str("## Public API\n");
+                            packet.push_str(&summary);
+                            packet.push_str("\n");
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                packet.push_str(&format!("## Public API\n_Symbol extraction unavailable: {}_\n\n", e));
+            }
+        }
+    } else {
+        packet.push_str(&format!("## Note\nCrate directory not found at `{}`. Generating from git log only.\n\n", crate_dir.display()));
+    }
+
+    // 3. Recent git history for this crate
+    let git_log = StdCommand::new("git")
+        .args([
+            "log", "--oneline", "-10",
+            "--", &format!("crates/{}/", crate_name),
+        ])
+        .current_dir(&config.home)
+        .output();
+
+    match git_log {
+        Ok(out) if out.status.success() => {
+            let log_str = String::from_utf8_lossy(&out.stdout);
+            if !log_str.trim().is_empty() {
+                packet.push_str("## Recent Git Activity\n```\n");
+                packet.push_str(log_str.trim());
+                packet.push_str("\n```\n\n");
+            }
+        }
+        _ => {
+            packet.push_str("## Recent Git Activity\n_Git log unavailable._\n\n");
+        }
+    }
+
+    // 4. Cargo.toml dependencies (key deps, not all)
+    let cargo_toml_path = crate_dir.join("Cargo.toml");
+    if cargo_toml_path.exists() {
+        if let Ok(toml_content) = std::fs::read_to_string(&cargo_toml_path) {
+            let dep_lines: Vec<&str> = toml_content.lines()
+                .skip_while(|l| !l.contains("[dependencies]"))
+                .skip(1)
+                .take_while(|l| !l.starts_with('['))
+                .filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
+                .take(15)
+                .collect();
+            if !dep_lines.is_empty() {
+                packet.push_str("## Key Dependencies\n```toml\n");
+                packet.push_str(&dep_lines.join("\n"));
+                packet.push_str("\n```\n");
+            }
+        }
+    }
+
+    fs::write(&out_path, &packet).await?;
+    println!("\x1b[32m[OK]\x1b[0m Context packet written to: {}", out_path.display());
+    println!("     Crate:  {}", crate_name);
+    println!("     Size:   {} bytes", packet.len());
+    Ok(())
+}
+
+async fn handle_task(config: &KoadConfig, manifest: PathBuf, done: bool) -> Result<()> {
+    let run_dir = config.home.join("run");
+    fs::create_dir_all(&run_dir).await?;
+    let tasks_file = run_dir.join("tasks.json");
+
+    // Load existing tasks state
+    let mut tasks: serde_json::Value = if tasks_file.exists() {
+        let raw = fs::read_to_string(&tasks_file).await?;
+        serde_json::from_str(&raw).unwrap_or(serde_json::json!({"active": []}))
+    } else {
+        serde_json::json!({"active": []})
+    };
+
+    let agent_name = std::env::var("KOAD_AGENT_NAME")
+        .unwrap_or_else(|_| config.get_agent_name());
+    let agent_role = std::env::var("KOAD_AGENT_ROLE")
+        .unwrap_or_else(|_| "unknown".to_string());
+    let worktree = std::env::current_dir()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    if done {
+        // Release active task for this agent
+        if let Some(arr) = tasks["active"].as_array_mut() {
+            arr.retain(|t| t["agent"].as_str() != Some(&agent_name));
+        }
+        fs::write(&tasks_file, serde_json::to_string_pretty(&tasks)?).await?;
+        println!("\x1b[32m[DONE]\x1b[0m Task released for agent '{}'.", agent_name);
+        return Ok(());
+    }
+
+    // Validate manifest exists
+    if !manifest.exists() {
+        println!("\x1b[31m[BLOCKED]\x1b[0m Manifest not found: {}", manifest.display());
+        return Ok(());
+    }
+
+    // Parse manifest — extract key fields from markdown frontmatter or content
+    let content = fs::read_to_string(&manifest).await?;
+
+    // Extract task ID (look for "Task:" or filename stem)
+    let task_id = manifest.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    // Extract required role from manifest content (look for "**Agent:**" or "## ASSIGNMENT")
+    let required_agent = content.lines()
+        .find(|l| l.contains("**Agent:**") || l.contains("Agent:"))
+        .and_then(|l| l.split(':').nth(1))
+        .map(|s| s.trim().trim_matches('*').trim().to_lowercase())
+        .unwrap_or_default();
+
+    // Check worktree collision: any active task in the same worktree?
+    let mut blockers: Vec<String> = vec![];
+
+    if let Some(active) = tasks["active"].as_array() {
+        for t in active {
+            let t_worktree = t["worktree"].as_str().unwrap_or("");
+            let t_agent = t["agent"].as_str().unwrap_or("");
+            let t_id = t["task_id"].as_str().unwrap_or("");
+
+            if t_worktree == worktree && t_agent != agent_name {
+                blockers.push(format!("Worktree collision: agent '{}' is working on '{}' in this worktree.", t_agent, t_id));
+            }
+            if t_agent == agent_name {
+                blockers.push(format!("Agent '{}' already has active task '{}'. Use --done to release.", agent_name, t_id));
+            }
+        }
+    }
+
+    // Role check (fuzzy — check if agent name or role is in the required field)
+    if !required_agent.is_empty() {
+        let name_match = agent_name.to_lowercase().contains(&required_agent) || required_agent.contains(&agent_name.to_lowercase());
+        let role_match = agent_role.to_lowercase().contains(&required_agent);
+        if !name_match && !role_match && required_agent != "unknown" {
+            blockers.push(format!("Role mismatch: manifest requires '{}', agent is '{}' ({}).", required_agent, agent_name, agent_role));
+        }
+    }
+
+    // Validate referenced files exist (look for file paths in the manifest)
+    let missing_files: Vec<String> = content.lines()
+        .filter(|l| l.contains("src/") && (l.contains(".rs") || l.contains(".toml")))
+        .filter_map(|l| {
+            // Extract a path-like token
+            l.split_whitespace()
+                .find(|t| t.contains("src/") && t.contains(".rs"))
+                .map(|t| t.trim_matches(&['`', '*', '(', ')', '[', ']', '\'', '"', ':', ',', '.'] as &[char]).to_string())
+        })
+        .filter(|p| {
+            let full = config.home.join("crates").join(p.trim_start_matches("crates/"));
+            !p.is_empty() && !full.exists()
+        })
+        .collect();
+
+    if !missing_files.is_empty() {
+        for f in &missing_files {
+            blockers.push(format!("Referenced file not found: {}", f));
+        }
+    }
+
+    if blockers.is_empty() {
+        // Register active task
+        let entry = serde_json::json!({
+            "task_id": task_id,
+            "agent": agent_name,
+            "role": agent_role,
+            "worktree": worktree,
+            "manifest": manifest.to_string_lossy(),
+            "registered_at": chrono::Utc::now().to_rfc3339(),
+        });
+
+        if let Some(arr) = tasks["active"].as_array_mut() {
+            arr.push(entry);
+        }
+        fs::write(&tasks_file, serde_json::to_string_pretty(&tasks)?).await?;
+
+        println!("\x1b[32m[READY]\x1b[0m Task '{}' validated and registered.", task_id);
+        println!("       Agent:    {}", agent_name);
+        println!("       Worktree: {}", worktree);
+    } else {
+        println!("\x1b[31m[BLOCKED]\x1b[0m Task '{}' cannot proceed:", task_id);
+        for reason in &blockers {
+            println!("  - {}", reason);
+        }
+    }
+
     Ok(())
 }
 

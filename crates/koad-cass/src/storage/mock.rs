@@ -1,12 +1,46 @@
-use super::Storage;
+use super::{PulseTier, Storage};
 use anyhow::Result;
 use async_trait::async_trait;
-use koad_proto::cass::v1::{EpisodicMemory, FactCard};
-use std::sync::{Arc, Mutex};
+use koad_proto::cass::v1::{EpisodicMemory, FactCard, Pulse};
+use std::sync::Arc;
+use std::sync::Mutex;
+use tokio::sync::Mutex as TokioMutex;
 
 pub struct MockStorage {
     pub facts: Arc<Mutex<Vec<FactCard>>>,
     pub episodes: Arc<Mutex<Vec<EpisodicMemory>>>,
+}
+
+pub struct MockPulseStore {
+    pulses: Arc<TokioMutex<Vec<Pulse>>>,
+}
+
+impl MockPulseStore {
+    pub fn new() -> Self {
+        Self {
+            pulses: Arc::new(TokioMutex::new(vec![])),
+        }
+    }
+
+    pub async fn seed(&self, pulse: Pulse) {
+        self.pulses.lock().await.push(pulse);
+    }
+
+    pub async fn all(&self) -> Vec<Pulse> {
+        self.pulses.lock().await.clone()
+    }
+}
+
+#[async_trait]
+impl PulseTier for MockPulseStore {
+    async fn add_pulse(&self, pulse: Pulse) -> Result<()> {
+        self.pulses.lock().await.push(pulse);
+        Ok(())
+    }
+
+    async fn get_active_pulses(&self, _role: &str) -> Result<Vec<Pulse>> {
+        Ok(self.pulses.lock().await.clone())
+    }
 }
 
 impl MockStorage {

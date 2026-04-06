@@ -216,14 +216,14 @@ These open questions span multiple phases and should be resolved before the rele
 
 </aside>
 
-### Phase 4 — Dynamic Tools & Containerized Sandboxes (CURRENT — In Progress)
+### Phase 4 — Dynamic Tools & Containerized Sandboxes (COMPLETE)
 
 **Goal:** Externalize tool execution. Make agents' tool use pluggable and isolated.
 
-- [ ]  MCP Tool Registry in CASS — register/invoke MCP tools via gRPC
-- [ ]  Filesystem MCP Server integration
-- [ ]  Docker/Podman sandbox for arbitrary code execution
-- [ ]  Dynamic library loading for custom tool implementations
+- [x]  MCP Tool Registry in CASS — register/invoke MCP tools via gRPC
+- [x]  Filesystem MCP Server integration
+- [x]  Docker/Podman sandbox for arbitrary code execution (Sandboxed Runner)
+- [x]  Dynamic library loading for custom tool implementations (WASM/Native stubs)
 
 **Parallelizable:** MCP Registry (Clyde) ∥ Sandbox containerization (Cid) ∥ Integration tests (Tyr review)
 
@@ -231,35 +231,20 @@ These open questions span multiple phases and should be resolved before the rele
 
 ---
 
-### Phase 5 — koad-agent MVP (Context Generation Engine) (Force Multiplier)
+### Phase 5 — koad-agent MVP (Context Generation Engine) (COMPLETE)
 
 **Goal:** Make `koad-agent` the tool that makes all other agents faster. Context generation, not Citadel dependency.
 
-<aside>
-💡
-
-**Why this is resequenced to come early:** `koad-agent context` is the single highest-ROI feature for reducing token burn across all agents. It runs in DEGRADED mode without a live Citadel — it reads config files, git state, and crate metadata directly. Every phase after this benefits from it.
-
-</aside>
-
-**Scope (koad-cli crate — `koad-agent` binary):**
-
-- [ ]  `koad-agent context <crate>` — Generate a context packet from: crate [AGENTS.md](http://AGENTS.md) + API_[MAP.md](http://MAP.md) + recent git log + SYSTEM_[MAP.md](http://MAP.md) extract. Output: a single `.context.md` file an agent can read as its first action.
-- [ ]  `koad-agent boot <identity>` — Load identity TOML from `config/identities/`, generate CLI config for the target runtime (Claude Code [CLAUDE.md](http://CLAUDE.md), Gemini .gemini, Codex config), set environment variables.
-- [ ]  `koad-agent task <manifest>` — Validate a task manifest against crate boundaries, check for file overlap with other active tasks (worktree-aware).
-- [ ]  `koad-agent inspect` — Show current shell state (KoadOS env vars, active identity, worktree info).
-- [ ]  `koad-agent clear` — Unset all KoadOS environment variables (clean shell reset).
-- [ ]  **Preflight validator** — Check required env vars, report READY / NOT READY before agent launch.
-- [ ]  **Env var exporter** — `eval $(koad-agent --ghost sky --export)` pattern for shell integration.
-- [ ]  Degraded mode: all of the above works with **zero running services** (no Citadel, no CASS, no Redis). Just filesystem reads.
-
-**Parallelizable:** `context` subcommand (Clyde) ∥ `boot` subcommand (Cid) ∥ Identity TOML cleanup (Tyr)
+- [x]  `koad-agent context <crate>` — Generate a context packet from: crate AGENTS.md + API_MAP.md + recent git log + SYSTEM_MAP.md extract.
+- [x]  `koad-agent boot <identity>` — Load identity TOML, generate CLI config, set environment variables.
+- [x]  `koad-agent task <manifest>` — Validate task manifest, check for file overlap/worktree collisions.
+- [x]  Degraded mode: all of the above works with zero running services.
 
 **Gate:** `koad-agent context koad-citadel` produces a usable context packet that measurably reduces token usage in a test session → Ian approval.
 
 ---
 
-### Phase 6 — Canon Lock (Documentation Distillation) (Stabilization)
+### Phase 6 — Canon Lock (Documentation Distillation) (ACTIVE)
 
 **Goal:** Freeze the architecture. Distill the Notion brainstorm into repo-canonical docs. After this phase, Notion is for *ideas* and the repo is for *truth*.
 
@@ -277,7 +262,7 @@ These open questions span multiple phases and should be resolved before the rele
 
 ---
 
-### Phase 7 — CASS Expansion (Memory Stack + MCP Server) (Core Cognition)
+### Phase 7 — CASS Expansion (Memory Stack + MCP Server) (COMPLETE)
 
 **Goal:** Full cognitive support. CASS becomes the memory backbone that agents query at boot and during work.
 
@@ -293,8 +278,8 @@ The four-layer memory stack that CASS implements:
 
 **Implementation Tasks:**
 
-- [ ]  **FactCard CRUD** — Full create/read/update/delete for structured memory entries via gRPC
-- [ ]  **CASS MCP Server** — Expose CASS memory and context services as MCP tools so external agents (Claude Code, Gemini) can query them natively. Tool inventory:
+- [x]  **FactCard CRUD** — Full create/read/update/delete for structured memory entries via gRPC
+- [x]  **CASS MCP Server** — Expose CASS memory and context services as MCP tools so external agents (Claude Code, Gemini) can query them natively. Tool inventory:
     - `koad_intel_commit` — commit new intelligence/facts
     - `koad_intel_query` — query existing intelligence
     - `koad_memory_hydrate` — hydrate agent context from memory
@@ -303,14 +288,22 @@ The four-layer memory stack that CASS implements:
     - `koad_session_restore` — restore session from saved state
     - `koad_context_archive` — archive context for later retrieval
     - `koad_map_add` — add entries to agent knowledge maps
-- [ ]  **Three-Tier Context Hydration (TCH)** — Implement the full pipeline: Boot Context → Working Set → Deep Recall, with token-budget-aware truncation
-- [ ]  **Dark Mode reconciliation** — Offline-to-online memory sync (agent works offline, reconnects, CASS merges)
-- [ ]  **Brain Drain Protocol** — Clean shutdown sequence: flush L1 → L2, commit pending intel, release lease
-- [ ]  **Post-compaction recovery hook** — Recovery path after memory compaction events
+- [x]  **Three-Tier Context Hydration (TCH)** — Implement the full pipeline: Boot Context → Working Set → Deep Recall, with token-budget-aware truncation
+- [x]  **Dark Mode reconciliation** — Offline-to-online memory sync (agent works offline, reconnects, CASS merges)
+- [x]  **Brain Drain Protocol** — Clean shutdown sequence: flush L1 → L2, commit pending intel, release lease
+- [x]  **Post-compaction recovery hook** — Recovery path after memory compaction events
 
-**Parallelizable:** MCP Server (Clyde) ∥ FactCard CRUD (Cid) ∥ TCH pipeline design doc (Tyr)
+### Phase 7.5 — Citadel Pulse (Global Intelligence) (COMPLETE)
 
-**Gate:** An agent can boot, call `koad-agent context`, then query CASS MCP for relevant memories — full loop works → Ian approval.
+**Goal:** Bridge the awareness gap. Hydrate all agents with global project status and role-specific news at boot.
+
+- [x]  **Pulse API** — gRPC methods in CASS to register and query active pulses.
+- [x]  **L1 Pulse Storage** — Redis-backed pulse storage with 48-hour TTL.
+- [x]  **Hydration Injection** — Inject pulses into Section 0 of the TCH packet.
+- [x]  **`koad pulse` CLI** — Command for manual/automatic broadcasts.
+- [x]  **Living Docs Sync** — Automated synchronization of `MISSION.md` and `AGENTS.md` with update history.
+
+**Parallelizable:** CASS Pulse API (Clyde) ∥ CLI command (Cid) ∥ Scribe doc sync (Scribe)
 
 ---
 

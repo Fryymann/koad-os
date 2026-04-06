@@ -271,6 +271,17 @@ async fn main() -> Result<()> {
         Commands::Updates { action } => {
             crate::handlers::updates::handle_updates_action(action, &config).await?;
         }
+        Commands::Pulse { message, role, list } => {
+            if list {
+                crate::handlers::pulse::handle_pulse_list(role, &config).await?;
+            } else {
+                let msg = message.unwrap_or_else(|| "Agent online.".to_string());
+                crate::handlers::pulse::handle_pulse_add(msg, role, &config).await?;
+            }
+        }
+        Commands::Sandbox { command, image, network, memory, podman } => {
+            crate::handlers::sandbox::handle_sandbox_run(command, image, network, memory, podman).await?;
+        }
     }
 
     Ok(())

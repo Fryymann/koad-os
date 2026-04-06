@@ -114,6 +114,22 @@ impl Sandbox {
     }
 }
 
+use async_trait::async_trait;
+use crate::container::{ContainerSandbox, SandboxResult};
+
+/// Trait for pluggable sandbox execution backends.
+#[async_trait]
+pub trait SandboxRunner: Send + Sync {
+    async fn execute(&self, command: &str) -> anyhow::Result<SandboxResult>;
+}
+
+#[async_trait]
+impl SandboxRunner for ContainerSandbox {
+    async fn execute(&self, command: &str) -> anyhow::Result<SandboxResult> {
+        ContainerSandbox::execute(self, command).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

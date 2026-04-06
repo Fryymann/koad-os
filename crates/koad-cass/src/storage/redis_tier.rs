@@ -3,16 +3,16 @@
 //! Facts are stored as JSON strings with a 1-hour TTL.
 //! Domain membership is tracked via Redis sets for O(1) lookup.
 
-use crate::storage::MemoryTier;
+use crate::storage::{MemoryTier, PulseTier};
 use anyhow::Result;
 use async_trait::async_trait;
 use fred::clients::RedisPool;
 use fred::interfaces::{KeysInterface, SetsInterface};
-use koad_proto::cass::v1::{EpisodicMemory, FactCard};
+use koad_proto::cass::v1::{EpisodicMemory, FactCard, Pulse};
 use tracing::warn;
 
 pub struct RedisTier {
-    pool: RedisPool,
+    pub(crate) pool: RedisPool,
 }
 
 impl RedisTier {
@@ -108,5 +108,132 @@ impl MemoryTier for RedisTier {
 
     async fn query_recent_episodes(&self, _agent_name: &str, _limit: u32, _task_id: Option<&str>) -> Result<Vec<EpisodicMemory>> {
         Ok(vec![])
+    }
+}
+
+impl RedisTier {
+    pub(crate) fn pulse_key(id: &str) -> String {
+        format!("koad:pulse:{}", id)
+    }
+
+    fn role_set_key(role: &str) -> String {
+        format!("koad:pulse:role:{}", role)
+    }
+
+    fn pulse_to_json(pulse: &Pulse) -> String {
+        serde_json::json!({
+            "id": pulse.id,
+            "author": pulse.author,
+            "role": pulse.role,
+            "message": pulse.message,
+            "ttl_seconds": pulse.ttl_seconds,
+        })
+        .to_string()
+    }
+
+    fn json_to_pulse(json: &str) -> Option<Pulse> {
+        let v: serde_json::Value = serde_json::from_str(json).ok()?;
+        Some(Pulse {
+            id: v["id"].as_str()?.to_string(),
+            author: v["author"].as_str()?.to_string(),
+            role: v["role"].as_str()?.to_string(),
+            message: v["message"].as_str()?.to_string(),
+            ttl_seconds: v["ttl_seconds"].as_u64()? as u32,
+            created_at: None,
+        })
+    }
+}
+
+#[async_trait]
+impl PulseTier for RedisTier {
+    async fn add_pulse(&self, pulse: Pulse) -> Result<()> {
+        let client = self.pool.next();
+        let ttl = if pulse.ttl_seconds == 0 { TTL } else { pulse.ttl_seconds as i64 };
+        let json = Self::pulse_to_json(&pulse);
+        let key = Self::pulse_key(&pulse.id);
+
+        client
+            .set::<(), _, _>(&key, &json, Some(fred::types::Expiration::EX(ttl)), None, false)
+            .await?;
+
+        // Index under role set
+        let role_key = Self::role_set_key(&pulse.role);
+        client.sadd::<(), _, _>(&role_key, pulse.id.as_str()).await?;
+        client.expire::<(), _>(&role_key, ttl).await?;
+
+        Ok(())
+    }
+
+    async fn get_active_pulses(&self, role: &str) -> Result<Vec<Pulse>> {
+        let client = self.pool.next();
+        let mut pulses = Vec::new();
+
+        // Collect IDs from the requested role
+        let mut ids: Vec<String> = client
+            .smembers(Self::role_set_key(role))
+            .await
+            .unwrap_or_default();
+
+        // Also include global pulses if querying a specific role
+        if role != "global" {
+            let global_ids: Vec<String> = client
+                .smembers(Self::role_set_key("global"))
+                .await
+                .unwrap_or_default();
+            ids.extend(global_ids);
+        }
+        ids.dedup();
+
+        for id in ids {
+            let json: Option<String> = client.get(Self::pulse_key(&id)).await.unwrap_or(None);
+            if let Some(json) = json {
+                if let Some(pulse) = Self::json_to_pulse(&json) {
+                    pulses.push(pulse);
+                }
+            }
+        }
+
+        Ok(pulses)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::PulseTier;
+    use fred::interfaces::KeysInterface;
+
+    #[tokio::test]
+    #[ignore = "requires: Redis at ~/.koad-os/run/koad.sock"]
+    async fn test_pulse_round_trip() -> anyhow::Result<()> {
+        let koad_home = std::env::var("KOADOS_HOME").unwrap_or_else(|_| {
+            format!(
+                "{}/.koad-os",
+                std::env::var("HOME").unwrap_or_default()
+            )
+        });
+        let redis = koad_core::utils::redis::RedisClient::new(&koad_home, false).await?;
+        let tier = RedisTier::new(redis.pool.clone());
+
+        let pulse = Pulse {
+            id: "test-pulse-rtt-001".to_string(),
+            author: "test".to_string(),
+            role: "global".to_string(),
+            message: "Round trip test".to_string(),
+            ttl_seconds: 60,
+            created_at: None,
+        };
+
+        tier.add_pulse(pulse).await?;
+        let results = tier.get_active_pulses("global").await?;
+        assert!(results.iter().any(|p| p.id == "test-pulse-rtt-001"));
+
+        // Cleanup — delete the pulse key; TTL will expire the role set entry
+        let client = tier.pool.next();
+        client
+            .del::<(), _>(RedisTier::pulse_key("test-pulse-rtt-001"))
+            .await?;
+
+        Ok(())
     }
 }

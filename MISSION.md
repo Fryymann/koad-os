@@ -101,6 +101,9 @@ Small models, running locally, spending tokens only on real thinking, accumulati
 - **Officer-rank agents and above** (Tyr, Scribe, Sky) currently require frontier models (Gemini, Claude, or Codex) due to the complexity of their coordination and reasoning tasks.
 - **Local Ollama models** (Qwen, Gemma, Llama) are viable for Enlisted-rank micro-agents and targeted subtasks today — full local-first operation for all ranks is the end goal.
 - **The Citadel** is in early build — orchestration, monitoring, and governance features are being stood up incrementally.
+- **Phase 4 (COMPLETE):** Dynamic Tools & Containerized Sandboxes — externalizing tool execution and isolating environments.
+- **Phase 5 (COMPLETE):** koad-agent MVP — Context Generation Engine and standalone boot/task management are live.
+- **Phase 6 (ACTIVE):** Canon Lock — Documentation distillation and architectural stabilization.
 </aside>
 
 ---

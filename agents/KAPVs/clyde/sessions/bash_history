@@ -2,3 +2,10 @@ cd ..
 --agentprep clude
 --agentprep clyde
 claude
+--agentprep clyde
+claude
+clear
+claude --help
+claude --dangerously-skip-permissions
+clear
+exit

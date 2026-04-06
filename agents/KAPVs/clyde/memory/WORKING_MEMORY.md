@@ -5,9 +5,29 @@
 ## Current Status
 
 - **Condition:** GREEN
-- **Phase:** 4 / 7 — Dynamic Tools & Tiered Memory Stack delivered
-- **Last Session:** 2026-04-03 (Session 13 — Phase 7 Tiered Memory Stack COMPLETE)
-- **XP:** 554 (Initiate, Level 1)
+- **Phase:** 4+5 / 7 — Citadel Pulse, Phase 4 Cleanup, koad-agent MVP delivered
+- **Last Session:** 2026-04-05 (Session 14 — Three Operations COMPLETE)
+- **XP:** 712 (Initiate, Level 1 → Level 2 threshold approaching)
+
+## Session 14 — 2026-04-05
+
+### Operation Citadel Pulse (Phase 7.5) — COMPLETE
+- **CP-01** — `PulseService` gRPC (proto + CASS impl). `PulseTier` trait on `RedisTier` with TTL keys `koad:pulse:{id}`, sets `koad:pulse:role:{role}`. `CassPulseService` registered in `main.rs`. Qdrant degraded-mode fix (bonus): `QdrantTier::new_offline()`, `Option<Qdrant>`, 3s `tokio::time::timeout` on boot — CASS no longer hangs when Qdrant is offline.
+- **CP-02** — `koad pulse` CLI (`--list`, message positional). `updates post` now fires best-effort `add_pulse` after posting. `Sandbox` command added to CLI.
+- **CP-03** — `sync-status.sh` docs sync script. Smoke test + full `koad-cass` test coverage added (MockPulseStore, tiered fallback, all passing).
+
+### Operation Phase 4 Cleanup — COMPLETE
+- **CP-07** — `SandboxRunner` trait in `koad-sandbox`. Container execution: `docker`/`podman` subprocess with `--rm --read-only --tmpfs /tmp --network none --security-opt no-new-privileges`. `register-tool.rs` updated with `container_image` field.
+- **CP-08** — `PluginRegistry` finalized: `register_with_permissions()`, `get_permissions()`, `get_container_image()`, `register_with_opts()` with container routing in `invoke()`. `start_hot_reload()` background task (5s mtime poll). `NativePluginManager` for `.so`/`.dll` via `libloading`. All tests pass including `test_register_with_permissions_preserves_container_image`.
+
+### Operation koad-agent MVP (Phase 5) — COMPLETE
+- **CP-04** — `koad-agent context` command: reads crate doc comments, indexes via `koad-codegraph`, pulls git log, outputs `.context.md` packet for TCH injection.
+- **CP-05** — `KOAD_RUNTIME` export added to `koad-agent boot` handler. Reads `identity_config.runtime`, exports alongside `KOAD_RANK` etc.
+- **CP-06** — `koad-agent task` command: loads/creates `~/.koad-os/run/tasks.json`, validates manifest existence, fuzzy role matching, worktree collision detection, registers READY state. `trim_matches` fix for paths with trailing `:`, `,`, `.`.
+
+### Bugs Fixed
+- Pre-existing `test_tiered_write_and_read` failure (required live Qdrant) — fixed by `new_offline()` fallback in tiered test.
+- Orchestration handoff miss on CP-01 (no active monitoring at agent boundary) — corrected protocol: poll output files at dependency completion before dispatching next wave. Saved as feedback memory.
 
 ## Session 13 — 2026-04-03
 

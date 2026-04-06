@@ -15,6 +15,17 @@ use tracing::info;
 
 use crate::WasmPluginManager;
 
+/// Permissions granted to a registered plugin.
+#[derive(Debug, Clone, Default)]
+pub struct PluginPermissions {
+    /// Allow reading from host filesystem (outside sandbox).
+    pub read: bool,
+    /// Allow writing to host filesystem (outside sandbox).
+    pub write: bool,
+    /// Allow network access.
+    pub net: bool,
+}
+
 /// Execution metrics for a single plugin invocation.
 /// Maps to `TurnMetrics.execution_duration_ms` /
 /// `TurnMetrics.execution_memory_bytes` in `proto/citadel.proto`.
@@ -39,6 +50,10 @@ pub struct PluginResult {
 struct PluginEntry {
     /// Absolute path to the `.component.wasm` binary.
     component_path: PathBuf,
+    /// If set, invoke this plugin inside a ContainerSandbox using this image.
+    container_image: Option<String>,
+    /// Permissions granted to this plugin.
+    permissions: PluginPermissions,
 }
 
 /// Thread-safe, in-memory registry of named WASM plugins.
@@ -79,12 +94,112 @@ impl PluginRegistry {
     /// Register a named plugin at the given component path.
     /// Overwrites any previous registration with the same name.
     pub async fn register(&self, name: impl Into<String>, component_path: PathBuf) {
+        self.register_with_opts(name, component_path, None).await;
+    }
+
+    /// Register a named plugin with optional container sandbox routing.
+    /// If `container_image` is `Some`, invocations will be routed through
+    /// a `ContainerSandbox` using the specified image.
+    pub async fn register_with_opts(
+        &self,
+        name: impl Into<String>,
+        component_path: PathBuf,
+        container_image: Option<String>,
+    ) {
         let name = name.into();
-        info!(plugin = %name, path = ?component_path, "PluginRegistry: registered");
+        info!(plugin = %name, path = ?component_path, container = ?container_image, "PluginRegistry: registered");
+        self.entries.write().await.insert(
+            name,
+            PluginEntry {
+                component_path,
+                container_image,
+                permissions: PluginPermissions::default(),
+            },
+        );
+    }
+
+    /// Register a named plugin with explicit permission grants.
+    ///
+    /// Overwrites any previous registration with the same name.
+    /// The `container_image` field is preserved if the entry already exists;
+    /// otherwise it defaults to `None`.
+    pub async fn register_with_permissions(
+        &self,
+        name: impl Into<String>,
+        component_path: PathBuf,
+        permissions: PluginPermissions,
+    ) {
+        let name = name.into();
+        info!(
+            plugin = %name,
+            path = ?component_path,
+            read = permissions.read,
+            write = permissions.write,
+            net = permissions.net,
+            "PluginRegistry: registered with permissions"
+        );
+        let mut guard = self.entries.write().await;
+        let entry = guard.entry(name).or_insert(PluginEntry {
+            component_path: component_path.clone(),
+            container_image: None,
+            permissions: PluginPermissions::default(),
+        });
+        entry.component_path = component_path;
+        entry.permissions = permissions;
+    }
+
+    /// Return the permissions currently granted to a plugin, or `None` if not registered.
+    pub async fn get_permissions(&self, name: &str) -> Option<PluginPermissions> {
         self.entries
-            .write()
+            .read()
             .await
-            .insert(name, PluginEntry { component_path });
+            .get(name)
+            .map(|e| e.permissions.clone())
+    }
+
+    /// Return the container image configured for a plugin, or `None` if not set / not registered.
+    pub async fn get_container_image(&self, name: &str) -> Option<String> {
+        self.entries
+            .read()
+            .await
+            .get(name)
+            .and_then(|e| e.container_image.clone())
+    }
+
+    /// Start a background task that polls registered plugin files every 5 seconds
+    /// and logs whenever an mtime change is detected.
+    ///
+    /// Returns a `JoinHandle` — drop (abort) it to stop watching.
+    /// No additional dependencies are required; polling uses `tokio::time::sleep`.
+    pub fn start_hot_reload(&self) -> tokio::task::JoinHandle<()> {
+        let entries = Arc::clone(&self.entries);
+
+        tokio::spawn(async move {
+            // Track the last-seen mtime for every registered plugin path.
+            let mut mtimes: HashMap<String, std::time::SystemTime> = HashMap::new();
+
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+                let guard = entries.read().await;
+                for (name, entry) in guard.iter() {
+                    if let Ok(meta) = std::fs::metadata(&entry.component_path) {
+                        if let Ok(modified) = meta.modified() {
+                            let prev = mtimes.get(name).copied();
+                            if prev.map(|t| t != modified).unwrap_or(false) {
+                                tracing::info!(
+                                    plugin = %name,
+                                    path = ?entry.component_path,
+                                    "HotReload: change detected"
+                                );
+                            }
+                            mtimes.insert(name.clone(), modified);
+                        }
+                    }
+                }
+                // Guard is dropped at end of block before next sleep.
+            }
+        })
     }
 
     /// Deregister a plugin by name.  Returns `true` if it was present.
@@ -102,16 +217,51 @@ impl PluginRegistry {
     /// Returns [`PluginResult`] with wall-clock execution metrics.
     /// Returns an error if the plugin is not registered or execution fails.
     pub async fn invoke(&self, name: &str, topic: &str, payload: &str) -> Result<PluginResult> {
-        let path = {
+        let (path, container_image) = {
             let guard = self.entries.read().await;
-            guard
+            let entry = guard
                 .get(name)
-                .ok_or_else(|| anyhow!("Plugin '{}' is not registered", name))?
-                .component_path
-                .clone()
+                .ok_or_else(|| anyhow!("Plugin '{}' is not registered", name))?;
+            (entry.component_path.clone(), entry.container_image.clone())
         };
 
         info!(plugin = %name, topic = %topic, "PluginRegistry: invoking");
+
+        // If a container image is configured, run the tool inside ContainerSandbox.
+        // The WASM file is mounted read-only and executed via a wasmtime-enabled image.
+        if let Some(image) = container_image {
+            use koad_sandbox::container::{ContainerConfig, ContainerSandbox};
+            use std::time::Duration;
+
+            let host_path = path.to_string_lossy().to_string();
+            let container_path = "/plugin.wasm".to_string();
+
+            let config = ContainerConfig {
+                image,
+                runtime: "docker".to_string(),
+                memory_limit: "128m".to_string(),
+                cpu_limit: "0.5".to_string(),
+                allow_network: false,
+                read_only_mounts: vec![(host_path, container_path)],
+                timeout: Duration::from_secs(30),
+            };
+
+            let cmd = format!(
+                "wasmtime run /plugin.wasm --invoke on_signal -- '{}' '{}'",
+                topic.replace('\'', "\\'"),
+                payload.replace('\'', "\\'")
+            );
+
+            let start = Instant::now();
+            let result = ContainerSandbox::new(config).execute(&cmd).await?;
+            let duration_ms = start.elapsed().as_millis() as u64;
+
+            return Ok(PluginResult {
+                plugin_name: name.to_string(),
+                output: result.stdout,
+                metrics: PluginMetrics { duration_ms, memory_bytes: result.memory_bytes },
+            });
+        }
 
         let start = Instant::now();
         let output = self.manager.run_plugin(&path, topic, payload).await?;
@@ -250,9 +400,11 @@ mod tests {
     #[tokio::test]
     async fn test_registry_resilience() {
         let registry = PluginRegistry::new().expect("registry init");
-        
+
         // 1. Missing File
-        registry.register("missing", PathBuf::from("nonexistent.wasm")).await;
+        registry
+            .register("missing", PathBuf::from("nonexistent.wasm"))
+            .await;
         let res = registry.invoke("missing", "topic", "{}").await;
         assert!(res.is_err());
         let err_msg = res.unwrap_err().to_string();
@@ -266,7 +418,51 @@ mod tests {
         assert!(res.is_err());
         let err_msg = res.unwrap_err().to_string();
         assert!(err_msg.contains("Failed to load plugin"), "Error was: {}", err_msg);
-        
+
         let _ = std::fs::remove_file(&temp_file);
+    }
+
+    #[tokio::test]
+    async fn test_register_with_permissions() {
+        let registry = PluginRegistry::new().expect("registry init");
+
+        let perms = PluginPermissions { read: true, write: false, net: true };
+        registry
+            .register_with_permissions("secure", PathBuf::from("secure.wasm"), perms)
+            .await;
+
+        let retrieved = registry.get_permissions("secure").await.expect("should exist");
+        assert!(retrieved.read);
+        assert!(!retrieved.write);
+        assert!(retrieved.net);
+
+        // Unknown plugin returns None.
+        assert!(registry.get_permissions("ghost").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_register_with_permissions_preserves_container_image() {
+        let registry = PluginRegistry::new().expect("registry init");
+
+        // First register with a container image via register_with_opts.
+        registry
+            .register_with_opts(
+                "sandboxed",
+                PathBuf::from("sandboxed.wasm"),
+                Some("koad/runner:latest".to_string()),
+            )
+            .await;
+
+        // Now apply permissions — container_image must be preserved.
+        let perms = PluginPermissions { read: false, write: false, net: false };
+        registry
+            .register_with_permissions("sandboxed", PathBuf::from("sandboxed.wasm"), perms)
+            .await;
+
+        // Entry must still exist, permissions must be updated, and container_image must be preserved.
+        let retrieved = registry.get_permissions("sandboxed").await.expect("should exist");
+        assert!(!retrieved.read);
+        let image = registry.get_container_image("sandboxed").await;
+        assert_eq!(image.as_deref(), Some("koad/runner:latest"), "container_image must survive register_with_permissions");
     }
 }

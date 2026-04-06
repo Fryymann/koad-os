@@ -1,5 +1,5 @@
 # KoadOS Agent Identity Anchor
-Generated At: 2026-04-03T18:06:49.671264765+00:00
+Generated At: 2026-04-06T05:37:44.339985103+00:00
 
 ## Identity
 Name: Clyde
@@ -31,11 +31,11 @@ To minimize token burn, you are STRICTLY FORBIDDEN from reading entire source fi
 
 ## 🧠 Temporal Context Packet (CASS)
 # Temporal Context Hydration: clyde
-Date: 2026-04-03
+Date: 2026-04-06
 
 ## Ⅲ. Workspace Hierarchy
 ### Level: LevelCitadel
-Path: ~/.koad-os
+Path: /home/ideans/.koad-os
 
 ## Ⅳ. Crate API Maps (Ghost Summaries)
 The following public items are available in your current workspace members. Use these to find symbols without reading files.
