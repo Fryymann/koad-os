@@ -152,10 +152,17 @@ Date: {}
         }
 
         if !layers.is_empty() {
+            let home_dir = std::env::var("HOME").unwrap_or_default();
             packet.push_str("## Ⅲ. Workspace Hierarchy\n");
             for layer in layers.iter().rev() {
                 let level = self.hierarchy.resolve_level(layer);
-                let layer_info = format!("### Level: {:?}\nPath: {}\n\n", level, layer.display());
+                let display_path = layer.to_string_lossy();
+                let sanitized = if !home_dir.is_empty() {
+                    display_path.replacen(&home_dir, "~", 1)
+                } else {
+                    display_path.into_owned()
+                };
+                let layer_info = format!("### Level: {:?}\nPath: {}\n\n", level, sanitized);
                 if count_tokens(&packet) + count_tokens(&layer_info) < budget {
                     packet.push_str(&layer_info);
                     source_files.push(layer.to_string_lossy().to_string());
