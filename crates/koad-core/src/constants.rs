@@ -41,10 +41,6 @@ pub const DEFAULT_CITADEL_SOCK: &str = "run/kcitadel.sock";
 /// Default Admin socket filename (relative to KOAD_HOME)
 pub const DEFAULT_ADMIN_SOCK: &str = "run/kadmin.sock";
 
-/// Default PID filenames (relative to KOAD_HOME)
-pub const DEFAULT_CITADEL_PID: &str = "run/kcitadel.pid";
-pub const DEFAULT_GATEWAY_PID: &str = "run/kgateway.pid";
-
 /// Redis Channels
 pub const REDIS_CHANNEL_TELEMETRY: &str = "koad:telemetry";
 pub const REDIS_CHANNEL_SESSIONS: &str = "koad:sessions";
