@@ -53,8 +53,8 @@ backups/
 *.rdb
 
 # --- Binaries & Build Artifacts ---
-bin/
-!bin/*.sh
+/bin/
+!/bin/*.sh
 target/
 **/target/
 node_modules/

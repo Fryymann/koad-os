@@ -208,35 +208,51 @@ async fn main() -> Result<()> {
                 let project_root_hydra = project_root.clone();
 
                 let lease_task = tokio::spawn(async move {
-                    if let Ok(channel) = Endpoint::from_shared(citadel_addr)
+                    match Endpoint::from_shared(citadel_addr.clone())
                         .unwrap()
                         .connect_timeout(BOOT_SERVICE_TIMEOUT)
                         .timeout(BOOT_SERVICE_TIMEOUT)
                         .connect()
                         .await
                     {
-                        let mut client = CitadelSessionClient::new(channel);
-                        let request = tonic::Request::new(LeaseRequest {
-                            context: Some(TraceContext {
-                                trace_id: format!("BOOT-{}", cache_hash),
-                                origin: "Bridge".to_string(),
-                                actor: agent_name_lease.clone(),
-                                timestamp: Some(prost_types::Timestamp {
-                                    seconds: now.timestamp(),
-                                    nanos: 0,
+                        Ok(channel) => {
+                            let mut client = CitadelSessionClient::new(channel);
+                            let mut request = tonic::Request::new(LeaseRequest {
+                                context: Some(TraceContext {
+                                    trace_id: format!("BOOT-{}", cache_hash),
+                                    origin: "Bridge".to_string(),
+                                    actor: agent_name_lease.clone(),
+                                    timestamp: Some(prost_types::Timestamp {
+                                        seconds: now.timestamp(),
+                                        nanos: 0,
+                                    }),
+                                    level: WorkspaceLevel::LevelUnspecified as i32,
                                 }),
-                                level: WorkspaceLevel::LevelUnspecified as i32,
-                            }),
-                            agent_name: agent_name_lease,
-                            project_root: project_root_lease,
-                            force: true,
-                            body_id: cache_hash.to_string(),
-                            driver_id: "cli".to_string(),
-                            metrics: None,
-                        });
-                        client.create_lease(request).await.ok()
-                    } else {
-                        None
+                                agent_name: agent_name_lease.clone(),
+                                project_root: project_root_lease,
+                                force: true,
+                                body_id: cache_hash.to_string(),
+                                driver_id: "cli".to_string(),
+                                metrics: None,
+                            });
+
+                            // Add mandatory Zero-Trust headers
+                            request.metadata_mut().insert("x-actor", agent_name_lease.parse().unwrap());
+                            request.metadata_mut().insert("x-session-id", "BOOT".parse().unwrap());
+                            request.metadata_mut().insert("x-session-token", "NONE".parse().unwrap());
+
+                            match client.create_lease(request).await {
+                                Ok(resp) => Some(resp),
+                                Err(e) => {
+                                    eprintln!("\x1b[33m[BOOT] Citadel Lease RPC Failed: {}\x1b[0m", e);
+                                    None
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            eprintln!("\x1b[33m[BOOT] Failed to connect to Citadel at {}: {}\x1b[0m", citadel_addr, e);
+                            None
+                        }
                     }
                 });
 
