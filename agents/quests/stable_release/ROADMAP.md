@@ -13,6 +13,8 @@ This roadmap translates the high-level v3.2.0 Agenda into actionable sprints and
     *   *Outline:* Rewrite the core onboarding documents (`MISSION.md` and `AGENTS.md`) to reflect the new, portable boot process. Provide clear, step-by-step instructions for a new user cloning the repository for the first time.
 *   **Task 1.4: Crew Manifest Standardization [COMPLETE]**
     *   *Outline:* Decouple the "Instance" crew manifest from the "Distribution" template. Redact specific names from `agents/crews/TEMPLATE.md` and ensure instance manifests are gitignored.
+*   **Task 1.5: Hierarchical Workspace Deployment [COMPLETE]**
+    *   *Outline:* Implement `koad deploy station` and `koad deploy outpost` subcommands. These commands scaffold the necessary directory structure (`data`, `docs`, `config`, `updates`) and create hidden support folders (`.koados-station/outpost`) for mission-specific agent context and quests, while maintaining core identities at the Citadel level.
 
 ## Phase 2: "Zero-Ghost Policy" (Robustness & Stability)
 **Goal:** KoadOS must elegantly handle process lifecycle events, preventing orphaned sockets, stale PIDs, and database locks.

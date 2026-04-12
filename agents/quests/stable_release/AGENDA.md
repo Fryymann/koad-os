@@ -18,7 +18,8 @@
 
 ### 3. Distribution & Onboarding (Shareability)
 - [x] **Sanctuary Audit (COMPLETE):** Scrub all hardcoded paths (e.g., `/home/ideans/`) from `distribution` crates. Absolute reliance on `KOAD_HOME` and `resolve_vault_path` is now enforced.
-- [ ] **Bootstrap Verification:** Audit `install/bootstrap.sh` for idempotency and compatibility on fresh WSL2/Linux environments.
+- [x] **Hierarchical Scaffolding (COMPLETE):** Implemented `koad deploy station/outpost` to automate the creation of project hubs and mission sectors with localized support folders.
+- [ ] **Bootstrap Verification:** Audit `install/bootstrap.sh` for idempotency and compatibility on fresh WSL2/Linux environments. Interactive Captain creation is now integrated into `koad system init`.
 - [ ] **The Admiral's Guide:** Update `MISSION.md` and `AGENTS.md` for a clean "Quick Start" onboarding flow.
 
 ### 4. Technical Debt & Final Polish
