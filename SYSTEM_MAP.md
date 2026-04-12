@@ -96,7 +96,7 @@ KoadOS follows a strict separation between the **Distribution** (the shared plat
 │   ├── koad-citadel/          # Citadel gRPC service (:50051)
 │   ├── koad-cass/             # CASS gRPC service (:50052) — agent cognition
 │   ├── koad-plugins/          # WASM plugin runtime (wasmtime)
-│   ├── koad-cli/              # koad, koad-agent binaries; all CLI subcommands
+│   ├── koad-cli/              # koad, koad-agent binaries; CLI handlers and utils
 │   ├── koad-board/            # Updates board service
 │   ├── koad-sandbox/          # Container execution sandbox (Phase 4.2)
 │   ├── koad-codegraph/        # Static code graph analysis

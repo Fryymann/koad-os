@@ -103,7 +103,8 @@ Small models, running locally, spending tokens only on real thinking, accumulati
 - **The Citadel** is in early build — orchestration, monitoring, and governance features are being stood up incrementally.
 - **Phase 4 (COMPLETE):** Dynamic Tools & Containerized Sandboxes — externalizing tool execution and isolating environments.
 - **Phase 5 (COMPLETE):** koad-agent MVP — Context Generation Engine and standalone boot/task management are live.
-- **Phase 6 (ACTIVE):** Canon Lock — Documentation distillation and architectural stabilization.
+- **Phase 6 (COMPLETE):** Canon Lock — Documentation distillation and architectural stabilization.
+- **Phase 7 (ACTIVE):** v3.2.0 Stable Release — "Citadel Integrity" push.
 </aside>
 
 ---
