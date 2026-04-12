@@ -282,6 +282,9 @@ async fn main() -> Result<()> {
         Commands::Sandbox { command, image, network, memory, podman } => {
             crate::handlers::sandbox::handle_sandbox_run(command, image, network, memory, podman).await?;
         }
+        Commands::Deploy { action } => {
+            crate::handlers::deploy::handle_deploy_action(action, &config).await?;
+        }
     }
 
     Ok(())

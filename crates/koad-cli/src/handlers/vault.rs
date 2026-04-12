@@ -6,7 +6,7 @@
 use anyhow::{Context, Result};
 use koad_core::config::KoadConfig;
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::fs;
 
 use crate::cli::VaultAction;

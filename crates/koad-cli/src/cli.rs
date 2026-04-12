@@ -206,6 +206,26 @@ pub enum Commands {
         #[arg(long)]
         podman: bool,
     },
+
+    /// Deploy and scaffold KoadOS workspace components (Station, Outpost).
+    Deploy {
+        #[command(subcommand)]
+        action: DeployAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum DeployAction {
+    /// Scaffold a new KoadOS Station in the current directory.
+    Station {
+        /// Station name.
+        name: String,
+    },
+    /// Scaffold a new KoadOS Outpost in the current directory.
+    Outpost {
+        /// Outpost name.
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]

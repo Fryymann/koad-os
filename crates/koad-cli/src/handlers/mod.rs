@@ -4,6 +4,7 @@ pub mod board;
 pub mod boot;
 pub mod bridge;
 pub mod cognitive;
+pub mod deploy;
 pub mod fleet;
 pub mod guide;
 pub mod import;
