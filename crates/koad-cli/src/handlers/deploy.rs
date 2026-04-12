@@ -24,7 +24,7 @@ async fn handle_deploy_station(name: &str, config: &KoadConfig) -> Result<()> {
     println!("\n\x1b[1;34m--- Deploying KoadOS Station: {} ---\x1b[0m", name);
     println!("  Target: {}\n", cwd.display());
 
-    // 1. Directory Structure
+    // 1. Base Directory Structure
     let dirs = ["data", "docs", "config", "logs", "updates"];
     for d in &dirs {
         let p = cwd.join(d);
@@ -34,7 +34,20 @@ async fn handle_deploy_station(name: &str, config: &KoadConfig) -> Result<()> {
         }
     }
 
-    // 2. STATION.md
+    // 2. Hidden Support Directory (.koados-station)
+    let station_dir = cwd.join(".koados-station");
+    let support_dirs = ["agents", "quests", "cache"];
+    for d in &support_dirs {
+        let p = station_dir.join(d);
+        if !p.exists() {
+            fs::create_dir_all(&p)?;
+            println!("  \x1b[32m[CREATE]\x1b[0m .koados-station/{}/", d);
+        }
+        // Create .gitkeep to track directory structure
+        fs::File::create(p.join(".gitkeep"))?;
+    }
+
+    // 3. STATION.md
     let station_md = format!(
         "# Station: {name}\n\n\
          **Role:** Project Hub / Service Node\n\
@@ -46,13 +59,14 @@ async fn handle_deploy_station(name: &str, config: &KoadConfig) -> Result<()> {
          - `data/` — Shared station-level datasets\n\
          - `docs/` — Canonical specs and architectural guides\n\
          - `config/` — Station-level configuration and identity overrides\n\
-         - `updates/` — Chronological event stream for this station\n",
+         - `updates/` — Chronological event stream for this station\n\
+         - `.koados-station/` — Station-specific agent context and quests (Local Only)\n",
         name = name,
         citadel_home = config.home.display()
     );
     write_file(&cwd, "STATION.md", &station_md)?;
 
-    // 3. .koad-os symlink
+    // 4. .koad-os symlink
     create_citadel_link(&cwd, &config.home)?;
 
     println!("\n\x1b[1;32m[SUCCESS]\x1b[0m Station '{}' deployed successfully.", name);
@@ -66,7 +80,7 @@ async fn handle_deploy_outpost(name: &str, config: &KoadConfig) -> Result<()> {
     println!("\n\x1b[1;34m--- Deploying KoadOS Outpost: {} ---\x1b[0m", name);
     println!("  Target: {}\n", cwd.display());
 
-    // 1. Directory Structure
+    // 1. Base Directory Structure
     let dirs = ["docs", "config", "updates"];
     for d in &dirs {
         let p = cwd.join(d);
@@ -76,7 +90,20 @@ async fn handle_deploy_outpost(name: &str, config: &KoadConfig) -> Result<()> {
         }
     }
 
-    // 2. OUTPOST.md
+    // 2. Hidden Support Directory (.koados-outpost)
+    let outpost_dir = cwd.join(".koados-outpost");
+    let support_dirs = ["agents", "quests", "cache"];
+    for d in &support_dirs {
+        let p = outpost_dir.join(d);
+        if !p.exists() {
+            fs::create_dir_all(&p)?;
+            println!("  \x1b[32m[CREATE]\x1b[0m .koados-outpost/{}/", d);
+        }
+        // Create .gitkeep to track directory structure
+        fs::File::create(p.join(".gitkeep"))?;
+    }
+
+    // 3. OUTPOST.md
     let outpost_md = format!(
         "# Outpost: {name}\n\n\
          **Role:** Active Project / Mission Sector\n\
@@ -87,13 +114,14 @@ async fn handle_deploy_outpost(name: &str, config: &KoadConfig) -> Result<()> {
          ## Sectors\n\n\
          - `docs/` — Project-specific documentation and task manifests\n\
          - `config/` — Outpost-level overrides (e.g. project-specific PATs)\n\
-         - `updates/` — Chronological event stream for this project\n",
+         - `updates/` — Chronological event stream for this project\n\
+         - `.koados-outpost/` — Project-specific agent context and quests (Local Only)\n",
         name = name,
         citadel_home = config.home.display()
     );
     write_file(&cwd, "OUTPOST.md", &outpost_md)?;
 
-    // 3. .koad-os symlink
+    // 4. .koad-os symlink
     create_citadel_link(&cwd, &config.home)?;
 
     println!("\n\x1b[1;32m[SUCCESS]\x1b[0m Outpost '{}' deployed successfully.", name);

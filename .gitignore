@@ -18,6 +18,14 @@ agents/SESSIONS_LOG.md
 agents/.claude/
 agents/.gemini/
 
+# Station/Outpost Support Directories
+.koados-station/agents/*
+.koados-station/quests/*
+.koados-station/cache/*
+.koados-outpost/agents/*
+.koados-outpost/quests/*
+.koados-outpost/cache/*
+
 # Crews: Ignore all manifests except the distribution template
 agents/crews/*
 !agents/crews/TEMPLATE.md
