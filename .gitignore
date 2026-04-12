@@ -57,6 +57,10 @@ release/
 .crates2.json
 
 # --- Standard Ignore Rules ---
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+
 # Claude Code Agent Workspace (Root only)
 /.claude/
 agents/.claude/worktrees/
