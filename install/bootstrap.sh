@@ -95,12 +95,15 @@ if [[ -f "$KOAD_HOME/config/defaults/kernel.toml" ]]; then
     fi
 fi
 
-if [[ -f "$KOAD_HOME/config/defaults/redis.conf" ]]; then
-    if [[ ! -f "$KOAD_HOME/config/redis.conf" ]]; then
-        cp "$KOAD_HOME/config/defaults/redis.conf" "$KOAD_HOME/config/redis.conf"
-        ok "config/redis.conf (created from default)"
+if [[ -f "$KOAD_HOME/config/defaults/redis.conf.template" ]]; then
+    if [[ ! -f "$KOAD_HOME/run/redis.active.conf" ]]; then
+        mkdir -p "$KOAD_HOME/run"
+        KOAD_HOME_ESCAPED=$(echo "$KOAD_HOME" | sed 's/\//\\\//g')
+        sed "s/{{KOAD_HOME}}/$KOAD_HOME_ESCAPED/g" \
+            "$KOAD_HOME/config/defaults/redis.conf.template" > "$KOAD_HOME/run/redis.active.conf"
+        ok "run/redis.active.conf (generated from template)"
     else
-        ok "config/redis.conf (already exists)"
+        ok "run/redis.active.conf (already exists)"
     fi
 fi
 

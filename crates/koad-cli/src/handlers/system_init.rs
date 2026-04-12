@@ -90,15 +90,18 @@ pub fn run(config: &KoadConfig, force: bool) -> Result<()> {
         }
     }
 
-    // 4. redis.conf (with path hydration)
-    let redis_path = home.join("config/redis.conf");
-    if !redis_path.exists() || force {
-        let template_path = PathBuf::from("config/defaults/redis.conf");
+    // 4. redis.active.conf (runtime-hydrated from template)
+    let active_conf_path = home.join("run/redis.active.conf");
+    if !active_conf_path.exists() || force {
+        let template_path = home.join("config/defaults/redis.conf.template");
         if template_path.exists() {
-            let content = fs::read_to_string(template_path)?;
+            fs::create_dir_all(home.join("run"))?;
+            let content = fs::read_to_string(&template_path)?;
             let hydrated = content.replace("{{KOAD_HOME}}", &home.to_string_lossy());
-            fs::write(&redis_path, hydrated)?;
-            println!("  \x1b[32m✓\x1b[0m Initialized config/redis.conf with hydrated paths");
+            fs::write(&active_conf_path, hydrated)?;
+            println!("  \x1b[32m✓\x1b[0m Initialized run/redis.active.conf with hydrated paths");
+        } else {
+            println!("  \x1b[33m⚠\x1b[0m redis.conf.template not found, skipping Redis config generation");
         }
     }
 

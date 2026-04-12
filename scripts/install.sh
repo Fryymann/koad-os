@@ -101,10 +101,12 @@ if [[ ! -f "$KOAD_HOME/config/kernel.toml" ]]; then
     ok "config/kernel.toml initialized"
 fi
 
-if [[ ! -f "$KOAD_HOME/config/redis.conf" ]]; then
-    # Use the generic redis.conf template and replace {{KOAD_HOME}}
-    sed "s/{{KOAD_HOME}}/$KOAD_HOME_ESCAPED/g" config/defaults/redis.conf > "$KOAD_HOME/config/redis.conf"
-    ok "config/redis.conf initialized with $KOAD_HOME"
+if [[ ! -f "$KOAD_HOME/run/redis.active.conf" ]]; then
+    # Hydrate the Redis config template with resolved KOAD_HOME
+    mkdir -p "$KOAD_HOME/run"
+    sed "s/{{KOAD_HOME}}/$KOAD_HOME_ESCAPED/g" \
+        config/defaults/redis.conf.template > "$KOAD_HOME/run/redis.active.conf"
+    ok "run/redis.active.conf initialized with $KOAD_HOME"
 fi
 
 # 5. Compile & Install
