@@ -17,7 +17,7 @@
 - [ ] **Vault Skill CLI:** Implement `koad vault skill` to allow listing and inspecting available skills.
 
 ### 3. Distribution & Onboarding (Shareability)
-- [ ] **Sanctuary Audit (CRITICAL):** Scrub all hardcoded paths (e.g., `/home/ideans/`) from `distribution` crates. Ensure absolute reliance on `KOAD_HOME` and `resolve_vault_path`.
+- [x] **Sanctuary Audit (COMPLETE):** Scrub all hardcoded paths (e.g., `/home/ideans/`) from `distribution` crates. Absolute reliance on `KOAD_HOME` and `resolve_vault_path` is now enforced.
 - [ ] **Bootstrap Verification:** Audit `install/bootstrap.sh` for idempotency and compatibility on fresh WSL2/Linux environments.
 - [ ] **The Admiral's Guide:** Update `MISSION.md` and `AGENTS.md` for a clean "Quick Start" onboarding flow.
 
@@ -28,5 +28,5 @@
 ---
 
 ## 🛰️ Current Focus
-- **Task:** 3.1 Sanctuary Audit (Hardcoded Path Removal)
+- **Task:** 3.2 Bootstrap Verification (scripts/install.sh audit)
 - **Priority:** Alpha (Blocker for Shareability)

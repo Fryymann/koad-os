@@ -181,9 +181,13 @@ async fn main() -> Result<()> {
                         }
                         // Export GitHub context alongside PAT for agents with GitHub access
                         if prefs.access_keys.iter().any(|k| k == "GITHUB_PAT" || k == "KOADOS_PAT_GITHUB_ADMIN") {
-                            let github_user = config.resolve_secret("GITHUB_USER", None);
-                            if !github_user.is_empty() {
-                                println!("export GITHUB_OWNER=\"{}\";", github_user);
+                            let github_owner = config.get_github_owner(None);
+                            if !github_owner.is_empty() {
+                                println!("export GITHUB_OWNER=\"{}\";", github_owner);
+                            }
+                            let github_repo = config.get_github_repo(None);
+                            if !github_repo.is_empty() {
+                                println!("export GITHUB_REPO=\"{}\";", github_repo);
                             }
                             println!("export GITHUB_PROJECT_NUMBER=2;");
                         }

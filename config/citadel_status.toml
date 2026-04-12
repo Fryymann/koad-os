@@ -65,15 +65,6 @@ stub = true
 probe_type = "none"
 
 [[status_registry.status_board.systems]]
-id = "web-deck"
-name = "Web Deck (Gateway)"
-subsystem = "Interface"
-enabled = true
-stub = false
-probe_type = "process"
-probe_target = "kgateway"
-
-[[status_registry.status_board.systems]]
 id = "personal-bay"
 name = "Personal Bays"
 subsystem = "Storage"

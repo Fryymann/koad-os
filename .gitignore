@@ -1,17 +1,35 @@
 # KoadOS v3 Exhaustive Ignore Rules
 
 # --- Instance-Specific State & Config ---
+plans/
+new_world/
 config/kernel.toml
 config/redis.conf
 config/integrations/*.toml
 .env
 .env.*
-agents/crews/*.md
-!agents/crews/TEMPLATE.md
+
+# --- Agents Directory (Instance State) ---
+agents/bays/*
+agents/bodies/*
+agents/inbox/*
+agents/sessions_archive/*
 agents/SESSIONS_LOG.md
-agents/sessions_archive/
-agents/bays/
-bays/
+agents/.claude/
+agents/.gemini/
+
+# Crews: Ignore all manifests except the distribution template
+agents/crews/*
+!agents/crews/TEMPLATE.md
+
+# KAPVs: Ignore all personal vaults (Identities, Memory, local tasks)
+agents/KAPVs/*
+
+# Quests: Ignore instance-specific quests
+agents/quests/master_development/
+# (stable_release and side_quests remain tracked as distribution roadmaps)
+
+# Root-level ignored data
 cache/
 logs/
 portals/
@@ -19,7 +37,6 @@ run/
 data/db/
 data/redis/
 backups/
-agents/KAPVs/*/memory/
 *.db
 *.db-shm
 *.db-wal

@@ -50,8 +50,6 @@ pub struct KoadConfig {
     pub status_registry: Option<CitadelStatusRegistry>,
     #[serde(default = "default_sessions")]
     pub sessions: SessionsConfig,
-    #[serde(default = "default_watchdog")]
-    pub watchdog: WatchdogConfig,
     #[serde(default = "default_sandbox")]
     pub sandbox: SandboxConfig,
     #[serde(default)]
@@ -76,8 +74,6 @@ pub struct KoadConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkConfig {
-    pub gateway_port: u32,
-    pub gateway_addr: String,
     pub citadel_grpc_port: u32,
     pub citadel_grpc_addr: String,
     pub cass_grpc_port: u32,
@@ -108,13 +104,6 @@ pub struct SessionsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WatchdogConfig {
-    pub check_interval_secs: u64,
-    pub max_failures: u32,
-    pub monitor_asm: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SandboxConfig {
     pub enabled: bool,
     pub blacklist: Vec<String>,
@@ -124,6 +113,8 @@ pub struct SandboxConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemConfig {
     pub version: String,
+    pub github_owner: Option<String>,
+    pub github_repo: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,7 +249,14 @@ pub struct ProjectDirConfig {
 impl KoadConfig {
     pub fn load() -> Result<Self> {
         let home = match env::var("KOADOS_HOME").or_else(|_| env::var("KOAD_HOME")) {
-            Ok(val) => PathBuf::from(val),
+            Ok(val) => {
+                if val.starts_with('~') {
+                    let home_dir = dirs::home_dir().context("Could not determine home directory for tilde expansion.")?;
+                    PathBuf::from(val.replacen('~', &home_dir.to_string_lossy(), 1))
+                } else {
+                    PathBuf::from(val)
+                }
+            }
             Err(_) => dirs::home_dir()
                 .context("Could not determine home directory and KOADOS_HOME is not set")?
                 .join(".koad-os"),
@@ -422,6 +420,11 @@ impl KoadConfig {
             }
         }
         
+        // 2. Check System Config
+        if let Some(ref o) = self.system.github_owner {
+            return o.clone();
+        }
+
         // Hierarchical fallback for owner
         let owner = self.resolve_secret("GITHUB_USER", project);
         if !owner.is_empty() {
@@ -441,6 +444,12 @@ impl KoadConfig {
                 }
             }
         }
+        
+        // 2. Check System Config
+        if let Some(ref r) = self.system.github_repo {
+            return r.clone();
+        }
+
         self.integrations.github.as_ref()
             .map(|g| g.default_repo.clone())
             .unwrap_or_else(|| DEFAULT_GITHUB_REPO.to_string())
@@ -549,8 +558,6 @@ impl KoadConfig {
 
 pub fn default_network() -> NetworkConfig {
     NetworkConfig {
-        gateway_port: DEFAULT_GATEWAY_PORT,
-        gateway_addr: DEFAULT_GATEWAY_ADDR.to_string(),
         citadel_grpc_port: DEFAULT_CITADEL_GRPC_PORT,
         citadel_grpc_addr: DEFAULT_CITADEL_GRPC_ADDR.to_string(),
         cass_grpc_port: DEFAULT_CASS_GRPC_PORT,
@@ -578,15 +585,8 @@ pub fn default_sessions() -> SessionsConfig {
     }
 }
 
-pub fn default_watchdog() -> WatchdogConfig {
-    WatchdogConfig {
-        check_interval_secs: 10,
-        max_failures: 3,
-        monitor_asm: true,
-    }
-}
+fn default_sandbox() -> SandboxConfig {
 
-pub fn default_sandbox() -> SandboxConfig {
     SandboxConfig {
         enabled: true,
         blacklist: vec![

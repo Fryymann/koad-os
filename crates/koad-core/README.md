@@ -4,7 +4,7 @@ The shared hull of the **KoadOS** spaceship. This crate provides the foundationa
 
 ## 🏗 Overview
 
-`koad-core` serves as the primary library for internal consistency. It defines the common language that the Spine, ASM, and CLI use to communicate and persist state.
+`koad-core` serves as the primary library for internal consistency. It defines the common language that the Citadel, CASS, and CLI use to communicate and persist state.
 
 ## 🔑 Key Modules
 

@@ -2,18 +2,17 @@
 
 This roadmap translates the high-level v3.2.0 Agenda into actionable sprints and task outlines. It serves as the foundation for generating detailed, spec-driven task manifests for delegation to the KoadOS crew.
 
-## Phase 1: "Sanctuary Alignment" (Distribution Readiness)
+## Phase 1: "Sanctuary Alignment" (Distribution Readiness) [COMPLETE]
 **Goal:** Ensure the codebase is entirely portable and can be safely booted on any new Linux/WSL environment without manual path patching.
 
-*   **Task 1.1: The Great Path Scrub (Audit & Refactor)**
+*   **Task 1.1: The Great Path Scrub (Audit & Refactor) [COMPLETE]**
     *   *Outline:* Systematically hunt down and replace all hardcoded absolute paths (e.g., `/home/ideans/`) within the `crates/` and `config/` directories. All file operations must dynamically resolve relative to `$KOAD_HOME` or `$KOADOS_HOME`.
-    *   *Target:* `crates/koad-cli/src/bin/register-tool.rs`, `config/redis.conf`, and any others discovered via regex audit.
-*   **Task 1.2: Bootstrap Idempotency**
-    *   *Outline:* Refactor `install/bootstrap.sh` to ensure it safely handles repeated executions. It must dynamically set up the `.env` file, scaffold required data directories (`data/db`, `logs`, `run`), and initialize the basic identity TOMLs without relying on user-specific paths.
-*   **Task 1.3: The Admiral's Guide (Documentation)**
+*   **Task 1.2: Bootstrap Idempotency [COMPLETE]**
+    *   *Outline:* Refactor `scripts/install.sh` and `koad system init` to ensure they safely handle repeated executions. It must dynamically set up the `.env` file, scaffold required data directories (`data/db`, `logs`, `run`), and initialize the basic identity TOMLs without relying on user-specific paths.
+*   **Task 1.3: The Admiral's Guide (Documentation) [COMPLETE]**
     *   *Outline:* Rewrite the core onboarding documents (`MISSION.md` and `AGENTS.md`) to reflect the new, portable boot process. Provide clear, step-by-step instructions for a new user cloning the repository for the first time.
-*   **Task 1.4: Crew Manifest Standardization**
-    *   *Outline:* Decouple the "Instance" crew manifest from the "Distribution" template. Redact specific names from `agents/crews/TEMPLATE.md` and ensure `CITADEL_JUPITER.md` is the canonical record for this deployment.
+*   **Task 1.4: Crew Manifest Standardization [COMPLETE]**
+    *   *Outline:* Decouple the "Instance" crew manifest from the "Distribution" template. Redact specific names from `agents/crews/TEMPLATE.md` and ensure instance manifests are gitignored.
 
 ## Phase 2: "Zero-Ghost Policy" (Robustness & Stability)
 **Goal:** KoadOS must elegantly handle process lifecycle events, preventing orphaned sockets, stale PIDs, and database locks.

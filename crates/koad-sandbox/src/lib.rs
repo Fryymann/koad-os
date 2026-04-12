@@ -1,7 +1,7 @@
 //! # KoadOS Command Sandbox
 //!
 //! Enforces security policies on agent commands before they are executed.
-//! The Sandbox is config-driven, replacing the hardcoded legacy Spine logic with
+//! The Sandbox is config-driven, replacing the hardcoded legacy logic with
 //! dynamic policies defined in `kernel.toml`.
 //!
 //! ## Modules

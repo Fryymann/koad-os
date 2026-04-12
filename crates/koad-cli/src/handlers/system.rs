@@ -210,7 +210,6 @@ pub async fn handle_system_action(
                             anyhow::bail!("Invalid number: {}", value);
                         }
                     }
-                    "gateway_addr" => hot_config.network.gateway_addr = value.clone(),
                     "citadel_grpc_addr" => hot_config.network.citadel_grpc_addr = value.clone(),
                     _ => {
                         hot_config.extra.insert(key.clone(), value.clone());
@@ -244,7 +243,6 @@ pub async fn handle_system_action(
                         .unwrap_or_else(|| "Not Configured".to_string());
                     println!("{}", val);
                 }
-                "gateway_addr" => println!("{}", config.network.gateway_addr),
                 "citadel_grpc_addr" => println!("{}", config.network.citadel_grpc_addr),
                 _ => {
                     if let Some(v) = config.extra.get(&key) {

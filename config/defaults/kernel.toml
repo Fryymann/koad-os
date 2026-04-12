@@ -1,9 +1,9 @@
 [system]
 version = "3.2"
+github_owner = "Fryymann"
+github_repo = "koad-os"
 
 [network]
-gateway_port = 3000
-gateway_addr = "0.0.0.0:3000"
 citadel_grpc_port = 50051
 citadel_grpc_addr = "http://127.0.0.1:50051"
 cass_grpc_port = 50052
@@ -21,11 +21,6 @@ dark_timeout_secs = 60
 purge_timeout_secs = 300
 lease_duration_secs = 90
 reaper_interval_secs = 10
-
-[watchdog]
-check_interval_secs = 10
-max_failures = 3
-monitor_asm = true
 
 [filesystem]
 workspace_root = "~"

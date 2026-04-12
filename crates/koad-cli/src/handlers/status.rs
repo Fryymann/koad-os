@@ -7,7 +7,6 @@ use koad_core::health::{HealthRegistry, HealthStatus};
 use koad_core::utils::redis::RedisClient;
 use koad_intelligence::InferenceClient;
 use serde_json::Value;
-use sysinfo::System;
 
 pub async fn handle_status_command(
     json: bool,
@@ -118,27 +117,11 @@ pub async fn handle_status_command(
 
     // 2. Control Plane (Citadel)
     print!("{:<30}", "Control Plane (Citadel):");
-    let citadel_socket = config.get_citadel_socket();
+    let citadel_socket = config.get_admin_socket();
     if citadel_socket.exists() {
-        println!("\x1b[32m[PASS]\x1b[0m Neural bus (kcitadel.sock) active.");
+        println!("\x1b[32m[PASS]\x1b[0m Neural bus (kadmin.sock) active.");
     } else {
         println!("\x1b[33m[WARN]\x1b[0m Orchestrator link severed. Some features offline.");
-    }
-
-    // 2.1 Web Deck (kgateway Process Check)
-    print!("{:<30}", "Web Deck (Gateway):");
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    let is_gateway_running = sys
-        .processes()
-        .values()
-        .any(|p| p.name().contains("kgateway"));
-    if is_gateway_running {
-        println!("\x1b[32m[PASS]\x1b[0m Gateway pulse detected.");
-    } else {
-        println!(
-            "\x1b[31m[FAIL]\x1b[0m Web Deck is DARK. The Citadel is attempting autonomic recovery."
-        );
     }
 
     // 3. Memory Bank (SQLite)
