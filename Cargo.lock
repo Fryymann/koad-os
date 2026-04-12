@@ -2190,7 +2190,6 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "sysinfo",
  "tempfile",
  "tiktoken-rs",
  "tokio",

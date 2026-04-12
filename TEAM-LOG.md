@@ -81,7 +81,7 @@
 ### Issues Found
 
 1. DEFECT (minor) — test does not assert the `container_image` preservation it advertises.
-   - File: `/home/ideans/.koad-os/crates/koad-plugins/src/registry.rs`, line 435
+   - File: `~/.koad-os/crates/koad-plugins/src/registry.rs`, line 435
    - `test_register_with_permissions_preserves_container_image` only asserts `!retrieved.read`. It never reads back the `container_image` field or asserts it equals `"koad/runner:latest"`. The implementation is correct (the `or_insert` path preserves existing `container_image`), but the test gives false confidence — a future regression that zeroed `container_image` would not be caught.
    - Fix required: Add an assertion that `entry.container_image == Some("koad/runner:latest".to_string())` after calling `register_with_permissions`. Requires exposing `container_image` via a getter or making the field pub on `PluginEntry`.
 

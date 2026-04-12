@@ -3,7 +3,7 @@ Date: 2026-04-05
 
 ## Ⅲ. Workspace Hierarchy
 ### Level: LevelCitadel
-Path: /home/ideans/.koad-os
+Path: ~/.koad-os
 
 ## Ⅳ. Crate API Maps (Ghost Summaries)
 The following public items are available in your current workspace members. Use these to find symbols without reading files.
