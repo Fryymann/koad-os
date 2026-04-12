@@ -8,13 +8,14 @@
 ## 📋 The Stable Release Agenda
 
 ### 1. Robustness & Stability (Zero-Ghost Policy)
-- [ ] **Service Lifecycle:** Refine `koad-citadel` and `koad-cass` to handle graceful shutdowns and signal trapping.
-- [ ] **Autonomic Recovery:** Implement "Fix" logic in `koad doctor` for stale Redis keys, missing sockets, and orphaned PID-like state.
-- [ ] **Error Boundaries:** Update gRPC error propagation to provide user-facing "How to fix" messages.
+- [x] **Service Lifecycle:** Refine `koad-citadel` and `koad-cass` to handle graceful shutdowns and signal trapping. (COMPLETE)
+- [x] **Autonomic Recovery:** Implement "Fix" logic in `koad doctor` for stale Redis keys, missing sockets, and orphaned PID-like state. (COMPLETE)
+- [x] **Error Boundaries (CP-03-GRPC):** Transition gRPC errors to stylized, human-actionable prompts. (COMPLETE)
+- [x] **Fix Build Blockers (CP-05-FIX):** Resolve compile errors in `status.rs` related to fred streams. (COMPLETE)
 
 ### 2. Vault Phase 3: Skill & Blueprint Standardization
-- [ ] **Blueprint Model:** Formalize the Skill Blueprint vs. Instance architecture.
-- [ ] **Vault Skill CLI:** Implement `koad vault skill` to allow listing and inspecting available skills.
+- [ ] **Blueprint Model (CP-04-VAULT):** Formalize the Skill Blueprint vs. Instance architecture. (READY FOR DELEGATION)
+- [ ] **Vault Skill CLI (CP-04-VAULT):** Implement `koad vault skill` to allow listing and inspecting available skills. (READY FOR DELEGATION)
 
 ### 3. Distribution & Onboarding (Shareability)
 - [x] **Sanctuary Audit (COMPLETE):** Scrub all hardcoded paths (e.g., `/home/ideans/`) from `distribution` crates. Absolute reliance on `KOAD_HOME` and `resolve_vault_path` is now enforced.
@@ -25,9 +26,10 @@
 ### 4. Technical Debt & Final Polish
 - [ ] **Workspace Audit:** Run `cargo clippy --workspace` and resolve all warnings.
 - [ ] **Nightly Bridge:** Prepare and verify the final diff for merging `nightly` into `main`.
+- [ ] **AIS Refactor (Postponed):** Moved to [Side Quest SQ-01-AIS](../side_quests/SQ-01-AIS.md).
 
 ---
 
 ## 🛰️ Current Focus
-- **Task:** 3.2 Bootstrap Verification (scripts/install.sh audit)
-- **Priority:** Alpha (Blocker for Shareability)
+- **Task:** [CP-04-VAULT](./tasks/CP-04-VAULT.md) — Vault Phase 3: Skill Standardization
+- **Priority:** Alpha (Pluggable Architecture)

@@ -22,7 +22,7 @@ use crate::handlers::boot::handle_boot_command;
 use crate::handlers::bridge::handle_bridge_action;
 use crate::handlers::fleet::handle_fleet_action;
 use crate::handlers::intel::handle_intel_action;
-use crate::handlers::status::handle_status_command;
+use crate::handlers::status::{handle_doctor_command, handle_status_command};
 use crate::handlers::system::handle_system_action;
 use crate::handlers::xp::handle_xp_command;
 use crate::utils::{detect_model_tier, feature_gate, pre_flight, PreFlightStatus};
@@ -226,12 +226,7 @@ async fn main() -> Result<()> {
             handle_status_command(json, full, false, &config, &db).await?;
         }
         Commands::Doctor { fix, gpu } => {
-            handle_status_command(false, true, gpu, &config, &db).await?;
-            if fix {
-                println!("\n\x1b[1m--- Autonomic Self-Healing Initiated ---\x1b[0m");
-                // Trigger any specific local fixes here if needed
-                println!("System state evaluated. Local environmental alignment complete.");
-            }
+            handle_doctor_command(fix, gpu, &config, &db).await?;
         }
         Commands::Whoami => {
             crate::handlers::whoami::handle_whoami(&config, &db).await?;

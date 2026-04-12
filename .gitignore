@@ -81,3 +81,5 @@ agents/.claude/worktrees/
 .codex/
 *.swp
 *.swo
+# Added by code-review-graph
+.code-review-graph/

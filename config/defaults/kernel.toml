@@ -5,9 +5,9 @@ github_repo = "koad-os"
 
 [network]
 citadel_grpc_port = 50051
-citadel_grpc_addr = "http://127.0.0.1:50051"
+citadel_grpc_addr = "http://localhost:50051"
 cass_grpc_port = 50052
-cass_grpc_addr = "http://127.0.0.1:50052"
+cass_grpc_addr = "http://localhost:50052"
 redis_socket = "run/koad.sock"
 citadel_socket = "run/kcitadel.sock"
 

@@ -1,6 +1,7 @@
 use crate::cli::{ConfigAction, SystemAction};
 use crate::db::KoadDB;
 use crate::utils::{get_gdrive_token_for_path, get_gh_pat_for_path};
+use crate::utils::errors::map_connect_err;
 use anyhow::{Context, Result};
 use chrono::Local;
 use fred::interfaces::{HashesInterface, KeysInterface, LuaInterface};
@@ -936,7 +937,8 @@ pub async fn handle_heartbeat(
     let agent_name = config.get_agent_name();
     let mut client = CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone())
         .await
-        .context("Failed to connect to Citadel gRPC")?;
+        .map_err(|e| map_connect_err("KoadOS Citadel", &config.network.citadel_grpc_addr, e))
+        .map_err(anyhow::Error::from)?;
 
     if daemon {
         // Heartbeat Daemon: Subconscious Neural Pulse
@@ -1012,7 +1014,8 @@ pub async fn handle_context_action(
 ) -> Result<()> {
     let mut client = AdminClient::connect(config.network.citadel_grpc_addr.clone())
         .await
-        .context("Failed to connect to Citadel gRPC")?;
+        .map_err(|e| map_connect_err("KoadOS Citadel", &config.network.citadel_grpc_addr, e))
+        .map_err(anyhow::Error::from)?;
 
     match action {
         crate::cli::ContextAction::Hydrate {

@@ -1,6 +1,7 @@
 use crate::cli::IntelAction;
 use crate::db::KoadDB;
 use crate::utils::{detect_model_tier, feature_gate};
+use crate::utils::errors::map_connect_err;
 use anyhow::{Context, Result};
 use koad_core::config::KoadConfig;
 use koad_proto::citadel::v5::admin_client::AdminClient;
@@ -52,7 +53,8 @@ pub async fn handle_intel_action(
                 .context("KOAD_SESSION_ID not set. Please boot an agent first.")?;
             let mut client = AdminClient::connect(config.network.citadel_grpc_addr.clone())
                 .await
-                .context("Failed to connect to Citadel gRPC")?;
+                .map_err(|e| map_connect_err("KoadOS Citadel", &config.network.citadel_grpc_addr, e))
+                .map_err(anyhow::Error::from)?;
 
             client
                 .commit_knowledge(crate::utils::authenticated_request(
@@ -74,7 +76,8 @@ pub async fn handle_intel_action(
                 .context("KOAD_SESSION_ID not set. Please boot an agent first.")?;
             let mut client = AdminClient::connect(config.network.citadel_grpc_addr.clone())
                 .await
-                .context("Failed to connect to Citadel gRPC")?;
+                .map_err(|e| map_connect_err("KoadOS Citadel", &config.network.citadel_grpc_addr, e))
+                .map_err(anyhow::Error::from)?;
 
             client
                 .commit_knowledge(crate::utils::authenticated_request(
@@ -132,7 +135,8 @@ pub async fn handle_intel_action(
             );
             let mut client = AdminClient::connect(config.network.citadel_grpc_addr.clone())
                 .await
-                .context("Connect failed.")?;
+                .map_err(|e| map_connect_err("KoadOS Citadel", &config.network.citadel_grpc_addr, e))
+                .map_err(anyhow::Error::from)?;
             let resp = client
                 .get_file_snippet(crate::utils::authenticated_request(GetFileSnippetRequest {
                     context: context.clone(),

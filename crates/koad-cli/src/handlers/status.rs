@@ -1,12 +1,120 @@
 use crate::db::KoadDB;
 use anyhow::Result;
 use fred::interfaces::HashesInterface;
+use fred::types::Scanner;
+use futures_util::StreamExt;
 use koad_core::config::KoadConfig;
 use koad_core::constants::{REDIS_KEY_STATE, REDIS_KEY_SYSTEM_STATS};
 use koad_core::health::{HealthRegistry, HealthStatus};
 use koad_core::utils::redis::RedisClient;
 use koad_intelligence::InferenceClient;
 use serde_json::Value;
+
+pub async fn handle_doctor_command(
+    fix: bool,
+    gpu: bool,
+    config: &KoadConfig,
+    db: &KoadDB,
+) -> Result<()> {
+    // 1. Run full status check
+    println!("\x1b[1m--- [DOCTOR] Comprehensive System Health Check ---\x1b[0m");
+    handle_status_command(false, true, gpu, config, db).await?;
+
+    if fix {
+        println!("\n\x1b[1m--- [DOCTOR] Autonomic Self-Healing Initiated ---\x1b[0m");
+
+        // 1. Stale Sockets & PID Cleanup
+        let run_dir = config.home.join("run");
+        let redis_pid_path = run_dir.join("redis.pid");
+        let redis_sock_path = config.get_redis_socket();
+        let kadmin_sock_path = config.get_admin_socket();
+
+        // Check Redis
+        let redis_alive = is_process_alive_pgrep("redis-server");
+        if !redis_alive {
+            if redis_sock_path.exists() {
+                let _ = std::fs::remove_file(&redis_sock_path);
+                println!("\x1b[32m[FIXED]\x1b[0m Stale Redis socket removed.");
+            }
+            if redis_pid_path.exists() {
+                let _ = std::fs::remove_file(&redis_pid_path);
+                println!("\x1b[32m[FIXED]\x1b[0m Stale Redis PID file removed.");
+            }
+        }
+
+        // Check Citadel
+        let citadel_alive = is_process_alive_pgrep("koad-citadel");
+        if !citadel_alive && kadmin_sock_path.exists() {
+            let _ = std::fs::remove_file(&kadmin_sock_path);
+            println!("\x1b[32m[FIXED]\x1b[0m Stale Citadel admin socket removed.");
+        }
+
+        // 2. Redis State Purge (Session Ghost Hunting)
+        if redis_alive {
+            if let Ok(client) = RedisClient::new(&config.home.to_string_lossy(), false).await {
+                let mut scan_stream = Box::pin(client.pool.next().hscan(REDIS_KEY_STATE, "koad:session:*", None));
+                let mut stale_sessions = Vec::new();
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                while let Some(res) = scan_stream.next().await {
+                    if let Ok(page) = res {
+                        if let Some(fields) = page.results() {
+                            for (key, val) in fields.iter() {
+                                if let (Some(k), Some(v)) = (key.as_str(), val.as_str()) {
+                                    if let Ok(session) = serde_json::from_str::<serde_json::Value>(&v) {
+                                        let heartbeat = session["heartbeat"].as_u64().unwrap_or(0);
+                                        let timeout = session["deadman_timeout"].as_u64().unwrap_or(45);
+                                        if heartbeat > 0 && now - heartbeat > timeout + 30 { // Grace period of 30s
+                                            stale_sessions.push(k.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                for key in stale_sessions {
+                    let _: () = client.pool.hdel(REDIS_KEY_STATE, &key).await?;
+                    println!("\x1b[32m[FIXED]\x1b[0m Purged stale session ghost: {}", key);
+                }
+            }
+        }
+
+        // 3. Database Integrity
+        let db_path = config.get_db_path();
+        if db_path.exists() {
+            if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                let integrity: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+                if integrity == "ok" {
+                    println!("\x1b[32m[PASS]\x1b[0m Database integrity verified.");
+                } else {
+                    println!("\x1b[31m[FAIL]\x1b[0m Database corruption detected: {}", integrity);
+                    println!("\x1b[33m[WARN]\x1b[0m Attempting VACUUM...");
+                    let _ = conn.execute("VACUUM", []);
+                }
+            }
+        }
+
+        println!("\x1b[1m--- Autonomic Recovery Cycle Complete ---\x1b[0m");
+    }
+
+    Ok(())
+}
+
+fn is_process_alive_pgrep(name: &str) -> bool {
+    std::process::Command::new("pgrep")
+        .arg("-x")
+        .arg(name)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
 
 pub async fn handle_status_command(
     json: bool,

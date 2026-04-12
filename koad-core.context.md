@@ -7,7 +7,7 @@ Shared traits, types, and constants for the KoadOS workspace.
 
 ## Public API
 
-File: /home/ideans/.koad-os/crates/koad-core/src/config.rs
+File: $KOAD_HOME/crates/koad-core/src/config.rs
   - func: default_admin_socket
   - func: default
   - func: default_agent_tier
@@ -59,7 +59,7 @@ File: /home/ideans/.koad-os/crates/koad-core/src/config.rs
   - struct: ProjectConfig
   - struct: ProjectDirConfig
 
-File: /home/ideans/.koad-os/crates/koad-core/src/health.rs
+File: $KOAD_HOME/crates/koad-core/src/health.rs
   - func: new
   - func: add
   - func: check_subsystems
@@ -68,22 +68,22 @@ File: /home/ideans/.koad-os/crates/koad-core/src/health.rs
   - struct: HealthCheck
   - struct: HealthRegistry
 
-File: /home/ideans/.koad-os/crates/koad-core/src/hierarchy.rs
+File: $KOAD_HOME/crates/koad-core/src/hierarchy.rs
   - func: new
   - func: resolve_level
   - func: validate_access
   - struct: HierarchyManager
 
-File: /home/ideans/.koad-os/crates/koad-core/src/identity.rs
+File: $KOAD_HOME/crates/koad-core/src/identity.rs
   - func: test_identity_serialization
   - struct: Identity
 
-File: /home/ideans/.koad-os/crates/koad-core/src/intelligence.rs
+File: $KOAD_HOME/crates/koad-core/src/intelligence.rs
   - func: new
   - struct: FactCard
   - struct: ContextSummary
 
-File: /home/ideans/.koad-os/crates/koad-core/src/intent.rs
+File: $KOAD_HOME/crates/koad-core/src/intent.rs
   - func: test_intent_execute_serialization
   - func: test_intent_legacy_compatibility
   - struct: ExecuteIntent
@@ -92,13 +92,13 @@ File: /home/ideans/.koad-os/crates/koad-core/src/intent.rs
   - struct: SystemIntent
   - struct: GovernanceIntent
 
-File: /home/ideans/.koad-os/crates/koad-core/src/lib.rs
+File: $KOAD_HOME/crates/koad-core/src/lib.rs
   - trait: Component
 
-File: /home/ideans/.koad-os/crates/koad-core/src/logging.rs
+File: $KOAD_HOME/crates/koad-core/src/logging.rs
   - func: init_logging
 
-File: /home/ideans/.koad-os/crates/koad-core/src/session.rs
+File: $KOAD_HOME/crates/koad-core/src/session.rs
   - func: new
   - func: is_active
   - func: make_session
@@ -111,7 +111,7 @@ File: /home/ideans/.koad-os/crates/koad-core/src/session.rs
   - struct: AgentSession
   - struct: ProjectContext
 
-File: /home/ideans/.koad-os/crates/koad-core/src/signal.rs
+File: $KOAD_HOME/crates/koad-core/src/signal.rs
   - func: new
   - func: stream_key
   - func: consumer_group
@@ -125,17 +125,17 @@ File: /home/ideans/.koad-os/crates/koad-core/src/signal.rs
   - func: test_two_agents_can_exchange_signal
   - struct: SignalCorps
 
-File: /home/ideans/.koad-os/crates/koad-core/src/storage.rs
+File: $KOAD_HOME/crates/koad-core/src/storage.rs
   - struct: StateMetadata
   - trait: StorageBridge
 
-File: /home/ideans/.koad-os/crates/koad-core/src/types.rs
+File: $KOAD_HOME/crates/koad-core/src/types.rs
   - func: test_log_entry_serialization
   - struct: Ticket
   - struct: LogEntry
   - struct: HotContextChunk
 
-File: /home/ideans/.koad-os/crates/koad-core/src/utils/lock.rs
+File: $KOAD_HOME/crates/koad-core/src/utils/lock.rs
   - func: try_acquire
   - func: release
   - func: drop
@@ -150,27 +150,12 @@ File: /home/ideans/.koad-os/crates/koad-core/src/utils/lock.rs
   - struct: MockLock
   - trait: DistributedLock
 
-File: /home/ideans/.koad-os/crates/koad-core/src/utils/pid.rs
-  - func: new
-  - func: drop
-  - func: pid_file_is_live
-  - func: find_ghosts
-  - func: new_creates_pid_file_with_current_pid
-  - func: drop_removes_pid_file
-  - func: new_fails_when_referenced_process_is_alive
-  - func: new_overwrites_stale_pid_file_and_succeeds
-  - func: new_creates_file_when_no_existing_pid_file
-  - func: find_ghosts_returns_empty_for_clean_directory
-  - func: find_ghosts_detects_stale_kcitadel_pid
-  - func: find_ghosts_ignores_live_process
-  - struct: PidGuard
-
-File: /home/ideans/.koad-os/crates/koad-core/src/utils/redis.rs
+File: $KOAD_HOME/crates/koad-core/src/utils/redis.rs
   - func: new
   - func: drop
   - struct: RedisClient
 
-File: /home/ideans/.koad-os/crates/koad-core/src/utils/tokens.rs
+File: $KOAD_HOME/crates/koad-core/src/utils/tokens.rs
   - func: count_tokens
 
 ## Recent Git Activity
@@ -199,7 +184,6 @@ async-trait.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender.workspace = true
-sysinfo.workspace = true
 fred = { workspace = true, features = ["unix-sockets", "subscriber-client", "i-scripts", "i-pubsub"] }
 tokio.workspace = true
 config = { workspace = true, features = ["toml"] }

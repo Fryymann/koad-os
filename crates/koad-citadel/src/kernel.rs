@@ -35,24 +35,49 @@ use tokio::sync::watch;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 use tracing::{error, info};
-
 /// The central nervous system of the Citadel.
 pub struct Kernel {
     shutdown_tx: watch::Sender<bool>,
+    storage: Arc<CitadelStorageBridge>,
+    admin_uds_path: Option<PathBuf>,
 }
 
 impl Kernel {
     /// Initiates a graceful shutdown of all kernel services and listeners.
     pub async fn shutdown(self) {
         info!("Kernel: Initiating graceful shutdown...");
+
+        // 1. Notify all tasks to stop
         let _ = self.shutdown_tx.send(true);
-        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // 2. Wait for background tasks (reaper, drain loop, servers) to settle
+        tokio::time::sleep(Duration::from_millis(800)).await;
+
+        // 3. Final Storage Drain (L1 -> L2)
+        info!("Kernel: Finalizing neuronal flush (L1 -> L2 drain)...");
+        if let Err(e) = self.storage.drain_all().await {
+            error!("Kernel: Final drain failed: {}", e);
+        }
+
+        // 4. Cleanup Sockets
+        if let Some(path) = self.admin_uds_path {
+            if path.exists() {
+                let _ = std::fs::remove_file(&path);
+                info!("Kernel: Admin UDS socket removed.");
+            }
+        }
+
         info!("Kernel: Shutdown complete.");
     }
 }
-
-/// Builder for the [`Kernel`].
-#[derive(Default)]
+...
+        Ok(Kernel { 
+            shutdown_tx,
+            storage,
+            admin_uds_path: self.admin_uds_path,
+        })
+    }
+}
 pub struct KernelBuilder {
     home_dir: Option<PathBuf>,
     tcp_addr: Option<String>,

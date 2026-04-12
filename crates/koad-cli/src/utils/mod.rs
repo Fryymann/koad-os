@@ -1,4 +1,6 @@
-use anyhow::{Context, Result};
+pub mod errors;
+
+use anyhow::Result;
 use koad_core::config::KoadConfig;
 use koad_proto::citadel::v5::citadel_session_client::CitadelSessionClient;
 use std::env;
@@ -12,9 +14,11 @@ pub enum PreFlightStatus {
 }
 
 pub async fn get_citadel_client(config: &KoadConfig) -> Result<CitadelSessionClient<Channel>> {
-    CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone())
+    let addr = config.network.citadel_grpc_addr.clone();
+    CitadelSessionClient::connect(addr.clone())
         .await
-        .context("Failed to connect to Koad Citadel gRPC")
+        .map_err(|e| errors::map_connect_err("KoadOS Citadel", &addr, e))
+        .map_err(anyhow::Error::from)
 }
 
 use koad_proto::citadel::v5::TraceContext;

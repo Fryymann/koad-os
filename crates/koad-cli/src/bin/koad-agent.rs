@@ -5,6 +5,7 @@
 //! context hydration, ensuring a secure and informed boot process.
 
 use anyhow::{Context, Result};
+use koad::utils::errors::{map_connect_err, map_status_err};
 use clap::{Parser, Subcommand};
 use koad_core::config::KoadConfig;
 use std::collections::hash_map::DefaultHasher;
@@ -244,37 +245,42 @@ async fn main() -> Result<()> {
                             match client.create_lease(request).await {
                                 Ok(resp) => Some(resp),
                                 Err(e) => {
-                                    eprintln!("\x1b[33m[BOOT] Citadel Lease RPC Failed: {}\x1b[0m", e);
+                                    eprintln!("{}", map_status_err("KoadOS Citadel", e));
                                     None
                                 }
                             }
                         },
                         Err(e) => {
-                            eprintln!("\x1b[33m[BOOT] Failed to connect to Citadel at {}: {}\x1b[0m", citadel_addr, e);
+                            eprintln!("{}", map_connect_err("KoadOS Citadel", &citadel_addr, e));
                             None
                         }
                     }
                 });
 
                 let hydration_task = tokio::spawn(async move {
-                    if let Ok(channel) = Endpoint::from_shared(cass_addr)
+                    let cass_addr_display = cass_addr.clone();
+                    match Endpoint::from_shared(cass_addr)
                         .unwrap()
                         .connect_timeout(BOOT_SERVICE_TIMEOUT)
                         .timeout(BOOT_SERVICE_TIMEOUT)
                         .connect()
                         .await
                     {
-                        let mut cass_client = HydrationServiceClient::new(channel);
-                        let hydration_req = tonic::Request::new(HydrationRequest {
-                            agent_name: agent_name_hydra,
-                            project_root: project_root_hydra,
-                            level: WorkspaceLevel::LevelUnspecified as i32,
-                            token_budget: 4000,
-                            task_id: String::new(),
-                        });
-                        cass_client.hydrate(hydration_req).await.ok()
-                    } else {
-                        None
+                        Ok(channel) => {
+                            let mut cass_client = HydrationServiceClient::new(channel);
+                            let hydration_req = tonic::Request::new(HydrationRequest {
+                                agent_name: agent_name_hydra,
+                                project_root: project_root_hydra,
+                                level: WorkspaceLevel::LevelUnspecified as i32,
+                                token_budget: 4000,
+                                task_id: String::new(),
+                            });
+                            cass_client.hydrate(hydration_req).await.ok()
+                        }
+                        Err(e) => {
+                            eprintln!("{}", map_connect_err("KoadOS CASS", &cass_addr_display, e));
+                            None
+                        }
                     }
                 });
 

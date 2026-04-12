@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use crate::utils::errors::{map_connect_err, map_status_err};
 use fred::interfaces::HashesInterface;
 use koad_core::config::KoadConfig;
 use koad_core::hierarchy::HierarchyManager;
@@ -83,14 +84,14 @@ pub async fn handle_boot_command(opts: BootOptions, config: &KoadConfig) -> Resu
                 }
                 Err(e) => {
                     is_degraded = true;
-                    eprintln!("\x1b[33m[DEGRADED MODE] CASS Hydration failed: {}\x1b[0m", e);
+                    eprintln!("{}", map_status_err("KoadOS CASS", e));
                     tokio::fs::write(&context_file, b"# [SYSTEM DEGRADED: CASS OFFLINE]\nCould not fetch Temporal Context Hydration.").await?;
                 }
             }
         }
         Err(e) => {
             is_degraded = true;
-            eprintln!("\x1b[33m[DEGRADED MODE] Failed to connect to CASS: {}\x1b[0m", e);
+            eprintln!("{}", map_connect_err("KoadOS CASS", &config.network.cass_grpc_addr, e));
             tokio::fs::write(&context_file, b"# [SYSTEM DEGRADED: CASS OFFLINE]\nCould not connect to CASS gRPC service.").await?;
         }
     }
@@ -122,13 +123,13 @@ pub async fn handle_boot_command(opts: BootOptions, config: &KoadConfig) -> Resu
                 }
                 Err(e) => {
                     is_degraded = true;
-                    eprintln!("\x1b[33m[DEGRADED MODE] Citadel Lease Denied: {}\x1b[0m", e.message());
+                    eprintln!("{}", map_status_err("KoadOS Citadel", e));
                 }
             }
         }
         Err(e) => {
             is_degraded = true;
-            eprintln!("\x1b[33m[DEGRADED MODE] Failed to connect to Citadel: {}\x1b[0m", e);
+            eprintln!("{}", map_connect_err("KoadOS Citadel", &config.network.citadel_grpc_addr, e));
         }
     }
 
