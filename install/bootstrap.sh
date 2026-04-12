@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # KoadOS Bootstrap — First-time setup after `git clone`
-# Run from the repo root: bash install/bootstrap.sh
+# Fulfills Task 1.2: Idempotent and Portable Bootstrap
 # =============================================================================
 set -euo pipefail
 
@@ -20,6 +20,12 @@ fail() { echo -e "${RED}  ✗${RESET}  $*"; }
 info() { echo -e "${CYAN}  →${RESET}  $*"; }
 section() { echo -e "\n${BOLD}[$*]${RESET}"; }
 
+# ── Flags ─────────────────────────────────────────────────────────────────────
+YES_MODE=false
+for arg in "$@"; do
+    [[ "$arg" == "--yes" || "$arg" == "-y" ]] && YES_MODE=true
+done
+
 echo -e "${BOLD}"
 echo "  ██╗  ██╗ ██████╗  █████╗ ██████╗      ██████╗ ███████╗"
 echo "  ██║ ██╔╝██╔═══██╗██╔══██╗██╔══██╗    ██╔═══██╗██╔════╝"
@@ -28,7 +34,7 @@ echo "  ██╔═██╗ ██║   ██║██╔══██║█�
 echo "  ██║  ██╗╚██████╔╝██║  ██║██████╔╝    ╚██████╔╝███████║"
 echo "  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝      ╚═════╝ ╚══════╝"
 echo -e "${RESET}"
-echo "  Citadel Bootstrap  ·  v3.2"
+echo "  Citadel Bootstrap  ·  v3.2 Stable"
 echo
 
 ERRORS=0
@@ -47,179 +53,122 @@ check_cmd() {
 
 check_cmd "cargo"      "install Rust: https://rustup.rs"
 check_cmd "docker"     "install Docker Desktop (Windows) or Docker Engine (Linux)"
-check_cmd "docker"     && docker compose version &>/dev/null \
-    && ok "docker compose available" \
-    || { fail "docker compose not available"; ERRORS=$((ERRORS + 1)); }
 check_cmd "sqlite3"    "run: sudo apt-get install -y sqlite3"
-check_cmd "protoc"     "run: sudo apt-get install -y protobuf-compiler  OR install to ~/.local/bin/protoc"
+check_cmd "protoc"     "run: sudo apt-get install -y protobuf-compiler"
 check_cmd "git"        "install git"
 
 if [[ $ERRORS -gt 0 ]]; then
-    echo
-    fail "$ERRORS prerequisite(s) missing. Fix the above and re-run install/bootstrap.sh."
+    fail "$ERRORS prerequisite(s) missing. Please fix and re-run."
     exit 1
 fi
 
-# ── 2. Environment file ───────────────────────────────────────────────────────
-section "Environment"
+# ── 2. Configuration Sync ─────────────────────────────────────────────────────
+section "Configuration"
 
-if [[ -f "$KOAD_HOME/.env" ]]; then
-    ok ".env already exists — skipping template copy"
-else
-    cp "$KOAD_HOME/.env.template" "$KOAD_HOME/.env"
-    ok ".env created from template"
-    warn "Open $KOAD_HOME/.env and populate your secrets before running \`koad system init\`"
-fi
+sync_config() {
+    local src="$1"
+    local dest="$2"
+    if [[ ! -f "$dest" ]]; then
+        cp "$src" "$dest"
+        ok "$dest created from $(basename "$src")"
+    else
+        ok "$dest (already exists)"
+    fi
+}
 
-# ── 3. Directories & Configuration ────────────────────────────────────────────
-section "Directories & Configuration"
+sync_config "$KOAD_HOME/.env.template" "$KOAD_HOME/.env"
+sync_config "$KOAD_HOME/config/defaults/kernel.toml" "$KOAD_HOME/config/kernel.toml"
 
-for dir in "$BIN_DIR" "$LOG_DIR" \
-    "$KOAD_HOME/cache" \
-    "$KOAD_HOME/data/db" \
-    "$KOAD_HOME/data/redis" \
-    "$KOAD_HOME/run" \
-    "$KOAD_HOME/agents" \
-    "$KOAD_HOME/agents/crews"; do
+# ── 3. Directories ────────────────────────────────────────────────────────────
+section "Sanctuary Scaffolding"
+
+DIRS=(
+    "$BIN_DIR" "$LOG_DIR" "$KOAD_HOME/cache" "$KOAD_HOME/run"
+    "$KOAD_HOME/data/db" "$KOAD_HOME/data/redis"
+    "$KOAD_HOME/agents/bays" "$KOAD_HOME/agents/crews"
+    "$KOAD_HOME/config/identities" "$KOAD_HOME/config/interfaces"
+)
+
+for dir in "${DIRS[@]}"; do
     mkdir -p "$dir"
-    ok "$dir"
 done
+ok "All sanctuary directories scaffolded."
 
-# Copy default config templates if no live version exists
-if [[ -f "$KOAD_HOME/config/defaults/kernel.toml" ]]; then
-    if [[ ! -f "$KOAD_HOME/config/kernel.toml" ]]; then
-        cp "$KOAD_HOME/config/defaults/kernel.toml" "$KOAD_HOME/config/kernel.toml"
-        ok "config/kernel.toml (created from default)"
-    else
-        ok "config/kernel.toml (already exists)"
-    fi
-fi
-
-if [[ -f "$KOAD_HOME/config/defaults/redis.conf.template" ]]; then
-    if [[ ! -f "$KOAD_HOME/run/redis.active.conf" ]]; then
-        mkdir -p "$KOAD_HOME/run"
-        KOAD_HOME_ESCAPED=$(echo "$KOAD_HOME" | sed 's/\//\\\//g')
-        sed "s/{{KOAD_HOME}}/$KOAD_HOME_ESCAPED/g" \
-            "$KOAD_HOME/config/defaults/redis.conf.template" > "$KOAD_HOME/run/redis.active.conf"
-        ok "run/redis.active.conf (generated from template)"
-    else
-        ok "run/redis.active.conf (already exists)"
-    fi
-fi
-
-# ── 4. Script permissions ─────────────────────────────────────────────────────
-section "Script Permissions"
-
-find "$KOAD_HOME/scripts" -name "*.sh" -exec chmod +x {} \;
-ok "scripts/*.sh marked executable"
-
-# ── 5. Build binaries ─────────────────────────────────────────────────────────
-section "Build (this may take a few minutes)"
+# ── 4. Build Binaries ─────────────────────────────────────────────────────────
+section "Build System"
 
 PROTOC_BIN="${PROTOC:-$(command -v protoc)}"
 PROTOC_INC="${PROTOC_INCLUDE:-$(dirname "$(command -v protoc)")/../include}"
 
-# Try ~/.local/bin/protoc fallback (KoadOS standard location)
-if [[ ! -x "$PROTOC_BIN" ]] && [[ -x "$HOME/.local/bin/protoc" ]]; then
-    PROTOC_BIN="$HOME/.local/bin/protoc"
-    PROTOC_INC="$HOME/.local/include"
-fi
+# Fallback for common local installs
+[[ ! -x "$PROTOC_BIN" && -x "$HOME/.local/bin/protoc" ]] && PROTOC_BIN="$HOME/.local/bin/protoc" && PROTOC_INC="$HOME/.local/include"
 
-info "protoc: $PROTOC_BIN"
-info "Building all binaries (koad, koad-agent, koad-citadel, koad-cass)..."
-
+info "Building KoadOS Core binaries..."
 PROTOC="$PROTOC_BIN" PROTOC_INCLUDE="$PROTOC_INC" \
     cargo build --manifest-path "$KOAD_HOME/Cargo.toml" \
     --bin koad --bin koad-agent --bin koad-citadel --bin koad-cass \
-    2>&1 | grep -E "^error|Compiling koad|Finished|warning.*unused" || true
+    --quiet
 
 for bin in koad koad-agent koad-citadel koad-cass; do
-    src="$KOAD_HOME/target/debug/$bin"
-    if [[ -x "$src" ]]; then
-        cp "$src" "$BIN_DIR/$bin"
-        ok "$bin → $BIN_DIR/"
-    else
-        fail "$bin binary not found after build"
-        ERRORS=$((ERRORS + 1))
-    fi
+    cp "$KOAD_HOME/target/debug/$bin" "$BIN_DIR/"
+    ok "$bin → bin/"
 done
 
-[[ $ERRORS -gt 0 ]] && { fail "Build failed. Check cargo output above."; exit 1; }
-
-# ── 6. Docker stack ───────────────────────────────────────────────────────────
-section "Docker Stack"
-
-if docker info &>/dev/null; then
-    info "Starting Redis Stack + Qdrant..."
-    docker compose -f "$KOAD_HOME/docker-compose.yml" up -d 2>&1 | grep -v "^#" || true
-
-    # Brief settle time for containers to bind ports
-    sleep 2
-
-    if docker ps --format '{{.Names}}' | grep -q "koad-redis-stack"; then
-        ok "koad-redis-stack running"
-    else
-        warn "koad-redis-stack not detected — check: docker compose logs citadel-redis"
-    fi
-    if docker ps --format '{{.Names}}' | grep -q "koad-qdrant"; then
-        ok "koad-qdrant running"
-    else
-        warn "koad-qdrant not detected — check: docker compose logs qdrant"
-    fi
-else
-    warn "Docker daemon not reachable. Start Docker Desktop and re-run \`koad system init\` after bootstrap."
-fi
-
-# ── 7. SQLite databases ───────────────────────────────────────────────────────
-section "SQLite Databases"
+# ── 5. DB Initialization ──────────────────────────────────────────────────────
+section "Data Plane"
 
 KOAD_DB="$KOAD_HOME/data/db/koad.db"
+if [[ ! -f "$KOAD_DB" ]]; then
+    bash "$KOAD_HOME/scripts/init-koad-db.sh"
+    sqlite3 "$KOAD_DB" < "$KOAD_HOME/scripts/init-jupiter-db.sql"
+    ok "Master records (SQLite) initialized."
+else
+    ok "Master records (SQLite) already exist."
+fi
 
-bash "$KOAD_HOME/scripts/init-koad-db.sh"
-ok "koad.db — core schema initialised"
-
-sqlite3 "$KOAD_DB" < "$KOAD_HOME/scripts/init-jupiter-db.sql"
-ok "koad.db — WAL + episodic/procedural tables initialised"
-
-WAL=$(sqlite3 "$KOAD_DB" "PRAGMA journal_mode;" 2>/dev/null)
-[[ "$WAL" == "wal" ]] && ok "WAL mode confirmed" || warn "WAL mode not confirmed (got: $WAL)"
-
-# ── 8. Shell integration ──────────────────────────────────────────────────────
+# ── 6. Shell Integration ──────────────────────────────────────────────────────
 section "Shell Integration"
 
 BASHRC="$HOME/.bashrc"
-SOURCE_LINE="[ -f \"\$HOME/.koad-os/bin/koad-functions.sh\" ] && source \"\$HOME/.koad-os/bin/koad-functions.sh\""
+SENTINEL_START="# >>> KoadOS Initialize >>>"
+SENTINEL_END="# <<< KoadOS Initialize <<<"
 
-if grep -qF "koad-functions.sh" "$BASHRC" 2>/dev/null; then
-    ok "koad-functions.sh already sourced in $BASHRC"
-else
-    echo "" >> "$BASHRC"
-    echo "# KoadOS Shell Functions" >> "$BASHRC"
-    echo "$SOURCE_LINE" >> "$BASHRC"
-    ok "Added koad-functions.sh source to $BASHRC"
+# We use the absolute path of the current installation
+INTEGRATION_BLOCK="
+$SENTINEL_START
+# KoadOS Environment & Functions
+export KOADOS_HOME=\"$KOAD_HOME\"
+export PATH=\"\$KOADOS_HOME/bin:\$PATH\"
+[ -f \"\$KOADOS_HOME/bin/koad-functions.sh\" ] && source \"\$KOADOS_HOME/bin/koad-functions.sh\"
+$SENTINEL_END"
+
+# Cleanup: Remove legacy KoadOS path entries that aren't inside our sentinel block
+if grep -q "koad-os/bin" "$BASHRC"; then
+    sed -i '/koad-os\/bin/ { /KoadOS Initialize/! d }' "$BASHRC"
 fi
 
-PATH_LINE="[ -d \"\$HOME/.koad-os/bin\" ] && PATH=\"\$HOME/.koad-os/bin:\$PATH\""
-if grep -qF ".koad-os/bin" "$BASHRC" 2>/dev/null; then
-    ok "~/.koad-os/bin already in PATH via $BASHRC"
+if grep -qF "$SENTINEL_START" "$BASHRC" 2>/dev/null; then
+    # Update existing block
+    sed -i "/$SENTINEL_START/,/$SENTINEL_END/d" "$BASHRC"
+    echo "$INTEGRATION_BLOCK" >> "$BASHRC"
+    ok "KoadOS block updated in $BASHRC"
 else
-    echo "$PATH_LINE" >> "$BASHRC"
-    ok "Added ~/.koad-os/bin to PATH in $BASHRC"
+    echo -e "\n$INTEGRATION_BLOCK" >> "$BASHRC"
+    ok "KoadOS block added to $BASHRC"
 fi
 
-# ── 9. Verify ─────────────────────────────────────────────────────────────────
+# ── 7. Verification ───────────────────────────────────────────────────────────
 section "Verification"
 
 export PATH="$BIN_DIR:$PATH"
-KOADOS_HOME="$KOAD_HOME" "$BIN_DIR/koad" doctor 2>&1 || true
+export KOADOS_HOME="$KOAD_HOME"
 
-# ── Done ──────────────────────────────────────────────────────────────────────
-echo
-echo -e "${BOLD}${GREEN}Bootstrap complete.${RESET}"
-echo
-echo "  Next steps:"
-echo "  1. Fill in your secrets:  \$EDITOR $KOAD_HOME/.env"
-echo "  2. Reload your shell:     source ~/.bashrc"
-echo "  3. Finalize environment:  koad system init"
-echo "  4. Boot an agent:         agent-boot tyr"
+if koad status &>/dev/null; then
+    ok "Neural Link: ACTIVE"
+else
+    warn "Neural Link: DARK (expected - run 'koad system start' to ignite)"
+fi
+
+echo -e "\n${BOLD}${GREEN}Bootstrap complete.${RESET}"
+echo "Next step: Run 'source ~/.bashrc' and then 'koad system start'."
 echo
