@@ -42,9 +42,15 @@ impl ToolRegistryService for CassToolRegistryService {
             )));
         }
 
-        let container_image = if req.container_image.is_empty() { None } else { Some(req.container_image) };
+        let container_image = if req.container_image.is_empty() {
+            None
+        } else {
+            Some(req.container_image)
+        };
         info!(tool = %name, path = ?path, container = ?container_image, "ToolRegistry: Registering tool");
-        self.registry.register_with_opts(&name, path, container_image).await;
+        self.registry
+            .register_with_opts(&name, path, container_image)
+            .await;
 
         Ok(Response::new(StatusResponse {
             success: true,

@@ -7,12 +7,19 @@ use std::collections::HashMap;
 /// Represents an active agent session within the KoadOS ecosystem.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentSession {
+    /// Unique identifier for the session.
     pub session_id: String,
+    /// Persistent identity of the agent driving the session.
     pub identity: Identity,
+    /// The host environment type (e.g., WSL, Linux, MacOS).
     pub environment: EnvironmentType,
+    /// Project-level boundaries and resources available to this session.
     pub context: ProjectContext,
+    /// Current operational status (e.g., "active", "idle", "dark").
     pub status: String,
+    /// Timestamp of the last verified heartbeat from the agent's body.
     pub last_heartbeat: DateTime<Utc>,
+    /// Ephemeral session metadata and feature flags.
     pub metadata: HashMap<String, String>,
     /// Unique terminal/body identifier — one UUID per shell session, generated at boot.
     #[serde(default)]
@@ -25,9 +32,13 @@ pub struct AgentSession {
 /// Defines the project-level boundaries and resources available to a session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectContext {
+    /// Name of the active project.
     pub project_name: String,
+    /// Root path of the project on the host filesystem.
     pub root_path: String,
+    /// List of whitelisted paths the agent is authorized to access.
     pub allowed_paths: Vec<String>,
+    /// Tech stack identifiers detected for this project (e.g., "rust", "node").
     pub stack: Vec<String>,
 }
 
@@ -79,9 +90,7 @@ mod tests {
             ProjectContext {
                 project_name: "test-project".to_string(),
                 root_path: "/home/user/.koad-os/agents/KAPVs/clyde/project".to_string(),
-                allowed_paths: vec![
-                    "/home/user/.koad-os/agents/KAPVs/clyde/".to_string(),
-                ],
+                allowed_paths: vec!["/home/user/.koad-os/agents/KAPVs/clyde/".to_string()],
                 stack: vec!["rust".to_string()],
             },
             "body-abc".to_string(),
@@ -91,9 +100,15 @@ mod tests {
     #[test]
     fn new_initializes_with_active_status() {
         let session = make_session();
-        assert_eq!(session.status, "active", "New session should have 'active' status");
+        assert_eq!(
+            session.status, "active",
+            "New session should have 'active' status"
+        );
         assert!(session.metadata.is_empty(), "Metadata should start empty");
-        assert!(session.hot_context.is_empty(), "Hot context should start empty");
+        assert!(
+            session.hot_context.is_empty(),
+            "Hot context should start empty"
+        );
         assert_eq!(session.body_id, "body-abc");
         assert_eq!(session.session_id, "sess-001");
     }
@@ -102,7 +117,10 @@ mod tests {
     fn is_active_returns_true_for_fresh_session() {
         let session = make_session();
         // Heartbeat is Utc::now() from construction — well within any reasonable timeout
-        assert!(session.is_active(60), "Fresh session should be active within a 60s window");
+        assert!(
+            session.is_active(60),
+            "Fresh session should be active within a 60s window"
+        );
     }
 
     #[test]

@@ -1,0 +1,7 @@
+name = "Hello World"
+description = "A basic test skill for verification."
+version = "1.0.0"
+runtime = "builtin"
+xp_multiplier = 1.0
+entry_point = "koad::skills::hello"
+capabilities = ["fs_read", "secrets"]

@@ -58,14 +58,25 @@ impl MemoryTier for SqliteTier {
              (id, source_agent, session_id, domain, content, confidence, tags, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
-                fact.id, fact.source_agent, fact.session_id, fact.domain,
-                fact.content, fact.confidence, tags, created_at
+                fact.id,
+                fact.source_agent,
+                fact.session_id,
+                fact.domain,
+                fact.content,
+                fact.confidence,
+                tags,
+                created_at
             ],
         )?;
         Ok(())
     }
 
-    async fn query_facts(&self, domain: &str, _tags: &[String], limit: u32) -> Result<Vec<FactCard>> {
+    async fn query_facts(
+        &self,
+        domain: &str,
+        _tags: &[String],
+        limit: u32,
+    ) -> Result<Vec<FactCard>> {
         let conn = self.conn.lock().await;
         let mut stmt = conn.prepare(
             "SELECT id, source_agent, session_id, domain, content, confidence, tags
@@ -116,7 +127,11 @@ impl MemoryTier for SqliteTier {
                     domain: row.get(3)?,
                     content: row.get(4)?,
                     confidence: row.get(5)?,
-                    tags: row.get::<_, String>(6)?.split(',').map(|s| s.to_string()).collect(),
+                    tags: row
+                        .get::<_, String>(6)?
+                        .split(',')
+                        .map(|s| s.to_string())
+                        .collect(),
                     created_at: None,
                 })
             })?;
@@ -136,7 +151,11 @@ impl MemoryTier for SqliteTier {
                     domain: row.get(3)?,
                     content: row.get(4)?,
                     confidence: row.get(5)?,
-                    tags: row.get::<_, String>(6)?.split(',').map(|s| s.to_string()).collect(),
+                    tags: row
+                        .get::<_, String>(6)?
+                        .split(',')
+                        .map(|s| s.to_string())
+                        .collect(),
                     created_at: None,
                 })
             })?;
@@ -156,8 +175,12 @@ impl MemoryTier for SqliteTier {
              (session_id, project_path, summary, turn_count, timestamp, task_ids)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
-                episode.session_id, episode.project_path, episode.summary,
-                episode.turn_count, timestamp, task_ids
+                episode.session_id,
+                episode.project_path,
+                episode.summary,
+                episode.turn_count,
+                timestamp,
+                task_ids
             ],
         )?;
         Ok(())
@@ -184,7 +207,11 @@ impl MemoryTier for SqliteTier {
                     summary: row.get(2)?,
                     turn_count: row.get(3)?,
                     timestamp: None,
-                    task_ids: row.get::<_, String>(5)?.split(',').map(|s| s.to_string()).collect(),
+                    task_ids: row
+                        .get::<_, String>(5)?
+                        .split(',')
+                        .map(|s| s.to_string())
+                        .collect(),
                 })
             })?;
             for row in rows {
@@ -202,7 +229,11 @@ impl MemoryTier for SqliteTier {
                     summary: row.get(2)?,
                     turn_count: row.get(3)?,
                     timestamp: None,
-                    task_ids: row.get::<_, String>(5)?.split(',').map(|s| s.to_string()).collect(),
+                    task_ids: row
+                        .get::<_, String>(5)?
+                        .split(',')
+                        .map(|s| s.to_string())
+                        .collect(),
                 })
             })?;
             for row in rows {
@@ -222,25 +253,31 @@ mod tests {
     async fn test_sqlite_tier_filters_by_task() -> Result<()> {
         let storage = SqliteTier::new(":memory:")?;
 
-        storage.record_episode(EpisodicMemory {
-            session_id: "S1".to_string(),
-            project_path: "/root".to_string(),
-            summary: "Task A work".to_string(),
-            turn_count: 5,
-            timestamp: None,
-            task_ids: vec!["task-a".to_string()],
-        }).await?;
+        storage
+            .record_episode(EpisodicMemory {
+                session_id: "S1".to_string(),
+                project_path: "/root".to_string(),
+                summary: "Task A work".to_string(),
+                turn_count: 5,
+                timestamp: None,
+                task_ids: vec!["task-a".to_string()],
+            })
+            .await?;
 
-        storage.record_episode(EpisodicMemory {
-            session_id: "S2".to_string(),
-            project_path: "/root".to_string(),
-            summary: "Task B work".to_string(),
-            turn_count: 5,
-            timestamp: None,
-            task_ids: vec!["task-b".to_string()],
-        }).await?;
+        storage
+            .record_episode(EpisodicMemory {
+                session_id: "S2".to_string(),
+                project_path: "/root".to_string(),
+                summary: "Task B work".to_string(),
+                turn_count: 5,
+                timestamp: None,
+                task_ids: vec!["task-b".to_string()],
+            })
+            .await?;
 
-        let results = storage.query_recent_episodes("tyr", 10, Some("task-a")).await?;
+        let results = storage
+            .query_recent_episodes("tyr", 10, Some("task-a"))
+            .await?;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].session_id, "S1");
 

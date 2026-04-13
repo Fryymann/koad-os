@@ -2,7 +2,7 @@
 //!
 //! Performs the Temporal Context Hydration (TCH) walk to bundle
 //! relevant facts and episodes for agent boot.
-//! This service integrates structural code maps and intelligent history 
+//! This service integrates structural code maps and intelligent history
 //! distillation into a single, high-density markdown packet.
 
 use crate::storage::PulseTier;
@@ -64,7 +64,11 @@ impl HydrationService for CassHydrationService {
         let current_path = PathBuf::from(&req.project_root);
         let budget = req.token_budget as usize;
         let agent = &req.agent_name;
-        let task_id = if req.task_id.is_empty() { None } else { Some(req.task_id.as_str()) };
+        let task_id = if req.task_id.is_empty() {
+            None
+        } else {
+            Some(req.task_id.as_str())
+        };
 
         info!(agent = %agent, path = %req.project_root, budget = %budget, task = ?task_id, "TCH: Hydration requested");
 
@@ -99,8 +103,13 @@ Date: {}
                 raw_history
             );
 
-            let distilled = self.intelligence.summarize(&prompt).await
-                .unwrap_or_else(|_| "History distillation failed. Review raw episodes.".to_string());
+            let distilled = self
+                .intelligence
+                .summarize(&prompt)
+                .await
+                .unwrap_or_else(|_| {
+                    "History distillation failed. Review raw episodes.".to_string()
+                });
 
             let ep_section = format!(
                 "## Ⅰ. State of the Union (Distilled History)\n{}\n\n",
@@ -179,22 +188,31 @@ Date: {}
         // We'll summarize the current crate and core
         let crate_list = vec![
             current_path.to_string_lossy().to_string(),
-            current_path.join("crates/koad-core").to_string_lossy().to_string(),
+            current_path
+                .join("crates/koad-core")
+                .to_string_lossy()
+                .to_string(),
         ];
 
         for c_path in crate_list {
             if let Ok(summary) = self.codegraph.get_crate_summary(&c_path) {
                 if !summary.is_empty() {
-                    let c_name = Path::new(&c_path).file_name().and_then(|s| s.to_str()).unwrap_or("unknown");
+                    let c_name = Path::new(&c_path)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("unknown");
                     let block = format!("\n### Crate: {}\n{}\n", c_name, summary);
-                    if count_tokens(&packet) + count_tokens(&api_section) + count_tokens(&block) < budget {
+                    if count_tokens(&packet) + count_tokens(&api_section) + count_tokens(&block)
+                        < budget
+                    {
                         api_section.push_str(&block);
                     }
                 }
             }
         }
 
-        if api_section.len() > 150 { // Only add if we actually found something
+        if api_section.len() > 150 {
+            // Only add if we actually found something
             packet.push_str(&api_section);
         }
 
@@ -205,7 +223,8 @@ Date: {}
                 if !pulses.is_empty() {
                     let mut pulse_section = "\n## Ⅴ. Global Pulses\n".to_string();
                     for p in &pulses {
-                        pulse_section.push_str(&format!("- [{}] {}: {}\n", p.role, p.author, p.message));
+                        pulse_section
+                            .push_str(&format!("- [{}] {}: {}\n", p.role, p.author, p.message));
                     }
                     if count_tokens(&packet) + count_tokens(&pulse_section) < budget {
                         packet.push_str(&pulse_section);
@@ -238,7 +257,7 @@ mod tests {
         let intelligence = Arc::new(InferenceRouter::new_default()?);
 
         let service = CassHydrationService::new(storage, hierarchy, codegraph, intelligence);
-        
+
         let request = Request::new(HydrationRequest {
             agent_name: "test-agent".to_string(),
             project_root: "/tmp".to_string(),
@@ -274,9 +293,8 @@ mod tests {
             })
             .await;
 
-        let service =
-            CassHydrationService::new(storage, hierarchy, codegraph, intelligence)
-                .with_pulse_store(pulse_store);
+        let service = CassHydrationService::new(storage, hierarchy, codegraph, intelligence)
+            .with_pulse_store(pulse_store);
 
         let request = Request::new(HydrationRequest {
             agent_name: "test-agent".to_string(),

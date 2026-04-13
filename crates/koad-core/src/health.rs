@@ -1,6 +1,6 @@
+use crate::config::{CitadelSubsystem, KoadConfig};
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
-use crate::config::{KoadConfig, CitadelSubsystem};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SystemStatus {
@@ -48,11 +48,13 @@ impl HealthRegistry {
 
     pub async fn check_subsystems(config: &KoadConfig) -> Vec<SystemStatus> {
         let mut results = Vec::new();
-        
+
         if let Some(registry) = &config.status_registry {
             for sys in &registry.status_board.systems {
-                if !sys.enabled { continue; }
-                
+                if !sys.enabled {
+                    continue;
+                }
+
                 let status = if sys.stub {
                     SystemStatus {
                         id: sys.id.clone(),
@@ -68,11 +70,11 @@ impl HealthRegistry {
                     // Run a simple probe
                     Self::run_probe(sys, config)
                 };
-                
+
                 results.push(status);
             }
         }
-        
+
         results
     }
 
@@ -87,9 +89,11 @@ impl HealthRegistry {
                 let socket_path = if sys.probe_target.as_deref() == Some("redis") {
                     config.get_redis_socket()
                 } else {
-                    config.home.join(sys.probe_target.clone().unwrap_or_default())
+                    config
+                        .home
+                        .join(sys.probe_target.clone().unwrap_or_default())
                 };
-                
+
                 if socket_path.exists() {
                     (HealthStatus::Pass, "Socket active".to_string())
                 } else {
@@ -100,9 +104,11 @@ impl HealthRegistry {
                 let file_path = if sys.probe_target.as_deref() == Some("sqlite") {
                     config.get_db_path()
                 } else {
-                    config.home.join(sys.probe_target.clone().unwrap_or_default())
+                    config
+                        .home
+                        .join(sys.probe_target.clone().unwrap_or_default())
                 };
-                
+
                 if file_path.exists() {
                     (HealthStatus::Pass, "File accessible".to_string())
                 } else {

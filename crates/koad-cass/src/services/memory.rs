@@ -25,7 +25,10 @@ impl CassMemoryService {
 
 #[tonic::async_trait]
 impl MemoryService for CassMemoryService {
-    async fn commit_fact(&self, request: Request<FactCard>) -> Result<Response<StatusResponse>, Status> {
+    async fn commit_fact(
+        &self,
+        request: Request<FactCard>,
+    ) -> Result<Response<StatusResponse>, Status> {
         let fact = request.into_inner();
         info!(domain = %fact.domain, "Memory: Committing fact");
 
@@ -41,7 +44,10 @@ impl MemoryService for CassMemoryService {
         }))
     }
 
-    async fn query_facts(&self, request: Request<FactQuery>) -> Result<Response<FactResponse>, Status> {
+    async fn query_facts(
+        &self,
+        request: Request<FactQuery>,
+    ) -> Result<Response<FactResponse>, Status> {
         let req = request.into_inner();
         let facts = self
             .storage

@@ -1,6 +1,6 @@
 //! # KoadOS Deployment & Scaffolding
 //!
-//! Implements `koad deploy station` and `koad deploy outpost` for 
+//! Implements `koad deploy station` and `koad deploy outpost` for
 //! initializing hierarchical workspace structures.
 
 use anyhow::{Context, Result};
@@ -21,7 +21,10 @@ pub async fn handle_deploy_action(action: DeployAction, config: &KoadConfig) -> 
 
 async fn handle_deploy_station(name: &str, config: &KoadConfig) -> Result<()> {
     let cwd = env::current_dir()?;
-    println!("\n\x1b[1;34m--- Deploying KoadOS Station: {} ---\x1b[0m", name);
+    println!(
+        "\n\x1b[1;34m--- Deploying KoadOS Station: {} ---\x1b[0m",
+        name
+    );
     println!("  Target: {}\n", cwd.display());
 
     // 1. Base Directory Structure
@@ -69,7 +72,10 @@ async fn handle_deploy_station(name: &str, config: &KoadConfig) -> Result<()> {
     // 4. .koad-os symlink
     create_citadel_link(&cwd, &config.home)?;
 
-    println!("\n\x1b[1;32m[SUCCESS]\x1b[0m Station '{}' deployed successfully.", name);
+    println!(
+        "\n\x1b[1;32m[SUCCESS]\x1b[0m Station '{}' deployed successfully.",
+        name
+    );
     println!("Next: Register this station in your Citadel with 'koad project register'.");
 
     Ok(())
@@ -77,7 +83,10 @@ async fn handle_deploy_station(name: &str, config: &KoadConfig) -> Result<()> {
 
 async fn handle_deploy_outpost(name: &str, config: &KoadConfig) -> Result<()> {
     let cwd = env::current_dir()?;
-    println!("\n\x1b[1;34m--- Deploying KoadOS Outpost: {} ---\x1b[0m", name);
+    println!(
+        "\n\x1b[1;34m--- Deploying KoadOS Outpost: {} ---\x1b[0m",
+        name
+    );
     println!("  Target: {}\n", cwd.display());
 
     // 1. Base Directory Structure
@@ -124,7 +133,10 @@ async fn handle_deploy_outpost(name: &str, config: &KoadConfig) -> Result<()> {
     // 4. .koad-os symlink
     create_citadel_link(&cwd, &config.home)?;
 
-    println!("\n\x1b[1;32m[SUCCESS]\x1b[0m Outpost '{}' deployed successfully.", name);
+    println!(
+        "\n\x1b[1;32m[SUCCESS]\x1b[0m Outpost '{}' deployed successfully.",
+        name
+    );
     Ok(())
 }
 
@@ -140,9 +152,13 @@ fn write_file(root: &Path, name: &str, content: &str) -> Result<()> {
 fn create_citadel_link(target: &Path, citadel_home: &Path) -> Result<()> {
     let link_path = target.join(".koad-os");
     if !link_path.exists() {
-        symlink(citadel_home, &link_path)
-            .context("Failed to create .koad-os symlink. Ensure you have appropriate permissions.")?;
-        println!("  \x1b[32m[LINK]\x1b[0m .koad-os -> {}", citadel_home.display());
+        symlink(citadel_home, &link_path).context(
+            "Failed to create .koad-os symlink. Ensure you have appropriate permissions.",
+        )?;
+        println!(
+            "  \x1b[32m[LINK]\x1b[0m .koad-os -> {}",
+            citadel_home.display()
+        );
     }
     Ok(())
 }

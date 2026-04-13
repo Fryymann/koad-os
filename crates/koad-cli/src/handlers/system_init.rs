@@ -6,7 +6,10 @@ use std::path::PathBuf;
 
 pub fn run(config: &KoadConfig, force: bool) -> Result<()> {
     let home = &config.home;
-    println!("\x1b[1;36m[KoadOS]\x1b[0m Initializing KoadOS environment at: {}" , home.display());
+    println!(
+        "\x1b[1;36m[KoadOS]\x1b[0m Initializing KoadOS environment at: {}",
+        home.display()
+    );
 
     // 1. Directory Structure
     let dirs = [
@@ -24,7 +27,8 @@ pub fn run(config: &KoadConfig, force: bool) -> Result<()> {
     for dir in dirs {
         let path = home.join(dir);
         if !path.exists() {
-            fs::create_dir_all(&path).with_context(|| format!("Failed to create directory: {:?}", path))?;
+            fs::create_dir_all(&path)
+                .with_context(|| format!("Failed to create directory: {:?}", path))?;
             println!("  \x1b[32m✓\x1b[0m Created {}", dir);
         }
     }
@@ -34,7 +38,7 @@ pub fn run(config: &KoadConfig, force: bool) -> Result<()> {
     if !env_path.exists() || force {
         println!("\n\x1b[1m[Environment Setup]\x1b[0m");
         let mut env_content = String::new();
-        
+
         // Try to read existing template from current dir or home
         let template_path = PathBuf::from(".env.template");
         if template_path.exists() {
@@ -42,7 +46,7 @@ pub fn run(config: &KoadConfig, force: bool) -> Result<()> {
         }
 
         println!("Setting up AI Provider keys (press Enter to skip):");
-        
+
         let providers = [
             ("GOOGLE_AI_API_KEY", "Google AI (Gemini)"),
             ("ANTHROPIC_API_KEY", "Anthropic (Claude)"),
@@ -55,17 +59,20 @@ pub fn run(config: &KoadConfig, force: bool) -> Result<()> {
             let mut input = String::new();
             io::stdin().read_line(&mut input)?;
             let input = input.trim();
-            
+
             if !input.is_empty() {
                 if env_content.contains(&format!("{}=", key)) {
                     // Update existing line
-                    let lines: Vec<String> = env_content.lines().map(|line| {
-                        if line.starts_with(&format!("{}=", key)) {
-                            format!("{}={}", key, input)
-                        } else {
-                            line.to_string()
-                        }
-                    }).collect();
+                    let lines: Vec<String> = env_content
+                        .lines()
+                        .map(|line| {
+                            if line.starts_with(&format!("{}=", key)) {
+                                format!("{}={}", key, input)
+                            } else {
+                                line.to_string()
+                            }
+                        })
+                        .collect();
                     env_content = lines.join("\n");
                 } else {
                     // Append new line
@@ -75,7 +82,10 @@ pub fn run(config: &KoadConfig, force: bool) -> Result<()> {
         }
 
         fs::write(&env_path, env_content)?;
-        println!("  \x1b[32m✓\x1b[0m Environment saved to {}", env_path.display());
+        println!(
+            "  \x1b[32m✓\x1b[0m Environment saved to {}",
+            env_path.display()
+        );
     }
 
     // 3. kernel.toml
@@ -108,7 +118,7 @@ pub fn run(config: &KoadConfig, force: bool) -> Result<()> {
     // 5. Interactive Captain Creation
     println!("\n\x1b[1m[Captain Identity Setup]\x1b[0m");
     println!("Every Citadel needs a Captain. Let's create yours.");
-    
+
     print!("  Captain's Name (e.g. Tyr): ");
     io::stdout().flush()?;
     let mut name = String::new();
@@ -137,7 +147,7 @@ pub fn run(config: &KoadConfig, force: bool) -> Result<()> {
         };
 
         println!("\n  \x1b[1;34m→\x1b[0m Provisioning Captain {}...", name);
-        
+
         // We use a simplified version of handle_new_agent logic here
         // or we could potentially call it if it was public and async-aware.
         // For init, we'll do a basic scaffold.
@@ -162,7 +172,11 @@ fn provision_captain(name: &str, bio: &str, runtime: &str, config: &KoadConfig) 
     let identity_toml_path = identities_dir.join(format!("{}.toml", key));
 
     if identity_toml_path.exists() {
-        bail!("Identity for '{}' already exists at {}.", name, identity_toml_path.display());
+        bail!(
+            "Identity for '{}' already exists at {}.",
+            name,
+            identity_toml_path.display()
+        );
     }
 
     let vault_str = format!("~/.koad-os/agents/{}", key);
@@ -198,7 +212,7 @@ auto_saveup = true
 
     fs::create_dir_all(&identities_dir)?;
     fs::write(&identity_toml_path, toml_content)?;
-    
+
     // However, for a good UX, we should at least create the vault dir.
     let _home_dir = dirs::home_dir().context("Could not determine home directory.")?;
     let vault_path = config.home.join(format!("agents/{}", key));

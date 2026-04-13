@@ -11,6 +11,8 @@ pub struct IdentityRecord {
     pub tier: i32,
 }
 
+pub type ProjectRecord = (i32, String, String, String, String);
+
 pub struct KoadDB {
     pub pool: Pool<SqliteConnectionManager>,
 }
@@ -136,12 +138,15 @@ impl KoadDB {
 
     pub fn get_spec(&self) -> Result<Option<(String, String, String, String)>> {
         let conn = self.get_conn()?;
-        let mut stmt = conn.prepare("SELECT title, description, status, priority FROM active_spec LIMIT 1")?;
-        let res = stmt.query_row([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).ok();
+        let mut stmt =
+            conn.prepare("SELECT title, description, status, priority FROM active_spec LIMIT 1")?;
+        let res = stmt
+            .query_row([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .ok();
         Ok(res)
     }
 
-    pub fn list_projects(&self) -> Result<Vec<(i32, String, String, String, String)>> {
+    pub fn list_projects(&self) -> Result<Vec<ProjectRecord>> {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare("SELECT id, name, path, branch, health FROM projects")?;
         let rows = stmt.query_map([], |row| {
@@ -160,9 +165,16 @@ impl KoadDB {
         Ok(results)
     }
 
-    pub fn query(&self, term: &str, limit: usize, _agent: Option<&str>) -> Result<Vec<(i32, String, String, String)>> {
+    pub fn query(
+        &self,
+        term: &str,
+        limit: usize,
+        _agent: Option<&str>,
+    ) -> Result<Vec<(i32, String, String, String)>> {
         let conn = self.get_conn()?;
-        let mut stmt = conn.prepare("SELECT id, category, content, tags FROM knowledge WHERE content LIKE ?1 LIMIT ?2")?;
+        let mut stmt = conn.prepare(
+            "SELECT id, category, content, tags FROM knowledge WHERE content LIKE ?1 LIMIT ?2",
+        )?;
         let rows = stmt.query_map(params![format!("%{}%", term), limit as i64], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         })?;
@@ -187,7 +199,9 @@ impl KoadDB {
     pub fn get_notes(&self, limit: usize) -> Result<Vec<(i32, String, String)>> {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare("SELECT id, content, timestamp FROM knowledge WHERE category = 'note' ORDER BY timestamp DESC LIMIT ?1")?;
-        let rows = stmt.query_map(params![limit as i64], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
         let mut results = Vec::new();
         for r in rows {
             results.push(r?);
@@ -198,7 +212,9 @@ impl KoadDB {
     pub fn get_recent_brainstorms(&self, limit: usize) -> Result<Vec<(String, String, String)>> {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare("SELECT content, category, timestamp FROM knowledge WHERE category LIKE 'brainstorm%' ORDER BY timestamp DESC LIMIT ?1")?;
-        let rows = stmt.query_map(params![limit as i64], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
         let mut results = Vec::new();
         for r in rows {
             results.push(r?);
@@ -218,7 +234,13 @@ impl KoadDB {
 
     // --- Navigation Map Support ---
 
-    pub fn add_pin(&self, alias: &str, path: &str, scope: &str, agent_id: Option<&str>) -> Result<()> {
+    pub fn add_pin(
+        &self,
+        alias: &str,
+        path: &str,
+        scope: &str,
+        agent_id: Option<&str>,
+    ) -> Result<()> {
         let conn = self.pool.get()?;
         conn.execute(
             "INSERT OR REPLACE INTO pins (alias, path, scope, agent_id) VALUES (?, ?, ?, ?)",
@@ -229,11 +251,13 @@ impl KoadDB {
 
     pub fn get_pins(&self, agent_id: &str) -> Result<Vec<(String, String, String)>> {
         let conn = self.pool.get()?;
-        let mut stmt = conn.prepare("SELECT alias, path, scope FROM pins WHERE scope = 'shared' OR agent_id = ?")?;
+        let mut stmt = conn.prepare(
+            "SELECT alias, path, scope FROM pins WHERE scope = 'shared' OR agent_id = ?",
+        )?;
         let rows = stmt.query_map(params![agent_id], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
         })?;
-        
+
         let mut results = Vec::new();
         for row in rows {
             results.push(row?);
@@ -243,8 +267,12 @@ impl KoadDB {
 
     pub fn resolve_pin(&self, alias: &str, agent_id: &str) -> Result<Option<String>> {
         let conn = self.pool.get()?;
-        let mut stmt = conn.prepare("SELECT path FROM pins WHERE alias = ? AND (scope = 'shared' OR agent_id = ?)")?;
-        let res = stmt.query_row(params![alias, agent_id], |row| row.get(0)).optional()?;
+        let mut stmt = conn.prepare(
+            "SELECT path FROM pins WHERE alias = ? AND (scope = 'shared' OR agent_id = ?)",
+        )?;
+        let res = stmt
+            .query_row(params![alias, agent_id], |row| row.get(0))
+            .optional()?;
         Ok(res)
     }
 
@@ -257,7 +285,11 @@ impl KoadDB {
         Ok(())
     }
 
-    pub fn get_navigation_history(&self, agent_id: &str, limit: usize) -> Result<Vec<(String, String)>> {
+    pub fn get_navigation_history(
+        &self,
+        agent_id: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String)>> {
         let conn = self.pool.get()?;
         let mut stmt = conn.prepare(
             "SELECT path, timestamp FROM navigation_history WHERE agent_id = ? ORDER BY timestamp DESC LIMIT ?"
@@ -265,7 +297,7 @@ impl KoadDB {
         let rows = stmt.query_map(params![agent_id, limit as i64], |row| {
             Ok((row.get(0)?, row.get(1)?))
         })?;
-        
+
         let mut results = Vec::new();
         for row in rows {
             results.push(row?);

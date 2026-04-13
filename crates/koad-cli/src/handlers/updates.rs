@@ -42,7 +42,13 @@ struct UpdateEntry {
 pub async fn handle_updates_action(action: UpdatesAction, config: &KoadConfig) -> Result<()> {
     let cwd = env::current_dir().unwrap_or_default();
     match action {
-        UpdatesAction::Post { summary, category, body, level, author } => {
+        UpdatesAction::Post {
+            summary,
+            category,
+            body,
+            level,
+            author,
+        } => {
             let pulse_summary = summary.clone();
             let pulse_author = author.clone();
             post_update(config, &cwd, summary, category, body, level, author)?;
@@ -51,10 +57,11 @@ pub async fn handle_updates_action(action: UpdatesAction, config: &KoadConfig) -
             let pulse_author_str = pulse_author.unwrap_or_else(|| {
                 env::var("KOAD_AGENT_NAME").unwrap_or_else(|_| "unknown".to_string())
             });
-            if let Ok(mut client) = koad_proto::cass::v1::pulse_service_client::PulseServiceClient::connect(
-                config.network.cass_grpc_addr.clone(),
-            )
-            .await
+            if let Ok(mut client) =
+                koad_proto::cass::v1::pulse_service_client::PulseServiceClient::connect(
+                    config.network.cass_grpc_addr.clone(),
+                )
+                .await
             {
                 let _ = client
                     .add_pulse(koad_proto::cass::v1::AddPulseRequest {
@@ -67,7 +74,12 @@ pub async fn handle_updates_action(action: UpdatesAction, config: &KoadConfig) -
                     .await;
             }
         }
-        UpdatesAction::List { limit, author, category, level } => {
+        UpdatesAction::List {
+            limit,
+            author,
+            category,
+            level,
+        } => {
             list_updates(config, &cwd, limit, author, category, level)?;
         }
         UpdatesAction::Show { id } => {
@@ -111,7 +123,13 @@ fn updates_dir(config: &KoadConfig, cwd: &Path, level: &str) -> PathBuf {
 fn slugify(s: &str) -> String {
     let raw: String = s
         .chars()
-        .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect();
     raw.split('-')
         .filter(|p| !p.is_empty())
@@ -143,9 +161,8 @@ fn post_update(
     let id = format!("upd_{}_{}", now.format("%Y%m%d_%H%M%S"), slug);
     let filename = format!("{}_{}.md", now.format("%Y%m%d_%H%M%S"), slug);
 
-    let agent_name = author.unwrap_or_else(|| {
-        env::var("KOAD_AGENT_NAME").unwrap_or_else(|_| "unknown".to_string())
-    });
+    let agent_name = author
+        .unwrap_or_else(|| env::var("KOAD_AGENT_NAME").unwrap_or_else(|_| "unknown".to_string()));
 
     let body_text = body.unwrap_or_default();
     let content = format!(
@@ -183,12 +200,12 @@ fn parse_entry(filename: &str, content: &str) -> Option<UpdateEntry> {
         if let Some((k, v)) = line.split_once('=') {
             let val = v.trim().trim_matches('"').to_string();
             match k.trim() {
-                "id"        => id = val,
+                "id" => id = val,
                 "timestamp" => timestamp = val,
-                "author"    => author = val,
-                "level"     => level = val,
-                "category"  => category = val,
-                "summary"   => summary = val,
+                "author" => author = val,
+                "level" => level = val,
+                "category" => category = val,
+                "summary" => summary = val,
                 _ => {}
             }
         }
@@ -230,7 +247,7 @@ fn load_entries(
         .collect();
 
     // Descending by filename (YYYYMMDD_HHMMSS prefix ensures correct order)
-    files.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    files.sort_by_key(|b| std::cmp::Reverse(b.file_name()));
 
     let mut entries = Vec::new();
     for file in files {

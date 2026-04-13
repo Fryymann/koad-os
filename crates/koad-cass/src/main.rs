@@ -43,7 +43,9 @@ async fn main() -> Result<()> {
     let qdrant = match tokio::time::timeout(
         std::time::Duration::from_secs(3),
         QdrantTier::new("http://127.0.0.1:6334"),
-    ).await {
+    )
+    .await
+    {
         Ok(Ok(q)) => {
             tracing::info!("Qdrant L3: ONLINE");
             Arc::new(q)
@@ -84,7 +86,8 @@ async fn main() -> Result<()> {
         intelligence.clone(),
     )
     .with_pulse_store(Arc::clone(&redis_tier) as Arc<dyn koad_cass::storage::PulseTier>);
-    let pulse_svc = CassPulseService::new(Arc::clone(&redis_tier) as Arc<dyn koad_cass::storage::PulseTier>);
+    let pulse_svc =
+        CassPulseService::new(Arc::clone(&redis_tier) as Arc<dyn koad_cass::storage::PulseTier>);
     let stream_svc = CassStreamService::new(notion_client.clone(), stream_db);
     let symbol_svc = CassSymbolService::new(codegraph.clone());
     let tool_svc = CassToolRegistryService::new(plugin_registry);

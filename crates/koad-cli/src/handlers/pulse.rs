@@ -44,10 +44,7 @@ pub async fn handle_pulse_add(
 }
 
 /// List active pulses from CASS.
-pub async fn handle_pulse_list(
-    role: Option<String>,
-    config: &KoadConfig,
-) -> Result<()> {
+pub async fn handle_pulse_list(role: Option<String>, config: &KoadConfig) -> Result<()> {
     let agent_name = env::var("KOAD_AGENT_NAME").unwrap_or_else(|_| "unknown".to_string());
     let role_str = role.unwrap_or_else(|| "global".to_string());
 
@@ -61,11 +58,17 @@ pub async fn handle_pulse_list(
                 Ok(resp) => {
                     let pulses = resp.into_inner().pulses;
                     if pulses.is_empty() {
-                        println!("\x1b[33m[EMPTY]\x1b[0m No active pulses for role '{}'.", role_str);
+                        println!(
+                            "\x1b[33m[EMPTY]\x1b[0m No active pulses for role '{}'.",
+                            role_str
+                        );
                     } else {
                         println!("\x1b[1;34m--- Active Pulses ({}) ---\x1b[0m", pulses.len());
                         for p in &pulses {
-                            println!("  \x1b[36m[{}]\x1b[0m {} \x1b[2m— {}\x1b[0m", p.role, p.message, p.author);
+                            println!(
+                                "  \x1b[36m[{}]\x1b[0m {} \x1b[2m— {}\x1b[0m",
+                                p.role, p.message, p.author
+                            );
                         }
                     }
                 }

@@ -71,6 +71,7 @@ impl Kernel {
     }
 }
 
+/// Builder for configuring and constructing a [`Kernel`] instance.
 #[derive(Default)]
 pub struct KernelBuilder {
     home_dir: Option<PathBuf>,
@@ -269,7 +270,7 @@ impl KernelBuilder {
             });
         }
 
-        Ok(Kernel { 
+        Ok(Kernel {
             shutdown_tx,
             storage,
             admin_uds_path: self.admin_uds_path,

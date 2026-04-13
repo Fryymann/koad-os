@@ -1,7 +1,7 @@
+use anyhow::Result;
 use koad_proto::cass::v1::tool_registry_service_client::ToolRegistryServiceClient;
 use koad_proto::cass::v1::RegisterToolRequest;
 use koad_proto::citadel::v5::TraceContext;
-use anyhow::Result;
 use std::path::PathBuf;
 
 #[tokio::main]
@@ -18,14 +18,18 @@ async fn main() -> Result<()> {
                 .to_string_lossy()
                 .into_owned()
         });
-    let component_path = PathBuf::from(&koad_home)
-        .join("crates/koad-plugins/wit/hello-plugin.component.wasm");
+    let component_path =
+        PathBuf::from(&koad_home).join("crates/koad-plugins/wit/hello-plugin.component.wasm");
 
     if !component_path.exists() {
         anyhow::bail!("Component not found at {}", component_path.display());
     }
 
-    println!("Registering tool '{}' from {}...", plugin_name, component_path.display());
+    println!(
+        "Registering tool '{}' from {}...",
+        plugin_name,
+        component_path.display()
+    );
 
     let request = tonic::Request::new(RegisterToolRequest {
         context: Some(TraceContext {

@@ -1,7 +1,7 @@
 //! # KoadOS Code Knowledge Graph (DEPRECATED)
 //!
-//! **NOTICE:** This crate is deprecated in favor of the `code-review-graph` 
-//! Dynamic System Map (DSM) integration. 
+//! **NOTICE:** This crate is deprecated in favor of the `code-review-graph`
+//! Dynamic System Map (DSM) integration.
 //!
 //! Provides AST-based symbol indexing and querying using tree-sitter.
 //! This tool enables agents to perform high-fidelity codebase navigation
@@ -165,7 +165,10 @@ impl CodeGraph {
 
     /// Provides a summary of all symbols in a specific crate (directory).
     pub fn get_crate_summary(&self, crate_path: &str) -> Result<String> {
-        let conn = self.db.lock().map_err(|_| anyhow::anyhow!("DB lock poisoned"))?;
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| anyhow::anyhow!("DB lock poisoned"))?;
         let mut stmt = conn.prepare(
             "SELECT path, name, kind FROM symbols WHERE path LIKE ?1 ORDER BY path, kind",
         )?;

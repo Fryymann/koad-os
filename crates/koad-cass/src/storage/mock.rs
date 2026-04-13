@@ -15,6 +15,12 @@ pub struct MockPulseStore {
     pulses: Arc<TokioMutex<Vec<Pulse>>>,
 }
 
+impl Default for MockPulseStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockPulseStore {
     pub fn new() -> Self {
         Self {
@@ -52,10 +58,19 @@ impl MockStorage {
     }
 }
 
+impl Default for MockStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl Storage for MockStorage {
     async fn commit_fact(&self, fact: FactCard) -> Result<()> {
-        let mut facts = self.facts.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let mut facts = self
+            .facts
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         facts.push(fact);
         Ok(())
     }
@@ -66,7 +81,10 @@ impl Storage for MockStorage {
         _tags: &[String],
         _limit: u32,
     ) -> Result<Vec<FactCard>> {
-        let facts = self.facts.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let facts = self
+            .facts
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         Ok(facts.clone())
     }
 
@@ -76,12 +94,18 @@ impl Storage for MockStorage {
         _limit: u32,
         _task_id: Option<&str>,
     ) -> Result<Vec<FactCard>> {
-        let facts = self.facts.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let facts = self
+            .facts
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         Ok(facts.clone())
     }
 
     async fn record_episode(&self, episode: EpisodicMemory) -> Result<()> {
-        let mut episodes = self.episodes.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let mut episodes = self
+            .episodes
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         episodes.push(episode);
         Ok(())
     }
@@ -92,7 +116,10 @@ impl Storage for MockStorage {
         _limit: u32,
         _task_id: Option<&str>,
     ) -> Result<Vec<EpisodicMemory>> {
-        let episodes = self.episodes.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let episodes = self
+            .episodes
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         Ok(episodes.clone())
     }
 }

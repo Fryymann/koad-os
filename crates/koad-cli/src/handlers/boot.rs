@@ -1,5 +1,6 @@
-use anyhow::{Context, Result};
+use crate::handlers::motd::show_motd;
 use crate::utils::errors::{map_connect_err, map_status_err};
+use anyhow::{Context, Result};
 use fred::interfaces::HashesInterface;
 use koad_core::config::KoadConfig;
 use koad_core::hierarchy::HierarchyManager;
@@ -8,7 +9,6 @@ use koad_proto::cass::v1::hydration_service_client::HydrationServiceClient;
 use koad_proto::cass::v1::HydrationRequest;
 use koad_proto::citadel::v5::citadel_session_client::CitadelSessionClient;
 use koad_proto::citadel::v5::{CloseRequest, LeaseRequest, TurnMetrics};
-use crate::handlers::motd::show_motd;
 use std::env;
 
 /// Options for booting an agent session.
@@ -67,16 +67,20 @@ pub async fn handle_boot_command(opts: BootOptions, config: &KoadConfig) -> Resu
     let mut is_degraded = false;
     let mut estimated_tokens = 0;
 
-    let cass_connect_result = HydrationServiceClient::connect(config.network.cass_grpc_addr.clone()).await;
+    let cass_connect_result =
+        HydrationServiceClient::connect(config.network.cass_grpc_addr.clone()).await;
     match cass_connect_result {
         Ok(mut cass) => {
-            match cass.hydrate(HydrationRequest {
-                agent_name: agent.clone(),
-                project_root: current_dir.to_string_lossy().to_string(),
-                level,
-                token_budget: budget,
-                task_id: opts.task.unwrap_or_default(),
-            }).await {
+            match cass
+                .hydrate(HydrationRequest {
+                    agent_name: agent.clone(),
+                    project_root: current_dir.to_string_lossy().to_string(),
+                    level,
+                    token_budget: budget,
+                    task_id: opts.task.unwrap_or_default(),
+                })
+                .await
+            {
                 Ok(hydration_resp) => {
                     let packet = hydration_resp.into_inner();
                     estimated_tokens = packet.estimated_tokens;
@@ -91,33 +95,43 @@ pub async fn handle_boot_command(opts: BootOptions, config: &KoadConfig) -> Resu
         }
         Err(e) => {
             is_degraded = true;
-            eprintln!("{}", map_connect_err("KoadOS CASS", &config.network.cass_grpc_addr, e));
-            tokio::fs::write(&context_file, b"# [SYSTEM DEGRADED: CASS OFFLINE]\nCould not connect to CASS gRPC service.").await?;
+            eprintln!(
+                "{}",
+                map_connect_err("KoadOS CASS", &config.network.cass_grpc_addr, e)
+            );
+            tokio::fs::write(
+                &context_file,
+                b"# [SYSTEM DEGRADED: CASS OFFLINE]\nCould not connect to CASS gRPC service.",
+            )
+            .await?;
         }
     }
 
     // 3. Citadel Handshake (Lease + Telemetry)
     let mut session_id = format!("local-fallback-{}", uuid::Uuid::new_v4());
-    let citadel_connect_result = CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone()).await;
-    
+    let citadel_connect_result =
+        CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone()).await;
+
     match citadel_connect_result {
         Ok(mut citadel) => {
             let context = Some(crate::utils::get_trace_context(&agent, 3));
-            match citadel.create_lease(LeaseRequest {
-                context: context.clone(),
-                agent_name: agent.clone(),
-                project_root: current_dir.to_string_lossy().to_string(),
-                force,
-                body_id: body_id.clone(),
-                driver_id: "gemini-cli".to_string(),
-                metrics: Some(TurnMetrics {
-                    input_tokens: 0,
-                    output_tokens: estimated_tokens,
-                    thinking_tokens: 0,
-                    tool_calls: 0,
-                    ..Default::default()
-                }),
-            }).await {
+            match citadel
+                .create_lease(LeaseRequest {
+                    context: context.clone(),
+                    agent_name: agent.clone(),
+                    project_root: current_dir.to_string_lossy().to_string(),
+                    force,
+                    body_id: body_id.clone(),
+                    driver_id: "gemini-cli".to_string(),
+                    metrics: Some(TurnMetrics {
+                        input_tokens: 0,
+                        output_tokens: estimated_tokens,
+                        thinking_tokens: 0,
+                        tool_calls: 0,
+                    }),
+                })
+                .await
+            {
                 Ok(lease_resp) => {
                     session_id = lease_resp.into_inner().session_id;
                 }
@@ -129,7 +143,10 @@ pub async fn handle_boot_command(opts: BootOptions, config: &KoadConfig) -> Resu
         }
         Err(e) => {
             is_degraded = true;
-            eprintln!("{}", map_connect_err("KoadOS Citadel", &config.network.citadel_grpc_addr, e));
+            eprintln!(
+                "{}",
+                map_connect_err("KoadOS Citadel", &config.network.citadel_grpc_addr, e)
+            );
         }
     }
 
@@ -169,7 +186,8 @@ pub async fn handle_logout_command(session: Option<String>, config: &KoadConfig)
     let agent_name = env::var("KOAD_AGENT_NAME").unwrap_or_else(|_| "unknown".to_string());
     let context = Some(crate::utils::get_trace_context(&agent_name, 3));
 
-    let mut client = CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone()).await?;
+    let mut client =
+        CitadelSessionClient::connect(config.network.citadel_grpc_addr.clone()).await?;
 
     client
         .close_session(CloseRequest {

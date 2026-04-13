@@ -5,7 +5,9 @@ use chrono::Utc;
 use koad_bridge_notion::{NotionClient, NotionMcpProxy};
 use koad_core::config::KoadConfig;
 use koad_proto::cass::v1::tool_registry_service_client::ToolRegistryServiceClient;
-use koad_proto::cass::v1::{DeregisterToolRequest, InvokeToolRequest, ListToolsRequest, RegisterToolRequest};
+use koad_proto::cass::v1::{
+    DeregisterToolRequest, InvokeToolRequest, ListToolsRequest, RegisterToolRequest,
+};
 use koad_proto::citadel::v5::admin_client::AdminClient;
 use koad_proto::citadel::v5::{EventSeverity, SystemEvent};
 use std::env;
@@ -25,7 +27,7 @@ pub async fn handle_bridge_action(
                     .env("KOAD_AGENT_NAME", &agent_name)
                     .spawn()
                     .context("Failed to launch koad-fs-mcp supervisor")?;
-                
+
                 let _ = child.wait().await?;
             }
         },
@@ -34,8 +36,10 @@ pub async fn handle_bridge_action(
                 .or_else(|_| env::var("KOADOS_MAIN_NOTION_TOKEN"))
                 .or_else(|_| env::var("NOTION_API_KEY"))
                 .or_else(|_| env::var("NOTION_TOKEN"))
-                .map_err(|_| anyhow!("Notion token not set. Expected KOADOS_PAT_NOTION_MAIN in environment."))?;
-            
+                .map_err(|_| {
+                    anyhow!("Notion token not set. Expected KOADOS_PAT_NOTION_MAIN in environment.")
+                })?;
+
             let db_path = config.home.join("data/db/notion-sync.db");
             let proxy = NotionMcpProxy::new(api_key.clone(), db_path)?;
 
@@ -50,7 +54,11 @@ pub async fn handle_bridge_action(
                     println!(">>> [SUCCESS] Synced {} pages to local datastore.", count);
                 }
                 NotionAction::Export { id, output } => {
-                    println!(">>> [EXPORT] Exporting database {} to {}", id, output.display());
+                    println!(
+                        ">>> [EXPORT] Exporting database {} to {}",
+                        id,
+                        output.display()
+                    );
                     let count = proxy.export_database(&id, &output)?;
                     println!(">>> [SUCCESS] Exported {} Markdown files.", count);
                 }
@@ -121,9 +129,10 @@ pub async fn handle_bridge_action(
             }
         },
         BridgeAction::Skill { action } => {
-            let mut client = ToolRegistryServiceClient::connect(config.network.cass_grpc_addr.clone())
-                .await
-                .context("Failed to connect to CASS gRPC (ToolRegistry)")?;
+            let mut client =
+                ToolRegistryServiceClient::connect(config.network.cass_grpc_addr.clone())
+                    .await
+                    .context("Failed to connect to CASS gRPC (ToolRegistry)")?;
             let trace_ctx = Some(crate::utils::get_trace_context(&agent_name, 3));
             match action {
                 SkillAction::List => {
@@ -146,7 +155,10 @@ pub async fn handle_bridge_action(
                         container_image: String::new(),
                     };
                     let resp = client.register_tool(req).await?.into_inner();
-                    println!(">>> [OK] Skill '{}' registered. Status: {}", name, resp.message);
+                    println!(
+                        ">>> [OK] Skill '{}' registered. Status: {}",
+                        name, resp.message
+                    );
                 }
                 SkillAction::Deregister { name } => {
                     let req = DeregisterToolRequest {
@@ -154,9 +166,16 @@ pub async fn handle_bridge_action(
                         name: name.clone(),
                     };
                     let resp = client.deregister_tool(req).await?.into_inner();
-                    println!(">>> [OK] Skill '{}' deregistered. Status: {}", name, resp.message);
+                    println!(
+                        ">>> [OK] Skill '{}' deregistered. Status: {}",
+                        name, resp.message
+                    );
                 }
-                SkillAction::Run { name, topic, payload } => {
+                SkillAction::Run {
+                    name,
+                    topic,
+                    payload,
+                } => {
                     let req = InvokeToolRequest {
                         context: trace_ctx,
                         name: name.clone(),
@@ -164,7 +183,10 @@ pub async fn handle_bridge_action(
                         payload,
                     };
                     let resp = client.invoke_tool(req).await?.into_inner();
-                    println!(">>> [OK] Skill '{}' executed in {}ms ({} bytes).", name, resp.duration_ms, resp.memory_bytes);
+                    println!(
+                        ">>> [OK] Skill '{}' executed in {}ms ({} bytes).",
+                        name, resp.duration_ms, resp.memory_bytes
+                    );
                     println!("{}", resp.output);
                 }
             }

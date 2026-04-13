@@ -1,7 +1,7 @@
 use crate::cli::{ConfigAction, SystemAction};
 use crate::db::KoadDB;
-use crate::utils::{get_gdrive_token_for_path, get_gh_pat_for_path};
 use crate::utils::errors::map_connect_err;
+use crate::utils::{get_gdrive_token_for_path, get_gh_pat_for_path};
 use anyhow::{Context, Result};
 use chrono::Local;
 use fred::interfaces::{HashesInterface, KeysInterface, LuaInterface};
@@ -10,11 +10,11 @@ use futures_util::StreamExt;
 use koad_core::config::KoadConfig;
 use koad_core::utils::lock::DistributedLock;
 use koad_core::utils::redis::RedisClient;
+use koad_proto::cass::v1::memory_service_client::MemoryServiceClient;
+use koad_proto::cass::v1::FactCard;
 use koad_proto::citadel::v5::admin_client::AdminClient;
 use koad_proto::citadel::v5::citadel_session_client::CitadelSessionClient;
 use koad_proto::citadel::v5::*;
-use koad_proto::cass::v1::memory_service_client::MemoryServiceClient;
-use koad_proto::cass::v1::FactCard;
 use rusqlite::params;
 use serde_json::Value;
 use std::env;
@@ -703,7 +703,7 @@ pub async fn handle_system_action(
                 Ok(resp) => {
                     let pkg = resp.into_inner();
                     let sid = pkg.session_id;
-                    
+
                     // Recover body_id from session if not in environment
                     let bid = body_id;
 
@@ -731,8 +731,7 @@ pub async fn handle_system_action(
             if !is_admin {
                 anyhow::bail!("Admin only.");
             }
-            let mut client =
-                AdminClient::connect(config.network.citadel_grpc_addr.clone()).await?;
+            let mut client = AdminClient::connect(config.network.citadel_grpc_addr.clone()).await?;
             let context = Some(crate::utils::get_trace_context(agent_name, 3));
             let req = TriggerBackupRequest { context, source };
             let res = client
@@ -793,12 +792,12 @@ pub async fn handle_system_action(
             }
         }
         SystemAction::Start => {
-            start_citadel_services(&config)?;
+            start_citadel_services(config)?;
         }
         SystemAction::Restart => {
             stop_citadel_processes();
             std::thread::sleep(Duration::from_millis(800));
-            start_citadel_services(&config)?;
+            start_citadel_services(config)?;
         }
         SystemAction::Stop { drain, confirm } => {
             if !is_admin {
@@ -829,6 +828,9 @@ pub async fn handle_system_action(
             println!(">>> [2/2] Terminating KoadOS Core...");
             stop_citadel_processes();
             println!("\x1b[32m[OK]\x1b[0m System halted.");
+        }
+        SystemAction::Scrub { dry_run, force } => {
+            handle_scrub(&config.home, dry_run, force)?;
         }
         SystemAction::Context { action } => {
             handle_context_action(action, config, db, agent_name).await?;
@@ -882,7 +884,10 @@ fn start_citadel_services(config: &KoadConfig) -> Result<()> {
 
     let open_log = |name: &str, suffix: &str| -> Result<std::process::Stdio> {
         let path = log_dir.join(format!("{}.{}.log", name, suffix));
-        let f = fs::OpenOptions::new().create(true).append(true).open(path)?;
+        let f = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
         Ok(std::process::Stdio::from(f))
     };
 
@@ -966,7 +971,8 @@ pub async fn handle_heartbeat(
                     // 2. If session is unknown to Citadel (e.g. Citadel rebooted), trigger Live Reconnect
                     if e.code() == tonic::Code::NotFound || e.code() == tonic::Code::Unavailable {
                         let body_id = env::var("KOAD_BODY_ID").unwrap_or_default();
-                        let current_dir = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                        let current_dir =
+                            env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
                         let context = Some(crate::utils::get_trace_context(&agent_name, 3));
                         let rec_req = LeaseRequest {
                             context,
@@ -1055,7 +1061,8 @@ pub async fn handle_context_action(
                 format!("{:x}", hasher.finalize())
             };
 
-            let mut cass = MemoryServiceClient::connect(config.network.cass_grpc_addr.clone()).await?;
+            let mut cass =
+                MemoryServiceClient::connect(config.network.cass_grpc_addr.clone()).await?;
             let req = FactCard {
                 id: chunk_id,
                 source_agent: agent_name.to_string(),
@@ -1070,10 +1077,7 @@ pub async fn handle_context_action(
                 }),
             };
 
-            let res = cass
-                .commit_fact(req)
-                .await?
-                .into_inner();
+            let res = cass.commit_fact(req).await?.into_inner();
             if res.success {
                 println!(
                     "\x1b[32m[OK]\x1b[0m Context Hydrated for session {}.",
@@ -1183,7 +1187,8 @@ pub async fn handle_context_action(
 
             // 3. Hydrate chunks via gRPC
             let mut success_count = 0;
-            let mut cass = MemoryServiceClient::connect(config.network.cass_grpc_addr.clone()).await?;
+            let mut cass =
+                MemoryServiceClient::connect(config.network.cass_grpc_addr.clone()).await?;
             for (chunk_id, chunk_val) in hot_context {
                 if let Ok(chunk_data) =
                     serde_json::from_str::<serde_json::Value>(chunk_val.as_str().unwrap_or(""))
@@ -1220,4 +1225,336 @@ pub async fn handle_context_action(
     }
 
     Ok(())
+}
+
+// ── Distribution Sanitizer ────────────────────────────────────────────────
+
+/// Describes a single scrub action.
+enum ScrubAction {
+    /// Delete this specific file.
+    DeleteFile(std::path::PathBuf),
+    /// Truncate this file to zero bytes (keep the file, empty its content).
+    TruncateFile(std::path::PathBuf),
+    /// Overwrite this file with fixed content.
+    ResetFile {
+        path: std::path::PathBuf,
+        content: String,
+    },
+    /// Recursively delete this directory.
+    DeleteDir(std::path::PathBuf),
+}
+
+impl ScrubAction {
+    fn describe(&self) -> String {
+        match self {
+            ScrubAction::DeleteFile(p) => format!("delete file:      {}", p.display()),
+            ScrubAction::TruncateFile(p) => format!("truncate file:    {}", p.display()),
+            ScrubAction::ResetFile { path, .. } => format!("reset file:       {}", path.display()),
+            ScrubAction::DeleteDir(p) => format!("delete dir:       {}", p.display()),
+        }
+    }
+}
+
+/// Collect all scrub targets for the given KoadOS home directory.
+fn collect_scrub_targets(home: &std::path::Path) -> Result<Vec<ScrubAction>> {
+    let mut actions: Vec<ScrubAction> = Vec::new();
+
+    // 1. data/db/ — delete all SQLite files
+    let db_dir = home.join("data/db");
+    if db_dir.exists() {
+        for entry in std::fs::read_dir(&db_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if name.ends_with(".db") || name.ends_with(".db-shm") || name.ends_with(".db-wal") {
+                    actions.push(ScrubAction::DeleteFile(path));
+                }
+            }
+        }
+    }
+
+    // 2. logs/ — truncate all files
+    let logs_dir = home.join("logs");
+    if logs_dir.exists() {
+        for entry in std::fs::read_dir(&logs_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                actions.push(ScrubAction::TruncateFile(path));
+            }
+        }
+    }
+
+    // 3. run/ — delete .sock and .pid files
+    let run_dir = home.join("run");
+    if run_dir.exists() {
+        for entry in std::fs::read_dir(&run_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if name.ends_with(".sock") || name.ends_with(".pid") {
+                    actions.push(ScrubAction::DeleteFile(path));
+                }
+            }
+        }
+    }
+
+    // 4. agents/bays/ — delete all subdirs
+    let bays_dir = home.join("agents/bays");
+    if bays_dir.exists() {
+        for entry in std::fs::read_dir(&bays_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                actions.push(ScrubAction::DeleteDir(path));
+            }
+        }
+    }
+
+    // 5. agents/KAPVs/ — delete subdirs only; keep TEMPLATE* files
+    let kapvs_dir = home.join("agents/KAPVs");
+    if kapvs_dir.exists() {
+        for entry in std::fs::read_dir(&kapvs_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if path.is_dir() {
+                actions.push(ScrubAction::DeleteDir(path));
+            } else if path.is_file() && !name.starts_with("TEMPLATE") {
+                actions.push(ScrubAction::DeleteFile(path));
+            }
+        }
+    }
+
+    // 6. SESSIONS_LOG.md — truncate if exists
+    let sessions_log = home.join("SESSIONS_LOG.md");
+    if sessions_log.exists() {
+        actions.push(ScrubAction::TruncateFile(sessions_log));
+    }
+
+    // 7. TEAM-LOG.md — reset to release header stub
+    let team_log = home.join("TEAM-LOG.md");
+    if team_log.exists() {
+        let release_header = "# KoadOS Team Log — Distribution Release\n\
+            **Status:** Clean Slate — scrubbed for distribution.\n\
+            **Lead:** (unassigned)\n\n\
+            | Date | Teammate | Task ID | Status | Notes |\n\
+            |------|----------|---------|--------|-------|\n"
+            .to_string();
+        actions.push(ScrubAction::ResetFile {
+            path: team_log,
+            content: release_header,
+        });
+    }
+
+    // 8. cache/ — delete all contents
+    let cache_dir = home.join("cache");
+    if cache_dir.exists() {
+        for entry in std::fs::read_dir(&cache_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                actions.push(ScrubAction::DeleteFile(path));
+            } else if path.is_dir() {
+                actions.push(ScrubAction::DeleteDir(path));
+            }
+        }
+    }
+
+    Ok(actions)
+}
+
+/// Execute (or simulate) a list of scrub actions.
+fn execute_scrub_actions(actions: &[ScrubAction], dry_run: bool) -> Result<()> {
+    for action in actions {
+        let label = if dry_run { "[dry-run]" } else { "[scrub]  " };
+        println!("{}  {}", label, action.describe());
+        if !dry_run {
+            match action {
+                ScrubAction::DeleteFile(p) => {
+                    std::fs::remove_file(p)
+                        .with_context(|| format!("Failed to delete {}", p.display()))?;
+                }
+                ScrubAction::TruncateFile(p) => {
+                    std::fs::write(p, b"")
+                        .with_context(|| format!("Failed to truncate {}", p.display()))?;
+                }
+                ScrubAction::ResetFile { path, content } => {
+                    std::fs::write(path, content.as_bytes())
+                        .with_context(|| format!("Failed to reset {}", path.display()))?;
+                }
+                ScrubAction::DeleteDir(p) => {
+                    std::fs::remove_dir_all(p)
+                        .with_context(|| format!("Failed to delete dir {}", p.display()))?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn handle_scrub(home: &std::path::Path, dry_run: bool, force: bool) -> Result<()> {
+    // Git check: warn on dirty working tree
+    let git_status = Command::new("git")
+        .args(["-C", &home.to_string_lossy(), "status", "--short"])
+        .output();
+    if let Ok(output) = git_status {
+        let dirty = String::from_utf8_lossy(&output.stdout);
+        if !dirty.trim().is_empty() {
+            println!("\x1b[33m[WARNING]\x1b[0m Uncommitted changes detected in the repository:");
+            for line in dirty.lines().take(10) {
+                println!("  {}", line);
+            }
+            println!();
+        }
+    }
+
+    // Collect targets
+    let actions = collect_scrub_targets(home)?;
+
+    if actions.is_empty() {
+        println!("Nothing to scrub. Citadel is already clean.");
+        return Ok(());
+    }
+
+    println!("\x1b[1mKoadOS Distribution Sanitizer\x1b[0m");
+    println!("Targets identified: {}", actions.len());
+    println!();
+    for action in &actions {
+        println!("  - {}", action.describe());
+    }
+    println!();
+
+    if dry_run {
+        println!("\x1b[34m[DRY RUN]\x1b[0m No files were modified.");
+        return Ok(());
+    }
+
+    // Confirmation gate
+    if !force {
+        println!("\x1b[31m[DANGER]\x1b[0m This will permanently delete local state.");
+        println!("Type 'SCRUB' to confirm, or anything else to cancel:");
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        if input.trim() != "SCRUB" {
+            println!("Scrub cancelled.");
+            return Ok(());
+        }
+        println!();
+    }
+
+    execute_scrub_actions(&actions, false)?;
+
+    println!();
+    println!(
+        "\x1b[32m[DONE]\x1b[0m Citadel scrubbed. {} action(s) completed.",
+        actions.len()
+    );
+    println!("Run `koad system init` to re-initialize the environment.");
+    Ok(())
+}
+
+#[cfg(test)]
+mod scrub_tests {
+    use super::*;
+    use std::fs;
+
+    fn setup_fake_home(tmp: &std::path::Path) {
+        // Create the directory structure that collect_scrub_targets scans
+        fs::create_dir_all(tmp.join("data/db")).unwrap();
+        fs::create_dir_all(tmp.join("logs")).unwrap();
+        fs::create_dir_all(tmp.join("run")).unwrap();
+        fs::create_dir_all(tmp.join("agents/bays/tyr")).unwrap();
+        fs::create_dir_all(tmp.join("agents/KAPVs/clyde")).unwrap();
+        fs::create_dir_all(tmp.join("cache")).unwrap();
+
+        // Seed files
+        fs::write(tmp.join("data/db/koad.db"), b"db").unwrap();
+        fs::write(tmp.join("data/db/koad.db-shm"), b"shm").unwrap();
+        fs::write(tmp.join("logs/citadel.log"), b"log").unwrap();
+        fs::write(tmp.join("run/koad.sock"), b"sock").unwrap();
+        fs::write(tmp.join("run/redis.pid"), b"pid").unwrap();
+        fs::write(tmp.join("cache/boot-metrics.md"), b"cache").unwrap();
+        fs::write(tmp.join("TEAM-LOG.md"), b"# Log").unwrap();
+    }
+
+    #[test]
+    fn test_collect_scrub_targets_finds_expected_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        setup_fake_home(tmp.path());
+
+        let actions = collect_scrub_targets(tmp.path()).unwrap();
+        // Should find: koad.db, koad.db-shm, citadel.log, koad.sock, redis.pid,
+        //              agents/bays/tyr (dir), agents/KAPVs/clyde (dir),
+        //              cache/boot-metrics.md, TEAM-LOG.md reset
+        assert!(
+            actions.len() >= 8,
+            "expected at least 8 scrub actions, got {}",
+            actions.len()
+        );
+    }
+
+    #[test]
+    fn test_collect_scrub_targets_preserves_template_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("agents/KAPVs")).unwrap();
+        fs::write(tmp.path().join("agents/KAPVs/TEMPLATE.md"), b"template").unwrap();
+        fs::create_dir_all(tmp.path().join("agents/KAPVs/agent-vault")).unwrap();
+
+        let actions = collect_scrub_targets(tmp.path()).unwrap();
+        // TEMPLATE.md must NOT appear in actions
+        let hits_template = actions.iter().any(|a| {
+            let p = match a {
+                ScrubAction::DeleteFile(p) | ScrubAction::TruncateFile(p) => p,
+                ScrubAction::ResetFile { path, .. } => path,
+                ScrubAction::DeleteDir(p) => p,
+            };
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .starts_with("TEMPLATE")
+        });
+        assert!(!hits_template, "TEMPLATE files must be preserved by scrub");
+        // The agent-vault dir SHOULD appear
+        let hits_vault = actions
+            .iter()
+            .any(|a| matches!(a, ScrubAction::DeleteDir(p) if p.ends_with("agent-vault")));
+        assert!(hits_vault, "non-template KAPVs dirs should be targeted");
+    }
+
+    #[test]
+    fn test_execute_scrub_actions_dry_run_leaves_files_intact() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("test.db");
+        fs::write(&file, b"data").unwrap();
+
+        let actions = vec![ScrubAction::DeleteFile(file.clone())];
+        execute_scrub_actions(&actions, true /* dry_run */).unwrap();
+
+        assert!(file.exists(), "dry-run must not delete files");
+        assert_eq!(
+            fs::read(&file).unwrap(),
+            b"data",
+            "dry-run must not modify file content"
+        );
+    }
+
+    #[test]
+    fn test_execute_scrub_actions_truncate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("citadel.log");
+        fs::write(&file, b"lots of logs").unwrap();
+
+        let actions = vec![ScrubAction::TruncateFile(file.clone())];
+        execute_scrub_actions(&actions, false).unwrap();
+
+        assert!(file.exists(), "truncated file should still exist");
+        assert_eq!(
+            fs::read(&file).unwrap(),
+            b"",
+            "truncated file should be empty"
+        );
+    }
 }

@@ -9,13 +9,13 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use koad_proto::cass::v1::{EpisodicMemory, FactCard};
 use qdrant_client::qdrant::{
-    Condition, CreateCollectionBuilder, Distance, Filter, PointStruct, ScrollPointsBuilder,
-    UpsertPointsBuilder, VectorParamsBuilder, value::Kind,
+    value::Kind, Condition, CreateCollectionBuilder, Distance, Filter, PointStruct,
+    ScrollPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
 };
 use qdrant_client::Qdrant;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
 
 const COLLECTION: &str = "fact_cards";
 const VECTOR_DIM: u64 = 32;
@@ -45,7 +45,9 @@ impl QdrantTier {
                 .context("Failed to create Qdrant collection")?;
         }
 
-        Ok(Self { client: Some(client) })
+        Ok(Self {
+            client: Some(client),
+        })
     }
 
     /// Deterministic u64 point ID from fact UUID string.
@@ -70,17 +72,54 @@ impl QdrantTier {
     fn make_payload(fact: &FactCard) -> HashMap<String, qdrant_client::qdrant::Value> {
         use qdrant_client::qdrant::Value;
         let mut p = HashMap::new();
-        p.insert("id".into(),           Value { kind: Some(Kind::StringValue(fact.id.clone())) });
-        p.insert("domain".into(),       Value { kind: Some(Kind::StringValue(fact.domain.clone())) });
-        p.insert("content".into(),      Value { kind: Some(Kind::StringValue(fact.content.clone())) });
-        p.insert("source_agent".into(), Value { kind: Some(Kind::StringValue(fact.source_agent.clone())) });
-        p.insert("session_id".into(),   Value { kind: Some(Kind::StringValue(fact.session_id.clone())) });
-        p.insert("confidence".into(),   Value { kind: Some(Kind::DoubleValue(fact.confidence as f64)) });
-        p.insert("tags".into(),         Value { kind: Some(Kind::StringValue(fact.tags.join(","))) });
+        p.insert(
+            "id".into(),
+            Value {
+                kind: Some(Kind::StringValue(fact.id.clone())),
+            },
+        );
+        p.insert(
+            "domain".into(),
+            Value {
+                kind: Some(Kind::StringValue(fact.domain.clone())),
+            },
+        );
+        p.insert(
+            "content".into(),
+            Value {
+                kind: Some(Kind::StringValue(fact.content.clone())),
+            },
+        );
+        p.insert(
+            "source_agent".into(),
+            Value {
+                kind: Some(Kind::StringValue(fact.source_agent.clone())),
+            },
+        );
+        p.insert(
+            "session_id".into(),
+            Value {
+                kind: Some(Kind::StringValue(fact.session_id.clone())),
+            },
+        );
+        p.insert(
+            "confidence".into(),
+            Value {
+                kind: Some(Kind::DoubleValue(fact.confidence as f64)),
+            },
+        );
+        p.insert(
+            "tags".into(),
+            Value {
+                kind: Some(Kind::StringValue(fact.tags.join(","))),
+            },
+        );
         p
     }
 
-    fn payload_to_fact(payload: &HashMap<String, qdrant_client::qdrant::Value>) -> Option<FactCard> {
+    fn payload_to_fact(
+        payload: &HashMap<String, qdrant_client::qdrant::Value>,
+    ) -> Option<FactCard> {
         let get_str = |key: &str| -> Option<String> {
             match payload.get(key)?.kind.as_ref()? {
                 Kind::StringValue(s) => Some(s.clone()),
@@ -95,14 +134,14 @@ impl QdrantTier {
         };
 
         Some(FactCard {
-            id:           get_str("id")?,
-            domain:       get_str("domain")?,
-            content:      get_str("content")?,
+            id: get_str("id")?,
+            domain: get_str("domain")?,
+            content: get_str("content")?,
             source_agent: get_str("source_agent")?,
-            session_id:   get_str("session_id")?,
-            confidence:   get_f64("confidence")? as f32,
-            tags:         get_str("tags")?.split(',').map(|s| s.to_string()).collect(),
-            created_at:   None,
+            session_id: get_str("session_id")?,
+            confidence: get_f64("confidence")? as f32,
+            tags: get_str("tags")?.split(',').map(|s| s.to_string()).collect(),
+            created_at: None,
         })
     }
 }
@@ -110,7 +149,9 @@ impl QdrantTier {
 #[async_trait]
 impl MemoryTier for QdrantTier {
     async fn commit_fact(&self, fact: FactCard) -> Result<()> {
-        let Some(client) = &self.client else { return Ok(()); };
+        let Some(client) = &self.client else {
+            return Ok(());
+        };
         let vector = Self::content_vector(&fact.content);
         let payload = Self::make_payload(&fact);
         let point = PointStruct::new(Self::point_id(&fact.id), vector, payload);
@@ -122,8 +163,15 @@ impl MemoryTier for QdrantTier {
         Ok(())
     }
 
-    async fn query_facts(&self, domain: &str, _tags: &[String], limit: u32) -> Result<Vec<FactCard>> {
-        let Some(client) = &self.client else { return Ok(vec![]); };
+    async fn query_facts(
+        &self,
+        domain: &str,
+        _tags: &[String],
+        limit: u32,
+    ) -> Result<Vec<FactCard>> {
+        let Some(client) = &self.client else {
+            return Ok(vec![]);
+        };
         let filter = Filter::must([Condition::matches("domain", domain.to_string())]);
 
         let result = client
@@ -145,7 +193,12 @@ impl MemoryTier for QdrantTier {
         Ok(facts)
     }
 
-    async fn query_agent_facts(&self, _agent_name: &str, _limit: u32, _task_id: Option<&str>) -> Result<Vec<FactCard>> {
+    async fn query_agent_facts(
+        &self,
+        _agent_name: &str,
+        _limit: u32,
+        _task_id: Option<&str>,
+    ) -> Result<Vec<FactCard>> {
         // Qdrant tier defers agent-scoped queries to SQLite (L2).
         Ok(vec![])
     }
@@ -155,7 +208,12 @@ impl MemoryTier for QdrantTier {
         Ok(())
     }
 
-    async fn query_recent_episodes(&self, _agent_name: &str, _limit: u32, _task_id: Option<&str>) -> Result<Vec<EpisodicMemory>> {
+    async fn query_recent_episodes(
+        &self,
+        _agent_name: &str,
+        _limit: u32,
+        _task_id: Option<&str>,
+    ) -> Result<Vec<EpisodicMemory>> {
         Ok(vec![])
     }
 }

@@ -259,7 +259,10 @@ impl PluginRegistry {
             return Ok(PluginResult {
                 plugin_name: name.to_string(),
                 output: result.stdout,
-                metrics: PluginMetrics { duration_ms, memory_bytes: result.memory_bytes },
+                metrics: PluginMetrics {
+                    duration_ms,
+                    memory_bytes: result.memory_bytes,
+                },
             });
         }
 
@@ -387,7 +390,8 @@ mod tests {
         for i in 0..20 {
             let reg = registry_arc.clone();
             handles.push(tokio::spawn(async move {
-                reg.invoke("hello", "topic", &format!("{{\"id\": {}}}", i)).await
+                reg.invoke("hello", "topic", &format!("{{\"id\": {}}}", i))
+                    .await
             }));
         }
 
@@ -408,7 +412,11 @@ mod tests {
         let res = registry.invoke("missing", "topic", "{}").await;
         assert!(res.is_err());
         let err_msg = res.unwrap_err().to_string();
-        assert!(err_msg.contains("Failed to load plugin"), "Error was: {}", err_msg);
+        assert!(
+            err_msg.contains("Failed to load plugin"),
+            "Error was: {}",
+            err_msg
+        );
 
         // 2. Corrupt/Non-WASM File
         let temp_file = std::env::current_dir().unwrap().join("not_a_wasm.txt");
@@ -417,7 +425,11 @@ mod tests {
         let res = registry.invoke("corrupt", "topic", "{}").await;
         assert!(res.is_err());
         let err_msg = res.unwrap_err().to_string();
-        assert!(err_msg.contains("Failed to load plugin"), "Error was: {}", err_msg);
+        assert!(
+            err_msg.contains("Failed to load plugin"),
+            "Error was: {}",
+            err_msg
+        );
 
         let _ = std::fs::remove_file(&temp_file);
     }
@@ -426,12 +438,19 @@ mod tests {
     async fn test_register_with_permissions() {
         let registry = PluginRegistry::new().expect("registry init");
 
-        let perms = PluginPermissions { read: true, write: false, net: true };
+        let perms = PluginPermissions {
+            read: true,
+            write: false,
+            net: true,
+        };
         registry
             .register_with_permissions("secure", PathBuf::from("secure.wasm"), perms)
             .await;
 
-        let retrieved = registry.get_permissions("secure").await.expect("should exist");
+        let retrieved = registry
+            .get_permissions("secure")
+            .await
+            .expect("should exist");
         assert!(retrieved.read);
         assert!(!retrieved.write);
         assert!(retrieved.net);
@@ -454,15 +473,26 @@ mod tests {
             .await;
 
         // Now apply permissions — container_image must be preserved.
-        let perms = PluginPermissions { read: false, write: false, net: false };
+        let perms = PluginPermissions {
+            read: false,
+            write: false,
+            net: false,
+        };
         registry
             .register_with_permissions("sandboxed", PathBuf::from("sandboxed.wasm"), perms)
             .await;
 
         // Entry must still exist, permissions must be updated, and container_image must be preserved.
-        let retrieved = registry.get_permissions("sandboxed").await.expect("should exist");
+        let retrieved = registry
+            .get_permissions("sandboxed")
+            .await
+            .expect("should exist");
         assert!(!retrieved.read);
         let image = registry.get_container_image("sandboxed").await;
-        assert_eq!(image.as_deref(), Some("koad/runner:latest"), "container_image must survive register_with_permissions");
+        assert_eq!(
+            image.as_deref(),
+            Some("koad/runner:latest"),
+            "container_image must survive register_with_permissions"
+        );
     }
 }

@@ -249,10 +249,10 @@ pub enum VaultAction {
         #[command(subcommand)]
         action: VaultSecretAction,
     },
-    /// Load a skill instance from the vault. [STUB]
+    /// Discover, inspect, and manage skills for the active agent's vault.
     Skill {
-        /// Skill name.
-        name: String,
+        #[command(subcommand)]
+        action: VaultSkillAction,
     },
     /// Synchronize vault state from Citadel. [STUB]
     Sync,
@@ -270,6 +270,27 @@ pub enum VaultSecretAction {
     Set { key: String, value: String },
     /// List available secret keys (not values).
     Ls,
+}
+
+#[derive(Subcommand)]
+pub enum VaultSkillAction {
+    /// List all skills currently equipped by the active agent.
+    #[command(alias = "ls")]
+    List,
+    /// Show detailed info about a specific equipped skill.
+    Info {
+        /// Blueprint ID of the skill to inspect.
+        id: String,
+    },
+    /// Search for available skill blueprints not yet equipped.
+    Search,
+    /// Equip a skill blueprint to the active agent's identity.
+    Equip {
+        /// Blueprint ID to equip (from `skill search`).
+        id: String,
+    },
+    /// Persist current skill XP state back to the identity TOML.
+    Sync,
 }
 
 #[derive(Subcommand)]
@@ -573,6 +594,16 @@ pub enum SystemAction {
         /// Target session ID (omit to use environment).
         #[arg(short, long)]
         session: Option<String>,
+    },
+
+    /// Prepare the Citadel for clean distribution — removes local state, logs, and databases.
+    Scrub {
+        /// Preview all targets without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip the confirmation prompt (DANGER: immediately deletes targets).
+        #[arg(long)]
+        force: bool,
     },
 
     /// Manage and hydrate an agent's transient context.

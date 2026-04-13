@@ -9,6 +9,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use koad_proto::cass::v1::{EpisodicMemory, FactCard, Pulse};
 
+#[cfg(test)]
 pub mod mock;
 pub mod qdrant_tier;
 pub mod redis_tier;
@@ -27,10 +28,21 @@ pub type CassStorage = SqliteTier;
 #[async_trait]
 pub trait MemoryTier: Send + Sync {
     async fn commit_fact(&self, fact: FactCard) -> Result<()>;
-    async fn query_facts(&self, domain: &str, tags: &[String], limit: u32) -> Result<Vec<FactCard>>;
-    async fn query_agent_facts(&self, agent_name: &str, limit: u32, task_id: Option<&str>) -> Result<Vec<FactCard>>;
+    async fn query_facts(&self, domain: &str, tags: &[String], limit: u32)
+        -> Result<Vec<FactCard>>;
+    async fn query_agent_facts(
+        &self,
+        agent_name: &str,
+        limit: u32,
+        task_id: Option<&str>,
+    ) -> Result<Vec<FactCard>>;
     async fn record_episode(&self, episode: EpisodicMemory) -> Result<()>;
-    async fn query_recent_episodes(&self, agent_name: &str, limit: u32, task_id: Option<&str>) -> Result<Vec<EpisodicMemory>>;
+    async fn query_recent_episodes(
+        &self,
+        agent_name: &str,
+        limit: u32,
+        task_id: Option<&str>,
+    ) -> Result<Vec<EpisodicMemory>>;
 }
 
 /// Backward-compatible alias for the storage trait.

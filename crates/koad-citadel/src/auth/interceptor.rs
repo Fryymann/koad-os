@@ -16,6 +16,10 @@ use tonic::{Request, Status};
 /// # Errors
 /// Returns `UNAUTHENTICATED` if any header is missing or validation fails.
 /// Returns `UNAVAILABLE` if the session exists but is in a `DARK` or `TEARDOWN` state.
+#[expect(
+    clippy::result_large_err,
+    reason = "Tonic interceptors are required to return tonic::Status on authentication failures."
+)]
 pub fn build_citadel_interceptor(
     sessions: ActiveSessions,
 ) -> impl Fn(Request<()>) -> Result<Request<()>, Status> + Clone {

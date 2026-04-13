@@ -45,7 +45,12 @@ impl MemoryTier for TieredStorage {
         Ok(())
     }
 
-    async fn query_facts(&self, domain: &str, tags: &[String], limit: u32) -> Result<Vec<FactCard>> {
+    async fn query_facts(
+        &self,
+        domain: &str,
+        tags: &[String],
+        limit: u32,
+    ) -> Result<Vec<FactCard>> {
         // Try L1 (hot cache)
         match self.l1.query_facts(domain, tags, limit).await {
             Ok(facts) if !facts.is_empty() => return Ok(facts),
@@ -76,7 +81,9 @@ impl MemoryTier for TieredStorage {
         limit: u32,
         task_id: Option<&str>,
     ) -> Result<Vec<EpisodicMemory>> {
-        self.l2.query_recent_episodes(agent_name, limit, task_id).await
+        self.l2
+            .query_recent_episodes(agent_name, limit, task_id)
+            .await
     }
 }
 
@@ -91,9 +98,15 @@ mod tests {
         let sqlite = Arc::new(SqliteTier::new(":memory:")?);
         // Use live local Redis and Qdrant for integration validation
         let redis_client = koad_core::utils::redis::RedisClient::new(
-            &std::env::var("KOADOS_HOME").unwrap_or_else(|_| format!("{}/.koad-os", std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))),
+            &std::env::var("KOADOS_HOME").unwrap_or_else(|_| {
+                format!(
+                    "{}/.koad-os",
+                    std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
+                )
+            }),
             false,
-        ).await?;
+        )
+        .await?;
         let l1 = Arc::new(RedisTier::new(redis_client.pool.clone()));
         let l3 = Arc::new(match QdrantTier::new("http://127.0.0.1:6334").await {
             Ok(q) => q,

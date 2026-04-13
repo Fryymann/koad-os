@@ -7,6 +7,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use koad_core::health::{HealthStatus, SystemStatus};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -14,37 +15,37 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Terminal,
 };
-use koad_core::health::{SystemStatus, HealthStatus};
 
 pub fn render_citadel_status_board(systems: &[SystemStatus]) {
     // Standard CLI Print (Non-interactive for v1)
     println!("\n\x1b[1;34m--- [CITADEL] Operational Status Board ---\x1b[0m");
-    
+
     let mut current_subsystem = "";
     for sys in systems {
         if sys.subsystem != current_subsystem {
             current_subsystem = &sys.subsystem;
-            println!("\n\x1b[1;37m[ {} ]\x1b[0m", current_subsystem.to_uppercase());
+            println!(
+                "\n\x1b[1;37m[ {} ]\x1b[0m",
+                current_subsystem.to_uppercase()
+            );
         }
-        
+
         let status_icon = match sys.status {
             HealthStatus::Pass => "\x1b[32m🟢\x1b[0m",
             HealthStatus::Warn => "\x1b[33m🟡\x1b[0m",
             HealthStatus::Fail => "\x1b[31m🔴\x1b[0m",
             HealthStatus::Unknown => "\x1b[30m⚪\x1b[0m",
         };
-        
+
         let uptime_str = if sys.stub {
             "\x1b[30mNOT IMPLEMENTED\x1b[0m".to_string()
         } else {
             format!("\x1b[36m{}\x1b[0m", sys.uptime)
         };
-        
-        println!("  {:<30} {:<4} | Uptime: {:<15} | {}", 
-            sys.name, 
-            status_icon,
-            uptime_str,
-            sys.message
+
+        println!(
+            "  {:<30} {:<4} | Uptime: {:<15} | {}",
+            sys.name, status_icon, uptime_str, sys.message
         );
     }
     println!("\n\x1b[1;30m---------------------------------------------------\x1b[0m\n");

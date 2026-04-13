@@ -10,4 +10,4 @@ prost-types.workspace = true
 serde.workspace = true
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build.workspace = true

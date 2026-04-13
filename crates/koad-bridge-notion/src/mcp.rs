@@ -1,5 +1,5 @@
 use crate::client::NotionClient;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::path::PathBuf;
@@ -19,7 +19,8 @@ impl NotionMcpProxy {
     pub async fn get_page_content(&self, page_id: &str, force_refresh: bool) -> Result<String> {
         if !force_refresh {
             if let Ok(conn) = Connection::open(&self.db_path) {
-                let mut stmt = conn.prepare("SELECT content_md FROM pages WHERE page_id = ? AND is_deleted = 0")?;
+                let mut stmt = conn
+                    .prepare("SELECT content_md FROM pages WHERE page_id = ? AND is_deleted = 0")?;
                 let cached: Option<String> = stmt.query_row([page_id], |row| row.get(0)).ok();
                 if let Some(content) = cached {
                     return Ok(format!("(Cached) {}", content));
@@ -29,7 +30,7 @@ impl NotionMcpProxy {
 
         // Fallback to API + Efficient Parser
         let content = self.client.get_page_content_markdown(page_id).await?;
-        
+
         // Background: Upsert to cache if possible (simplified for now)
         let _ = self.cache_page(page_id, &content);
 
@@ -45,9 +46,16 @@ impl NotionMcpProxy {
         Ok(())
     }
 
-    fn save_page(&self, page_id: &str, source_id: &str, title: &str, content: &str, properties: &Value) -> Result<()> {
+    fn save_page(
+        &self,
+        page_id: &str,
+        source_id: &str,
+        title: &str,
+        content: &str,
+        properties: &Value,
+    ) -> Result<()> {
         let conn = Connection::open(&self.db_path)?;
-        
+
         // Ensure source exists first
         conn.execute(
             "INSERT INTO sync_sources (source_id, source_name, sync_status)
@@ -107,42 +115,58 @@ impl NotionMcpProxy {
         let props: Value = serde_json::from_str(&props_json)?;
 
         // Try 'Status' first, then 'Implemented' (as a fallback or specific mapping)
-        let (prop_name, value) = if let Some(p) = props.get("Status") {
-            ("Status", serde_json::json!({ "status": { "name": status } }))
-        } else if let Some(p) = props.get("Implemented") {
-            let checked = status.to_lowercase() == "done" || status.to_lowercase() == "completed" || status.to_lowercase() == "true";
+        let (prop_name, value) = if props.get("Status").is_some() {
+            (
+                "Status",
+                serde_json::json!({ "status": { "name": status } }),
+            )
+        } else if props.get("Implemented").is_some() {
+            let checked = status.to_lowercase() == "done"
+                || status.to_lowercase() == "completed"
+                || status.to_lowercase() == "true";
             ("Implemented", serde_json::json!({ "checkbox": checked }))
         } else {
             // Fallback to assuming 'Status' is a status type even if not in cache
-            ("Status", serde_json::json!({ "status": { "name": status } }))
+            (
+                "Status",
+                serde_json::json!({ "status": { "name": status } }),
+            )
         };
 
         // 2. Remote Update
-        self.client.update_page_property(page_id, prop_name, value).await?;
+        self.client
+            .update_page_property(page_id, prop_name, value)
+            .await?;
 
         // 3. Local Update (Timestamp only for now, next sync will refresh metadata)
         conn.execute(
             "UPDATE pages SET synced_at = datetime('now') WHERE page_id = ?",
             [page_id],
         )?;
-        
+
         Ok(())
     }
 
-    pub fn export_database(&self, database_id: &str, output_dir: &std::path::Path) -> Result<usize> {
+    pub fn export_database(
+        &self,
+        database_id: &str,
+        output_dir: &std::path::Path,
+    ) -> Result<usize> {
         if !output_dir.exists() {
             std::fs::create_dir_all(output_dir)?;
         }
 
         let conn = Connection::open(&self.db_path)?;
-        let mut stmt = conn.prepare("SELECT title, content_md FROM pages WHERE source_id = ? AND is_deleted = 0")?;
+        let mut stmt = conn.prepare(
+            "SELECT title, content_md FROM pages WHERE source_id = ? AND is_deleted = 0",
+        )?;
         let mut rows = stmt.query([database_id])?;
         let mut count = 0;
 
         while let Some(row) = rows.next()? {
             let title: String = row.get(0)?;
             let content: String = row.get(1)?;
-            
+
             // Sanitize title for filename
             let sanitized_title = title
                 .chars()
@@ -150,7 +174,7 @@ impl NotionMcpProxy {
                 .collect::<String>()
                 .replace(" ", "_")
                 .to_lowercase();
-            
+
             let file_path = output_dir.join(format!("{}.md", sanitized_title));
             std::fs::write(&file_path, content)?;
             count += 1;
@@ -163,14 +187,18 @@ impl NotionMcpProxy {
     pub async fn list_databases(&self) -> Result<Value> {
         // This could also be cached in sync_sources table
         let conn = Connection::open(&self.db_path)?;
-        let mut stmt = conn.prepare("SELECT source_id, source_name, last_sync_at FROM sync_sources")?;
-        let sources: Vec<Value> = stmt.query_map([], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "name": row.get::<_, String>(1)?,
-                "last_sync": row.get::<_, Option<String>>(2)?
-            }))
-        })?.filter_map(Result::ok).collect();
+        let mut stmt =
+            conn.prepare("SELECT source_id, source_name, last_sync_at FROM sync_sources")?;
+        let sources: Vec<Value> = stmt
+            .query_map([], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "name": row.get::<_, String>(1)?,
+                    "last_sync": row.get::<_, Option<String>>(2)?
+                }))
+            })?
+            .filter_map(Result::ok)
+            .collect();
 
         Ok(serde_json::json!(sources))
     }

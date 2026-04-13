@@ -52,7 +52,11 @@ pub async fn handle_doctor_command(
         // 2. Redis State Purge (Session Ghost Hunting)
         if redis_alive {
             if let Ok(client) = RedisClient::new(&config.home.to_string_lossy(), false).await {
-                let mut scan_stream = Box::pin(client.pool.next().hscan(REDIS_KEY_STATE, "koad:session:*", None));
+                let mut scan_stream = Box::pin(client.pool.next().hscan(
+                    REDIS_KEY_STATE,
+                    "koad:session:*",
+                    None,
+                ));
                 let mut stale_sessions = Vec::new();
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -64,10 +68,14 @@ pub async fn handle_doctor_command(
                         if let Some(fields) = page.results() {
                             for (key, val) in fields.iter() {
                                 if let (Some(k), Some(v)) = (key.as_str(), val.as_str()) {
-                                    if let Ok(session) = serde_json::from_str::<serde_json::Value>(&v) {
+                                    if let Ok(session) =
+                                        serde_json::from_str::<serde_json::Value>(&v)
+                                    {
                                         let heartbeat = session["heartbeat"].as_u64().unwrap_or(0);
-                                        let timeout = session["deadman_timeout"].as_u64().unwrap_or(45);
-                                        if heartbeat > 0 && now - heartbeat > timeout + 30 { // Grace period of 30s
+                                        let timeout =
+                                            session["deadman_timeout"].as_u64().unwrap_or(45);
+                                        if heartbeat > 0 && now - heartbeat > timeout + 30 {
+                                            // Grace period of 30s
                                             stale_sessions.push(k.to_string());
                                         }
                                     }
@@ -88,11 +96,15 @@ pub async fn handle_doctor_command(
         let db_path = config.get_db_path();
         if db_path.exists() {
             if let Ok(conn) = rusqlite::Connection::open(&db_path) {
-                let integrity: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+                let integrity: String =
+                    conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
                 if integrity == "ok" {
                     println!("\x1b[32m[PASS]\x1b[0m Database integrity verified.");
                 } else {
-                    println!("\x1b[31m[FAIL]\x1b[0m Database corruption detected: {}", integrity);
+                    println!(
+                        "\x1b[31m[FAIL]\x1b[0m Database corruption detected: {}",
+                        integrity
+                    );
                     println!("\x1b[33m[WARN]\x1b[0m Attempting VACUUM...");
                     let _ = conn.execute("VACUUM", []);
                 }
@@ -131,7 +143,7 @@ pub async fn handle_status_command(
 
     if gpu {
         println!("\n\x1b[1m--- [DOCTOR] GPU & Ollama Offload Verification ---\x1b[0m");
-        
+
         // 1. Check WSL Environment
         print!("{:<30}", "WSL CUDA Library Path:");
         if let Ok(path) = std::env::var("LD_LIBRARY_PATH") {
@@ -155,7 +167,8 @@ pub async fn handle_status_command(
 
         // 3. Check Ollama Override
         print!("{:<30}", "Ollama Parallel Limit:");
-        let override_file = std::path::Path::new("/etc/systemd/system/ollama.service.d/override.conf");
+        let override_file =
+            std::path::Path::new("/etc/systemd/system/ollama.service.d/override.conf");
         if override_file.exists() {
             println!("\x1b[32m[PASS]\x1b[0m Parallel limit override active.");
         } else {
@@ -170,7 +183,10 @@ pub async fn handle_status_command(
                 .arg("--format=csv,noheader,nounits")
                 .output()
                 .ok()?;
-            String::from_utf8_lossy(&output.stdout).trim().parse::<u64>().ok()
+            String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse::<u64>()
+                .ok()
         };
 
         let vram_before = get_vram().unwrap_or(0);

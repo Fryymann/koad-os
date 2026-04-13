@@ -1,7 +1,7 @@
 //! # XP and Skill Management Service
 //!
 //! Provides gRPC interfaces for querying agent XP status and awarding points.
-//! This service is fully config-driven, utilizing `KoadConfig` for leveling 
+//! This service is fully config-driven, utilizing `KoadConfig` for leveling
 //! curves and skill definitions.
 
 use anyhow::Result;
@@ -70,10 +70,10 @@ impl CitadelXpService {
     fn calculate_level(&self, total_xp: i32) -> (i32, String, i32) {
         let base = self.config.xp.base_xp_per_level as f32;
         let exp = self.config.xp.level_curve_exponent;
-        
+
         // Level = (XP / Base)^(1/Exp)
         let level = (total_xp as f32 / base).powf(1.0 / exp).floor() as i32;
-        
+
         let tier_name = match level {
             0..=2 => "Initiate",
             3..=5 => "Sentinel",
@@ -124,11 +124,13 @@ impl XpService for CitadelXpService {
         request: Request<XpAwardRequest>,
     ) -> Result<Response<StatusResponse>, Status> {
         let req = request.into_inner();
-        
+
         // --- 1. Validation ---
         if req.amount > self.config.xp.grant_cap_per_turn {
             warn!(agent = %req.agent_name, amount = %req.amount, "XP Award exceeds turn cap");
-            return Err(Status::invalid_argument("Award exceeds per-turn safety cap."));
+            return Err(Status::invalid_argument(
+                "Award exceeds per-turn safety cap.",
+            ));
         }
 
         // --- 2. Persistence ---
@@ -141,17 +143,21 @@ impl XpService for CitadelXpService {
                     req.agent_name,
                     req.amount,
                     req.reason,
-                    req.source as i32,
+                    req.source,
                     req.source_id
                 ],
-            ).map_err(|e| Status::internal(e.to_string()))?;
+            )
+            .map_err(|e| Status::internal(e.to_string()))?;
         }
 
         info!(agent = %req.agent_name, amount = %req.amount, reason = %req.reason, "XP Awarded");
 
         Ok(Response::new(StatusResponse {
             success: true,
-            message: format!("Successfully awarded {} XP to {}.", req.amount, req.agent_name),
+            message: format!(
+                "Successfully awarded {} XP to {}.",
+                req.amount, req.agent_name
+            ),
             context: req.context,
         }))
     }

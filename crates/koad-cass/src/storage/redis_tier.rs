@@ -50,7 +50,11 @@ impl RedisTier {
             source_agent: v["source_agent"].as_str()?.to_string(),
             session_id: v["session_id"].as_str()?.to_string(),
             confidence: v["confidence"].as_f64()? as f32,
-            tags: v["tags"].as_str()?.split(',').map(|s| s.to_string()).collect(),
+            tags: v["tags"]
+                .as_str()?
+                .split(',')
+                .map(|s| s.to_string())
+                .collect(),
             created_at: None,
         })
     }
@@ -66,13 +70,28 @@ impl MemoryTier for RedisTier {
         let fact_key = Self::fact_key(&fact.id);
         let domain_key = Self::domain_set_key(&fact.domain);
 
-        client.set::<(), _, _>(&fact_key, &json, Some(fred::types::Expiration::EX(TTL)), None, false).await?;
-        client.sadd::<(), _, _>(&domain_key, fact.id.as_str()).await?;
+        client
+            .set::<(), _, _>(
+                &fact_key,
+                &json,
+                Some(fred::types::Expiration::EX(TTL)),
+                None,
+                false,
+            )
+            .await?;
+        client
+            .sadd::<(), _, _>(&domain_key, fact.id.as_str())
+            .await?;
         client.expire::<(), _>(&domain_key, TTL).await?;
         Ok(())
     }
 
-    async fn query_facts(&self, domain: &str, _tags: &[String], limit: u32) -> Result<Vec<FactCard>> {
+    async fn query_facts(
+        &self,
+        domain: &str,
+        _tags: &[String],
+        limit: u32,
+    ) -> Result<Vec<FactCard>> {
         let client = self.pool.next();
         let domain_key = Self::domain_set_key(domain);
 
@@ -92,11 +111,20 @@ impl MemoryTier for RedisTier {
             }
         }
 
-        facts.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+        facts.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         Ok(facts)
     }
 
-    async fn query_agent_facts(&self, _agent_name: &str, _limit: u32, _task_id: Option<&str>) -> Result<Vec<FactCard>> {
+    async fn query_agent_facts(
+        &self,
+        _agent_name: &str,
+        _limit: u32,
+        _task_id: Option<&str>,
+    ) -> Result<Vec<FactCard>> {
         // Redis tier does not index by agent; L2 (SQLite) is authoritative for agent queries.
         Ok(vec![])
     }
@@ -106,7 +134,12 @@ impl MemoryTier for RedisTier {
         Ok(())
     }
 
-    async fn query_recent_episodes(&self, _agent_name: &str, _limit: u32, _task_id: Option<&str>) -> Result<Vec<EpisodicMemory>> {
+    async fn query_recent_episodes(
+        &self,
+        _agent_name: &str,
+        _limit: u32,
+        _task_id: Option<&str>,
+    ) -> Result<Vec<EpisodicMemory>> {
         Ok(vec![])
     }
 }
@@ -148,17 +181,29 @@ impl RedisTier {
 impl PulseTier for RedisTier {
     async fn add_pulse(&self, pulse: Pulse) -> Result<()> {
         let client = self.pool.next();
-        let ttl = if pulse.ttl_seconds == 0 { TTL } else { pulse.ttl_seconds as i64 };
+        let ttl = if pulse.ttl_seconds == 0 {
+            TTL
+        } else {
+            pulse.ttl_seconds as i64
+        };
         let json = Self::pulse_to_json(&pulse);
         let key = Self::pulse_key(&pulse.id);
 
         client
-            .set::<(), _, _>(&key, &json, Some(fred::types::Expiration::EX(ttl)), None, false)
+            .set::<(), _, _>(
+                &key,
+                &json,
+                Some(fred::types::Expiration::EX(ttl)),
+                None,
+                false,
+            )
             .await?;
 
         // Index under role set
         let role_key = Self::role_set_key(&pulse.role);
-        client.sadd::<(), _, _>(&role_key, pulse.id.as_str()).await?;
+        client
+            .sadd::<(), _, _>(&role_key, pulse.id.as_str())
+            .await?;
         client.expire::<(), _>(&role_key, ttl).await?;
 
         Ok(())
@@ -206,12 +251,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires: Redis at ~/.koad-os/run/koad.sock"]
     async fn test_pulse_round_trip() -> anyhow::Result<()> {
-        let koad_home = std::env::var("KOADOS_HOME").unwrap_or_else(|_| {
-            format!(
-                "{}/.koad-os",
-                std::env::var("HOME").unwrap_or_default()
-            )
-        });
+        let koad_home = std::env::var("KOADOS_HOME")
+            .unwrap_or_else(|_| format!("{}/.koad-os", std::env::var("HOME").unwrap_or_default()));
         let redis = koad_core::utils::redis::RedisClient::new(&koad_home, false).await?;
         let tier = RedisTier::new(redis.pool.clone());
 

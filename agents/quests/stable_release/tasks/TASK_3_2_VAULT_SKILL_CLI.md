@@ -1,6 +1,6 @@
 # Task Manifest: 3.2 - `koad vault skill` Implementation
-**Status:** ⚪ Draft
-**Assignee:** [Engineer-Agent (Cid/Clyde)]
+**Status:** ✅ Complete
+**Assignee:** Clyde (+ clyde-dev / clyde-qa)
 **Reviewer:** Tyr (Captain/PM)
 **Branch:** `feature/cli-vault-skill`
 

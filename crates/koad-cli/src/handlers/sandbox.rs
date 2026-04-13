@@ -21,7 +21,10 @@ pub async fn handle_sandbox_run(
     println!("\x1b[1;34m[SANDBOX]\x1b[0m Starting isolated container...");
     println!("  Runtime: {}", runtime);
     println!("  Image:   {}", image);
-    println!("  Network: {}", if network { "enabled" } else { "isolated" });
+    println!(
+        "  Network: {}",
+        if network { "enabled" } else { "isolated" }
+    );
     println!("  Command: {}", cmd);
     println!();
 
@@ -44,7 +47,10 @@ pub async fn handle_sandbox_run(
                 eprint!("{}", result.stderr);
             }
             if result.exit_code == 0 {
-                println!("\x1b[32m[OK]\x1b[0m Sandbox complete in {}ms.", result.duration_ms);
+                println!(
+                    "\x1b[32m[OK]\x1b[0m Sandbox complete in {}ms.",
+                    result.duration_ms
+                );
             } else {
                 println!("\x1b[31m[FAIL]\x1b[0m Exit code: {}", result.exit_code);
             }

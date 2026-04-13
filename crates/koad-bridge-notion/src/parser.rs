@@ -100,7 +100,10 @@ mod tests {
 
     #[test]
     fn paragraph_produces_plain_text_with_newline() {
-        let block = make_block("paragraph", json!({"rich_text": rich_text_val("Hello world")}));
+        let block = make_block(
+            "paragraph",
+            json!({"rich_text": rich_text_val("Hello world")}),
+        );
         assert_eq!(parse_blocks_to_markdown(vec![block]), "Hello world\n");
     }
 
@@ -118,7 +121,10 @@ mod tests {
 
     #[test]
     fn heading_3_adds_triple_hash() {
-        let block = make_block("heading_3", json!({"rich_text": rich_text_val("Subsection")}));
+        let block = make_block(
+            "heading_3",
+            json!({"rich_text": rich_text_val("Subsection")}),
+        );
         assert_eq!(parse_blocks_to_markdown(vec![block]), "### Subsection\n");
     }
 

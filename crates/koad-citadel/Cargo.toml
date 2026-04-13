@@ -32,4 +32,4 @@ koad-proto = { path = "../koad-proto" }
 koad-sandbox = { path = "../koad-sandbox" }
 
 [dev-dependencies]
-tempfile = "3.8"
+tempfile.workspace = true

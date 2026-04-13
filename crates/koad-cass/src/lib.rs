@@ -6,7 +6,6 @@
 pub mod services;
 pub mod storage;
 #[cfg(test)]
-
 pub mod mock_storage {
     pub use crate::storage::mock::MockStorage;
 }

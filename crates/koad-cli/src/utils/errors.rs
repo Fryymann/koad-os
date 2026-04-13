@@ -6,7 +6,11 @@ pub enum KoadGrpcError {
     /// Could not connect to the service (connection refused, timeout, etc.)
     ConnectionFailed { service: String, addr: String },
     /// RPC call returned a non-OK status
-    RpcFailed { service: String, code: tonic::Code, message: String },
+    RpcFailed {
+        service: String,
+        code: tonic::Code,
+        message: String,
+    },
 }
 
 impl fmt::Display for KoadGrpcError {
@@ -19,19 +23,28 @@ impl fmt::Display for KoadGrpcError {
                     service, addr
                 )
             }
-            KoadGrpcError::RpcFailed { service, code, message } => {
+            KoadGrpcError::RpcFailed {
+                service,
+                code,
+                message,
+            } => {
                 let hint = match code {
                     tonic::Code::PermissionDenied => {
                         "Check your agent's rank or role assignment.".to_string()
                     }
                     tonic::Code::NotFound => {
-                        "The session or entity is missing or expired. Try re-booting your agent.".to_string()
+                        "The session or entity is missing or expired. Try re-booting your agent."
+                            .to_string()
                     }
                     tonic::Code::Unavailable => {
-                        format!("{} may have crashed. Run 'koad system status' to diagnose.", service)
+                        format!(
+                            "{} may have crashed. Run 'koad system status' to diagnose.",
+                            service
+                        )
                     }
                     tonic::Code::Unauthenticated => {
-                        "Session token is invalid or missing. Re-run 'koad-agent boot <name>'.".to_string()
+                        "Session token is invalid or missing. Re-run 'koad-agent boot <name>'."
+                            .to_string()
                     }
                     _ => format!("RPC error ({:?}): {}", code, message),
                 };

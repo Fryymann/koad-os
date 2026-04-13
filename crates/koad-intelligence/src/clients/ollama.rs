@@ -124,7 +124,10 @@ mod tests {
 
         let client = OllamaClient::new(None, Some(&server.uri())).unwrap();
         let reply = client.chat("test prompt").await.unwrap();
-        assert_eq!(reply, "hello world", "Response should have leading/trailing whitespace trimmed");
+        assert_eq!(
+            reply, "hello world",
+            "Response should have leading/trailing whitespace trimmed"
+        );
     }
 
     #[tokio::test]
@@ -132,9 +135,7 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/api/generate"))
-            .respond_with(
-                ResponseTemplate::new(500).set_body_string("internal server error"),
-            )
+            .respond_with(ResponseTemplate::new(500).set_body_string("internal server error"))
             .mount(&server)
             .await;
 
@@ -142,7 +143,10 @@ mod tests {
         let result = client.chat("test").await;
         assert!(result.is_err(), "Non-2xx response should produce an error");
         assert!(
-            result.unwrap_err().to_string().contains("Ollama API returned error"),
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Ollama API returned error"),
             "Error message should describe the API failure"
         );
     }
@@ -161,7 +165,10 @@ mod tests {
 
         let client = OllamaClient::new(None, Some(&server.uri())).unwrap();
         let score = client.score_significance("some content").await.unwrap();
-        assert_eq!(score, 0.5, "Should fall back to 0.5 when the response cannot be parsed as f32");
+        assert_eq!(
+            score, 0.5,
+            "Should fall back to 0.5 when the response cannot be parsed as f32"
+        );
     }
 
     #[tokio::test]
@@ -170,14 +177,16 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/api/generate"))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!({"response": "0.75"})),
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"response": "0.75"})),
             )
             .mount(&server)
             .await;
 
         let client = OllamaClient::new(None, Some(&server.uri())).unwrap();
-        let score = client.score_significance("important content").await.unwrap();
+        let score = client
+            .score_significance("important content")
+            .await
+            .unwrap();
         assert_eq!(score, 0.75);
     }
 
@@ -187,8 +196,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/api/generate"))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!({"response": "1.9"})),
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"response": "1.9"})),
             )
             .mount(&server)
             .await;
@@ -204,8 +212,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/api/generate"))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!({"response": "-0.5"})),
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"response": "-0.5"})),
             )
             .mount(&server)
             .await;

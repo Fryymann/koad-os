@@ -111,9 +111,17 @@ pub struct NativePluginManager {
     _libs: tokio::sync::RwLock<Vec<libloading::Library>>,
 }
 
+impl Default for NativePluginManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NativePluginManager {
     pub fn new() -> Self {
-        Self { _libs: tokio::sync::RwLock::new(vec![]) }
+        Self {
+            _libs: tokio::sync::RwLock::new(vec![]),
+        }
     }
 
     /// Load a `.so`/`.dll` plugin and invoke its `koad_invoke` export.
@@ -163,7 +171,9 @@ impl NativePluginManager {
         // SAFETY: The pointer must be a valid C string returned by the plugin for
         // the duration of this call. The library remains loaded (retained below)
         // so the pointer stays valid until we copy it into an owned String.
-        let result = unsafe { CStr::from_ptr(result_ptr) }.to_string_lossy().into_owned();
+        let result = unsafe { CStr::from_ptr(result_ptr) }
+            .to_string_lossy()
+            .into_owned();
 
         // Retain the library so symbols remain valid for the process lifetime.
         self._libs.write().await.push(lib);
@@ -196,7 +206,11 @@ mod tests {
     async fn test_native_plugin_manager_missing_lib_returns_error() {
         let manager = NativePluginManager::new();
         let result = manager
-            .invoke(std::path::Path::new("/tmp/nonexistent_koad_plugin.so"), "topic", "{}")
+            .invoke(
+                std::path::Path::new("/tmp/nonexistent_koad_plugin.so"),
+                "topic",
+                "{}",
+            )
             .await;
         assert!(result.is_err(), "Expected error for missing library");
         let msg = result.unwrap_err().to_string();

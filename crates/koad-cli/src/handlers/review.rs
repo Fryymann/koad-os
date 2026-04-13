@@ -13,7 +13,7 @@ use koad_intelligence::clients::OllamaClient;
 use koad_intelligence::InferenceClient;
 use std::path::Path;
 use tokio::fs;
-use tracing::{info, debug, instrument};
+use tracing::{debug, info, instrument};
 
 /// Performs an automated code review on a single file.
 pub struct Reviewer {
@@ -42,11 +42,15 @@ impl Reviewer {
     #[instrument(skip(self, file_path), fields(file = %file_path.display()))]
     pub async fn review_file(&self, file_path: &Path) -> Result<()> {
         info!("Starting KoadOS Code Review");
-        
-        let content = fs::read_to_string(file_path).await
+
+        let content = fs::read_to_string(file_path)
+            .await
             .with_context(|| format!("Failed to read file for review: {}", file_path.display()))?;
 
-        println!("🔍 Starting KoadOS Code Review for: {}", file_path.display());
+        println!(
+            "🔍 Starting KoadOS Code Review for: {}",
+            file_path.display()
+        );
         println!("═══════════════════════════════════════════════");
 
         // --- STAGE 1: DETERMINISTIC CHECKS ---
@@ -72,8 +76,10 @@ impl Reviewer {
         let expect_count = content.matches(".expect(").count();
 
         if unwrap_count > 0 || expect_count > 0 {
-            println!("⚠️  WARNING: Found {} unwraps and {} expects. (Violates Zero-Panic Policy)", 
-                unwrap_count, expect_count);
+            println!(
+                "⚠️  WARNING: Found {} unwraps and {} expects. (Violates Zero-Panic Policy)",
+                unwrap_count, expect_count
+            );
         } else {
             println!("✅ Zero-Panic Check: PASSED");
         }
@@ -87,10 +93,10 @@ impl Reviewer {
     async fn run_technical_audit(&self, content: &str) -> Result<()> {
         info!("🧠 ABC: Technical Audit via Llama 3.2:1B...");
         println!("\n🧠 Llama 3.2:1B: Auditing Documentation & Patterns...");
-        
+
         // Focus Llama on the first 100 lines for efficiency (headers/docs)
         let snippet = content.lines().take(100).collect::<Vec<_>>().join("\n");
-        
+
         let llama_prompt = format!(
             "You are a KoadOS Technical Auditor. Review the following Rust code for compliance with these rules:\n\
             1. Every file must have a //! module header.\n\
@@ -101,9 +107,12 @@ impl Reviewer {
             snippet
         );
 
-        let report = self.llama.chat(&llama_prompt).await
+        let report = self
+            .llama
+            .chat(&llama_prompt)
+            .await
             .context("Local technical audit via Llama 3.2:1B failed.")?;
-            
+
         println!("{}", report.trim());
         Ok(())
     }
@@ -116,10 +125,11 @@ impl Reviewer {
     async fn run_architectural_audit(&self, content: &str) -> Result<()> {
         info!("♟️ ABC: Architectural Audit via Qwen 2.5-Coder:7B...");
         println!("\n♟️ Qwen 2.5:7B: Auditing Architectural Alignment...");
-        
+
         let canon_path = self.config.home.join("docs/protocols/CONTRIBUTOR_CANON.md");
         let canon = if canon_path.exists() {
-            fs::read_to_string(&canon_path).await
+            fs::read_to_string(&canon_path)
+                .await
                 .context("Failed to read CONTRIBUTOR_CANON.md")?
         } else {
             "No Canon file found. Use general senior Rust standards: Async Safety, Observability (tracing), Structural Error Handling (anyhow).".to_string()
@@ -137,9 +147,12 @@ impl Reviewer {
             canon, content
         );
 
-        let report = self.qwen.chat(&qwen_prompt).await
+        let report = self
+            .qwen
+            .chat(&qwen_prompt)
+            .await
             .context("Local architectural audit via Qwen 2.5-Coder:7B failed.")?;
-            
+
         println!("{}", report.trim());
         Ok(())
     }

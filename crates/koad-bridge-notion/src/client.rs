@@ -63,10 +63,10 @@ impl NotionClient {
                 .as_str()
                 .ok_or_else(|| anyhow!("Page ID missing"))?
                 .to_string();
-            
+
             let mut title = "Untitled".to_string();
             let properties = page["properties"].clone();
-            
+
             if let Some(props_obj) = properties.as_object() {
                 for (_, prop) in props_obj {
                     if prop["type"] == "title" {
@@ -91,7 +91,12 @@ impl NotionClient {
         Ok(pages)
     }
 
-    pub async fn update_page_property(&self, page_id: &str, property_name: &str, value: Value) -> Result<()> {
+    pub async fn update_page_property(
+        &self,
+        page_id: &str,
+        property_name: &str,
+        value: Value,
+    ) -> Result<()> {
         let url = format!("https://api.notion.com/v1/pages/{}", page_id);
         let body = serde_json::json!({
             "properties": {

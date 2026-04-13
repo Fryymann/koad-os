@@ -11,7 +11,7 @@ use koad_intelligence::clients::OllamaClient;
 use koad_intelligence::InferenceClient;
 use std::path::{Path, PathBuf};
 use tokio::fs;
-use tracing::{info, debug, instrument};
+use tracing::{debug, info, instrument};
 
 /// Collects raw system and session data for the ABC pipeline.
 pub struct AbcCollector {
@@ -23,7 +23,11 @@ pub struct AbcCollector {
 impl AbcCollector {
     /// Create a new collector with the given configuration and vault path.
     pub fn new(config: KoadConfig, vault_path: PathBuf, agent_name: String) -> Self {
-        Self { config, vault_path, agent_name }
+        Self {
+            config,
+            vault_path,
+            agent_name,
+        }
     }
 
     /// Gathers deterministic state from the environment, filesystem, and databases.
@@ -33,11 +37,14 @@ impl AbcCollector {
     pub async fn collect_raw_data(&self) -> Result<String> {
         let mut raw = String::new();
         let identity = self.config.identities.get(&self.agent_name.to_lowercase());
-        
+
         raw.push_str("--- ENVIRONMENT ---\n");
-        raw.push_str(&format!("Agent: {} | Rank: {} | Tier: {}\n", 
+        raw.push_str(&format!(
+            "Agent: {} | Rank: {} | Tier: {}\n",
             self.agent_name,
-            identity.map(|id| id.rank.clone()).unwrap_or_else(|| "unknown".to_string()),
+            identity
+                .map(|id| id.rank.clone())
+                .unwrap_or_else(|| "unknown".to_string()),
             identity.map(|id| id.tier).unwrap_or(0)
         ));
         raw.push_str(&format!("Date: {}\n\n", chrono::Utc::now()));
@@ -47,15 +54,23 @@ impl AbcCollector {
         if let Ok(mut entries) = fs::read_dir(&self.config.home).await {
             let mut count = 0;
             while let Ok(Some(entry)) = entries.next_entry().await {
-                if count >= 15 { break; }
+                if count >= 15 {
+                    break;
+                }
                 let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with('.') && name != ".koad-os" { continue; }
-                let suffix = if entry.file_type().await?.is_dir() { "/" } else { "" };
+                if name.starts_with('.') && name != ".koad-os" {
+                    continue;
+                }
+                let suffix = if entry.file_type().await?.is_dir() {
+                    "/"
+                } else {
+                    ""
+                };
                 raw.push_str(&format!("{}{}\n", name, suffix));
                 count += 1;
             }
         }
-        raw.push_str("\n");
+        raw.push('\n');
 
         // 2. Recent Updates
         raw.push_str("--- RECENT UPDATES ---\n");
@@ -79,7 +94,7 @@ impl AbcCollector {
                 }
             }
         }
-        raw.push_str("\n");
+        raw.push('\n');
 
         // 3. Working Memory
         raw.push_str("--- WORKING MEMORY ---\n");
@@ -98,12 +113,15 @@ impl AbcCollector {
             let db_path_buf = db_path.to_path_buf();
             let missions = tokio::task::spawn_blocking(move || -> Result<Vec<String>> {
                 let conn = rusqlite::Connection::open(db_path_buf)?;
-                let mut stmt = conn.prepare("SELECT title FROM pages WHERE is_deleted = 0 LIMIT 5")?;
-                let missions: Vec<String> = stmt.query_map([], |row| row.get(0))?
+                let mut stmt =
+                    conn.prepare("SELECT title FROM pages WHERE is_deleted = 0 LIMIT 5")?;
+                let missions: Vec<String> = stmt
+                    .query_map([], |row| row.get(0))?
                     .filter_map(Result::ok)
                     .collect();
                 Ok(missions)
-            }).await??;
+            })
+            .await??;
 
             for m in missions {
                 raw.push_str(&format!("- [QUEST] {}\n", m));
@@ -144,7 +162,7 @@ impl AbcGenerator {
         );
         let signal = self.llama.chat(&llama_prompt).await
             .context("Local extraction via Llama 3.2:1B failed. Ensure Ollama is running and llama3.2:1b is pulled.")?;
-        
+
         debug!(signal_len = signal.len(), "ABC Signal Extracted");
 
         info!("♟️ ABC: Synthesizing brief via Qwen 2.5-Coder:7B...");
@@ -159,7 +177,7 @@ impl AbcGenerator {
         );
         let brief = self.qwen.chat(&qwen_prompt).await
             .context("Local synthesis via Qwen 2.5-Coder:7B failed. Ensure Ollama is running and qwen2.5-coder:7b is pulled.")?;
-        
+
         Ok(brief)
     }
 }
@@ -174,7 +192,11 @@ pub async fn run_abc(config: &KoadConfig, vault_path: &Path, agent_name: &str) -
     let agent_key = agent_name.to_lowercase();
     debug!(agent = %agent_key, "Starting ABC pipeline");
 
-    let collector = AbcCollector::new(config.clone(), vault_path.to_path_buf(), agent_name.to_string());
+    let collector = AbcCollector::new(
+        config.clone(),
+        vault_path.to_path_buf(),
+        agent_name.to_string(),
+    );
     let raw_data = collector.collect_raw_data().await?;
 
     let generator = AbcGenerator::new()?;
@@ -184,8 +206,9 @@ pub async fn run_abc(config: &KoadConfig, vault_path: &Path, agent_name: &str) -
     let cache_dir = config.home.join("cache");
     let _ = fs::create_dir_all(&cache_dir).await;
     let brief_path = cache_dir.join(format!("tactical-brief-{}.md", agent_key));
-    
-    fs::write(brief_path, &brief).await
+
+    fs::write(brief_path, &brief)
+        .await
         .context("Failed to write tactical brief to cache")?;
 
     Ok(brief)
@@ -197,9 +220,8 @@ mod tests {
 
     #[test]
     fn test_abc_collector_new() {
-        let config = KoadConfig::load().unwrap_or_else(|_| {
-            KoadConfig::from_json("{}").expect("Failed to parse empty config")
-        });
+        let config = KoadConfig::load()
+            .unwrap_or_else(|_| KoadConfig::from_json("{}").expect("Failed to parse empty config"));
         let collector = AbcCollector::new(config, PathBuf::from("/tmp"), "tyr".to_string());
         assert_eq!(collector.vault_path, PathBuf::from("/tmp"));
         assert_eq!(collector.agent_name, "tyr");

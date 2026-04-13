@@ -1,6 +1,6 @@
 # Task Manifest: 4.3 - The Distribution Sanitizer (`koad-scrub`)
-**Status:** ⚪ Draft
-**Assignee:** Clyde (Officer)
+**Status:** ✅ Complete
+**Assignee:** Clyde (+ clyde-dev / clyde-qa)
 **Reviewer:** Tyr (Captain)
 **Priority:** High
 

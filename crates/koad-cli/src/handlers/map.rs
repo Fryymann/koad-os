@@ -1,6 +1,6 @@
 //! # KoadOS Navigation Map Handler
 //!
-//! Implements the core MUD-inspired navigation logic, context resolution, 
+//! Implements the core MUD-inspired navigation logic, context resolution,
 //! and dual-mode rendering (Concise vs. Verbose).
 //!
 //! Following RUST_CANON v1.0 standards for async I/O and zero-panic stability.
@@ -10,12 +10,12 @@ use crate::db::KoadDB;
 use anyhow::{Context, Result};
 use koad_core::config::KoadConfig;
 use koad_proto::citadel::v5::WorkspaceLevel;
+use rusqlite::Connection;
 use std::env;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
-use rusqlite::Connection;
 
 /// Path to the code-review-graph database.
 fn get_graph_db_path(config: &KoadConfig) -> PathBuf {
@@ -25,7 +25,10 @@ fn get_graph_db_path(config: &KoadConfig) -> PathBuf {
 /// Connect to the code-review-graph database.
 fn connect_graph_db(config: &KoadConfig) -> Result<Connection> {
     let path = get_graph_db_path(config);
-    Connection::open(&path).context(format!("Failed to open graph database at {}", path.display()))
+    Connection::open(&path).context(format!(
+        "Failed to open graph database at {}",
+        path.display()
+    ))
 }
 
 /// Handles the 'map' command group.
@@ -56,10 +59,17 @@ pub async fn handle_map(
         Some(MapAction::Pin { alias, path, scope }) => {
             let p = path.unwrap_or_else(|| current_dir.to_string_lossy().to_string());
             let expanded_p = expand_tilde(&p).to_string_lossy().to_string();
-            let agent_id = if scope == "personal" { Some(agent_name.as_str()) } else { None };
+            let agent_id = if scope == "personal" {
+                Some(agent_name.as_str())
+            } else {
+                None
+            };
             db.add_pin(&alias, &expanded_p, &scope, agent_id)?;
             info!(alias = %alias, path = %expanded_p, "Fast-travel point established");
-            println!(">>> [PIN] Fast-travel point established: [{}] -> {}", alias, expanded_p);
+            println!(
+                ">>> [PIN] Fast-travel point established: [{}] -> {}",
+                alias, expanded_p
+            );
         }
         Some(MapAction::Pins) => {
             let pins = db.get_pins(&agent_name)?;
@@ -125,7 +135,9 @@ async fn render_look(
 
     // --- Dynamic Graph Integration ---
     if let Ok(conn) = connect_graph_db(config) {
-        let abs_path = fs::canonicalize(dir).await.unwrap_or_else(|_| dir.to_path_buf());
+        let abs_path = fs::canonicalize(dir)
+            .await
+            .unwrap_or_else(|_| dir.to_path_buf());
         let path_str = abs_path.to_string_lossy();
 
         // Query for Community of this directory
@@ -135,15 +147,26 @@ async fn render_look(
              JOIN community_summaries cs ON c.id = cs.community_id
              JOIN nodes n ON n.community_id = c.id
              WHERE n.file_path = ?1 OR n.file_path LIKE ?2
-             LIMIT 1"
+             LIMIT 1",
         )?;
 
-        let result = stmt.query_row(rusqlite::params![path_str, format!("{}%", path_str)], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
-        });
+        let result = stmt.query_row(
+            rusqlite::params![path_str, format!("{}%", path_str)],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        );
 
         if let Ok((name, purpose, community_id)) = result {
-            println!("🏘️  COMMUNITY: {} (ID: {})", name.to_uppercase(), community_id);
+            println!(
+                "🏘️  COMMUNITY: {} (ID: {})",
+                name.to_uppercase(),
+                community_id
+            );
             if !purpose.is_empty() {
                 println!("📝 PURPOSE: {}", purpose);
             }
@@ -152,10 +175,16 @@ async fn render_look(
     // ---------------------------------
 
     // List immediate children (Concise)
-    let mut entries = fs::read_dir(dir).await.context("Failed to read directory")?;
+    let mut entries = fs::read_dir(dir)
+        .await
+        .context("Failed to read directory")?;
     while let Some(entry) = entries.next_entry().await? {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let prefix = if entry.file_type().await?.is_dir() { "├── " } else { "└── " };
+        let prefix = if entry.file_type().await?.is_dir() {
+            "├── "
+        } else {
+            "└── "
+        };
         println!("{}{}", prefix, name);
     }
 
@@ -169,17 +198,25 @@ async fn render_look(
 async fn render_verbose_header(dir: &Path, config: &KoadConfig) -> Result<()> {
     println!("📍 LOCATION: {}", dir.display());
     println!("   Context: {}", resolve_context(dir, config));
-    
+
     // Area stats - use synchronous WalkDir but keep it limited
     let mut count = 0;
     let mut size = 0;
-    for entry in WalkDir::new(dir).max_depth(1).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(dir)
+        .max_depth(1)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if entry.file_type().is_file() {
             count += 1;
             size += entry.metadata()?.len();
         }
     }
-    println!("   Area Stats: {} files | {:.2} KB total", count, size as f64 / 1024.0);
+    println!(
+        "   Area Stats: {} files | {:.2} KB total",
+        count,
+        size as f64 / 1024.0
+    );
     Ok(())
 }
 
@@ -191,10 +228,11 @@ async fn render_missions(config: &KoadConfig) -> Result<()> {
 
     if let Ok(conn) = rusqlite::Connection::open(db_path) {
         let mut stmt = conn.prepare("SELECT title FROM pages WHERE is_deleted = 0 LIMIT 3")?;
-        let missions: Vec<String> = stmt.query_map([], |row| row.get(0))?
+        let missions: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
             .filter_map(Result::ok)
             .collect();
-        
+
         if !missions.is_empty() {
             println!("🎯 ACTIVE MISSIONS:");
             for m in missions {
@@ -209,7 +247,10 @@ async fn render_pins(agent: &str, db: &KoadDB) -> Result<()> {
     let pins = db.get_pins(agent)?;
     if !pins.is_empty() {
         print!("📌 Pins: ");
-        let aliases: Vec<String> = pins.into_iter().map(|(a, _, _)| format!("[{}]", a)).collect();
+        let aliases: Vec<String> = pins
+            .into_iter()
+            .map(|(a, _, _)| format!("[{}]", a))
+            .collect();
         println!("{}", aliases.join(" "));
     }
     Ok(())
@@ -218,12 +259,17 @@ async fn render_pins(agent: &str, db: &KoadDB) -> Result<()> {
 async fn render_exits(dir: &Path, agent: &str, config: &KoadConfig, db: &KoadDB) -> Result<()> {
     println!("🧭 EXITS");
     if let Some(parent) = dir.parent() {
-        println!("   ↑ ../{} (Parent)", parent.file_name().unwrap_or_default().to_string_lossy());
+        println!(
+            "   ↑ ../{} (Parent)",
+            parent.file_name().unwrap_or_default().to_string_lossy()
+        );
     }
-    
+
     // --- Dynamic Graph Integration ---
     if let Ok(conn) = connect_graph_db(config) {
-        let abs_path = fs::canonicalize(dir).await.unwrap_or_else(|_| dir.to_path_buf());
+        let abs_path = fs::canonicalize(dir)
+            .await
+            .unwrap_or_else(|_| dir.to_path_buf());
         let path_str = abs_path.to_string_lossy();
 
         // Query for outgoing dependencies (IMPORTS_FROM, CALLS)
@@ -231,19 +277,23 @@ async fn render_exits(dir: &Path, agent: &str, config: &KoadConfig, db: &KoadDB)
             "SELECT DISTINCT target_qualified FROM edges 
              WHERE (file_path = ?1 OR file_path LIKE ?2) 
              AND (kind = 'IMPORTS_FROM' OR kind = 'CALLS')
-             LIMIT 10"
+             LIMIT 10",
         )?;
 
-        let targets: Vec<String> = stmt.query_map(rusqlite::params![path_str, format!("{}%", path_str)], |row| {
-            row.get(0)
-        })?.filter_map(Result::ok).collect();
+        let targets: Vec<String> = stmt
+            .query_map(
+                rusqlite::params![path_str, format!("{}%", path_str)],
+                |row| row.get(0),
+            )?
+            .filter_map(Result::ok)
+            .collect();
 
         for target in targets {
             println!("   → [DEP] {}", target);
         }
     }
     // ---------------------------------
-    
+
     let pins = db.get_pins(agent)?;
     for (alias, path, _) in pins {
         println!("   → [{}] {}", alias, path);
@@ -264,16 +314,18 @@ async fn handle_goto(target: &str, agent: &str, config: &KoadConfig, db: &KoadDB
         let mut stmt = conn.prepare(
             "SELECT file_path, line_start FROM nodes_fts 
              WHERE nodes_fts MATCH ?1 
-             LIMIT 1"
+             LIMIT 1",
         )?;
 
-        let result: Option<(String, i32)> = stmt.query_row(rusqlite::params![target], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        }).ok();
+        let result: Option<(String, i32)> = stmt
+            .query_row(rusqlite::params![target], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .ok();
 
         if let Some((path, line)) = result {
             println!(">>> [GOTO] Located symbol/file in Graph: {}:{}", path, line);
-            
+
             // If it's a file, we can CD to its directory
             let p = PathBuf::from(&path);
             if p.is_file() {
@@ -292,15 +344,18 @@ async fn handle_goto(target: &str, agent: &str, config: &KoadConfig, db: &KoadDB
     if p.exists() {
         println!("cd {}", p.display());
     } else {
-        println!("Error: Target '{}' not found in pins, graph, or filesystem.", target);
+        println!(
+            "Error: Target '{}' not found in pins, graph, or filesystem.",
+            target
+        );
     }
-    
+
     Ok(())
 }
 
 async fn handle_where(query: &str, config: &KoadConfig, db: &KoadDB) -> Result<()> {
     println!("🔍 Searching for '{}' in the Master Map...", query);
-    
+
     // 1. Check Pins
     let pins = db.get_pins(&config.get_agent_name())?;
     for (alias, path, _) in pins {
@@ -320,15 +375,15 @@ async fn handle_where(query: &str, config: &KoadConfig, db: &KoadDB) -> Result<(
     let db_path = config.home.join("data/db/notion-sync.db");
     if db_path.exists() {
         if let Ok(conn) = rusqlite::Connection::open(db_path) {
-            let mut stmt = conn.prepare("SELECT title, page_id FROM pages WHERE title LIKE ? AND is_deleted = 0")?;
+            let mut stmt = conn.prepare(
+                "SELECT title, page_id FROM pages WHERE title LIKE ? AND is_deleted = 0",
+            )?;
             let rows = stmt.query_map([format!("%{}%", query)], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
-            
-            for row in rows {
-                if let Ok((title, id)) = row {
-                    println!("   [MISSION] {} (ID: {})", title, id);
-                }
+
+            for (title, id) in rows.flatten() {
+                println!("   [MISSION] {} (ID: {})", title, id);
             }
         }
     }
@@ -348,9 +403,7 @@ fn resolve_context(path: &Path, config: &KoadConfig) -> String {
 }
 
 fn resolve_level(path: &Path, config: &KoadConfig) -> WorkspaceLevel {
-    if path == config.home {
-        WorkspaceLevel::LevelCitadel
-    } else if path.starts_with(&config.home) {
+    if path == config.home || path.starts_with(&config.home) {
         WorkspaceLevel::LevelCitadel
     } else if path.to_string_lossy().contains("skylinks") {
         WorkspaceLevel::LevelStation
@@ -379,7 +432,7 @@ fn render_legend() {
 fn render_region_status(path: &Path, config: &KoadConfig) {
     let context = resolve_context(path, config);
     println!("📊 REGION STATUS: {}", context.to_uppercase());
-    
+
     match resolve_level(path, config) {
         WorkspaceLevel::LevelCitadel => {
             println!("   Integrity: 🟢 CONDITION GREEN");
@@ -397,22 +450,28 @@ fn render_region_status(path: &Path, config: &KoadConfig) {
 
 async fn render_nearby(dir: &Path, agent: &str, config: &KoadConfig, db: &KoadDB) -> Result<()> {
     println!("🔍 SCANNING PROXIMITY...");
-    
+
     // --- Dynamic Graph Integration ---
     if let Ok(conn) = connect_graph_db(config) {
-        let abs_path = fs::canonicalize(dir).await.unwrap_or_else(|_| dir.to_path_buf());
+        let abs_path = fs::canonicalize(dir)
+            .await
+            .unwrap_or_else(|_| dir.to_path_buf());
         let path_str = abs_path.to_string_lossy();
 
         // Query for incoming dependencies (who depends on this?)
         let mut stmt = conn.prepare(
             "SELECT DISTINCT source_qualified, kind FROM edges 
              WHERE (target_qualified = ?1 OR target_qualified LIKE ?2) 
-             LIMIT 10"
+             LIMIT 10",
         )?;
 
-        let impacts: Vec<(String, String)> = stmt.query_map(rusqlite::params![path_str, format!("{}%", path_str)], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })?.filter_map(Result::ok).collect();
+        let impacts: Vec<(String, String)> = stmt
+            .query_map(
+                rusqlite::params![path_str, format!("{}%", path_str)],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?
+            .filter_map(Result::ok)
+            .collect();
 
         for (source, kind) in impacts {
             println!("   [IMPACT] {} ({})", source, kind);

@@ -1,3 +1,5 @@
+//! Redis client management and process orchestration.
+
 use anyhow::Result;
 use fred::clients::RedisPool;
 use fred::prelude::*;
@@ -6,15 +8,24 @@ use std::process::{Child, Command};
 use std::time::Duration;
 use tokio::time::sleep;
 
+/// A managed Redis client that coordinates connection pooling and optional process lifecycle.
+///
+/// This wrapper handles both the primary command pool and a dedicated subscriber
+/// client for Redis PubSub operations.
 pub struct RedisClient {
+    /// The primary pool of command connections.
     pub pool: RedisPool,
+    /// A dedicated client for subscription and signaling.
     pub subscriber: fred::clients::RedisClient,
+    /// The handle to the managed Redis process, if started by this client.
     pub process: Option<Child>,
 }
 
 impl RedisClient {
-    /// Initialize a new Redis client.
-    /// If `manage_process` is true, it will attempt to start a local Redis server if not already running.
+    /// Initialize a new Redis client, connecting via Unix Domain Sockets (UDS).
+    ///
+    /// If `manage_process` is true, it will attempt to start a local `redis-server`
+    /// if the designated socket does not exist or is unresponsive.
     pub async fn new(koad_home: &str, manage_process: bool) -> Result<Self> {
         let home_path = PathBuf::from(koad_home);
 

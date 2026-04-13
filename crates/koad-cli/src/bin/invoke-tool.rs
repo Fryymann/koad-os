@@ -1,12 +1,12 @@
+use anyhow::Result;
 use koad_proto::cass::v1::tool_registry_service_client::ToolRegistryServiceClient;
 use koad_proto::cass::v1::InvokeToolRequest;
 use koad_proto::citadel::v5::TraceContext;
-use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut client = ToolRegistryServiceClient::connect("http://127.0.0.1:50052").await?;
-    
+
     let plugin_name = "hello-plugin";
     let topic = "test.verify";
     let payload = r#"{"test_id": 123, "command": "echo hello"}"#;

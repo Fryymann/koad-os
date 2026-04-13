@@ -40,34 +40,56 @@ pub struct CitadelStatusRegistry {
     pub status_board: StatusBoardConfig,
 }
 
+/// The global configuration for the KoadOS environment.
+///
+/// This structure aggregates all system-level settings, including network paths,
+/// storage configurations, active identities, and project registries.
+/// It is typically loaded from `kernel.toml` and augmented by identity-specific
+/// TOML files in the `config/identities/` directory.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KoadConfig {
+    /// Canonical path to the KoadOS home directory (e.g., `~/.koad-os`).
     pub home: PathBuf,
+    /// High-level system metadata (version, repository info).
     pub system: SystemConfig,
+    /// Network and socket configuration for inter-service communication.
     pub network: NetworkConfig,
+    /// Persistence settings for the primary SQLite database.
     pub storage: StorageConfig,
+    /// Optional registry for MOTD and status board visualization.
     #[serde(default)]
     pub status_registry: Option<CitadelStatusRegistry>,
+    /// Session lifecycle and timeout policies.
     #[serde(default = "default_sessions")]
     pub sessions: SessionsConfig,
+    /// Security sandboxing rules for agent execution.
     #[serde(default = "default_sandbox")]
     pub sandbox: SandboxConfig,
+    /// Experience Point (XP) and leveling progression curves.
     #[serde(default)]
     pub xp: XpConfig,
+    /// Registry of globally available skill blueprints.
     #[serde(default)]
-    pub skills: HashMap<String, SkillDefinition>,
+    pub skills: HashMap<String, SkillBlueprint>,
+    /// External service integration settings (GitHub, Notion, etc.).
     #[serde(default)]
     pub integrations: IntegrationsConfig,
+    /// Filesystem access control and workspace protection rules.
     #[serde(default)]
     pub filesystem: FilesystemConfig,
+    /// Map of all recognized agent identities and their configurations.
     #[serde(default)]
     pub identities: HashMap<String, AgentIdentityConfig>,
+    /// Driver and bootstrap configuration for model interfaces.
     #[serde(default)]
     pub interfaces: HashMap<String, InterfaceConfig>,
+    /// Registry of managed projects and their metadata.
     #[serde(default)]
     pub projects: HashMap<String, ProjectConfig>,
+    /// Index of project directories for fast resolution.
     #[serde(default)]
     pub project_dirs: HashMap<String, ProjectDirConfig>,
+    /// Catch-all for unplanned or extension-specific configuration.
     #[serde(default)]
     pub extra: HashMap<String, String>,
 }
@@ -134,13 +156,47 @@ impl Default for XpConfig {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SkillRuntimeType {
+    #[default]
+    Builtin,
+    Wasm,
+    Remote,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SkillDefinition {
+pub struct SkillBlueprint {
+    #[serde(default)]
+    pub id: String,
     pub name: String,
     pub description: String,
     pub xp_multiplier: f32,
     #[serde(default)]
     pub max_level: u32,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub runtime: SkillRuntimeType,
+    #[serde(default)]
+    pub entry_point: String,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+}
+
+/// Backward-compat alias — prefer `SkillBlueprint` in new code.
+#[deprecated(since = "3.2.0", note = "Use SkillBlueprint instead")]
+pub type SkillDefinition = SkillBlueprint;
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SkillInstance {
+    pub blueprint_id: String,
+    #[serde(default)]
+    pub level: u32,
+    #[serde(default)]
+    pub current_xp: u32,
+    #[serde(default)]
+    pub settings: HashMap<String, String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -208,6 +264,9 @@ pub struct AgentIdentityConfig {
     /// Persistent XP total for this agent.
     #[serde(default)]
     pub xp: u32,
+    /// Skills this agent has equipped, keyed to blueprint IDs.
+    #[serde(default)]
+    pub skills: Vec<SkillInstance>,
 }
 
 fn default_agent_tier() -> u32 {
@@ -251,7 +310,8 @@ impl KoadConfig {
         let home = match env::var("KOADOS_HOME").or_else(|_| env::var("KOAD_HOME")) {
             Ok(val) => {
                 if val.starts_with('~') {
-                    let home_dir = dirs::home_dir().context("Could not determine home directory for tilde expansion.")?;
+                    let home_dir = dirs::home_dir()
+                        .context("Could not determine home directory for tilde expansion.")?;
                     PathBuf::from(val.replacen('~', &home_dir.to_string_lossy(), 1))
                 } else {
                     PathBuf::from(val)
@@ -297,7 +357,8 @@ impl KoadConfig {
             .add_source(config::Environment::with_prefix("KOAD").separator("__"))
             .build()?;
 
-        s.try_deserialize().context("Failed to deserialize KoadConfig")
+        s.try_deserialize()
+            .context("Failed to deserialize KoadConfig")
     }
 
     pub fn from_json(json: &str) -> Result<Self> {
@@ -312,7 +373,7 @@ impl KoadConfig {
         self.home.join(&self.storage.db_name)
     }
 
-    /// Resolves the active agent name by checking environment variables 
+    /// Resolves the active agent name by checking environment variables
     /// and verifying against the live Citadel session if possible.
     pub async fn resolve_active_agent(&self) -> String {
         // 1. Check for active session ID
@@ -373,15 +434,17 @@ impl KoadConfig {
 
         // 3. Fallback to standard local discovery (file://~/.koad-os/agents/<name>)
         let home = dirs::home_dir()?;
-        let path = self.home.join(format!("agents/{}", agent_name.to_lowercase()));
+        let path = self
+            .home
+            .join(format!("agents/{}", agent_name.to_lowercase()));
         if path.exists() {
-             return Some(format!("file://{}", path.display()));
+            return Some(format!("file://{}", path.display()));
         }
 
         // 4. Final fallback: ~/.<name>
         let legacy_path = home.join(format!(".{}", agent_name.to_lowercase()));
         if legacy_path.exists() {
-             return Some(format!("file://{}", legacy_path.display()));
+            return Some(format!("file://{}", legacy_path.display()));
         }
 
         None
@@ -393,7 +456,8 @@ impl KoadConfig {
         if let Some(path_str) = uri.strip_prefix("file://") {
             let mut p_str = path_str.to_string();
             if p_str.starts_with('~') {
-                let home = dirs::home_dir().context("Could not determine home directory for tilde expansion.")?;
+                let home = dirs::home_dir()
+                    .context("Could not determine home directory for tilde expansion.")?;
                 p_str = p_str.replacen('~', &home.to_string_lossy(), 1);
             }
             let path = PathBuf::from(p_str);
@@ -403,7 +467,10 @@ impl KoadConfig {
                 anyhow::bail!("Vault path does not exist: {}", path.display())
             }
         } else {
-            anyhow::bail!("Unsupported vault URI scheme: {}. Currently only 'file://' is supported.", uri)
+            anyhow::bail!(
+                "Unsupported vault URI scheme: {}. Currently only 'file://' is supported.",
+                uri
+            )
         }
     }
 
@@ -419,7 +486,7 @@ impl KoadConfig {
                 }
             }
         }
-        
+
         // 2. Check System Config
         if let Some(ref o) = self.system.github_owner {
             return o.clone();
@@ -431,7 +498,9 @@ impl KoadConfig {
             return owner;
         }
 
-        self.integrations.github.as_ref()
+        self.integrations
+            .github
+            .as_ref()
             .map(|g| g.default_owner.clone())
             .unwrap_or_else(|| DEFAULT_GITHUB_OWNER.to_string())
     }
@@ -444,13 +513,15 @@ impl KoadConfig {
                 }
             }
         }
-        
+
         // 2. Check System Config
         if let Some(ref r) = self.system.github_repo {
             return r.clone();
         }
 
-        self.integrations.github.as_ref()
+        self.integrations
+            .github
+            .as_ref()
             .map(|g| g.default_repo.clone())
             .unwrap_or_else(|| DEFAULT_GITHUB_REPO.to_string())
     }
@@ -463,7 +534,10 @@ impl KoadConfig {
 
         // 1. Detect Outpost & Station (Search upward from current directory or project path)
         let mut current_dir = if let Some(proj) = project {
-            self.projects.get(proj).map(|p| p.path.clone()).unwrap_or_else(|| env::current_dir().unwrap_or_default())
+            self.projects
+                .get(proj)
+                .map(|p| p.path.clone())
+                .unwrap_or_else(|| env::current_dir().unwrap_or_default())
         } else {
             env::current_dir().unwrap_or_default()
         };
@@ -528,7 +602,8 @@ impl KoadConfig {
 
     pub fn resolve_gh_token(&self, project: Option<&str>, _agent: Option<&str>) -> Result<String> {
         let key_id = if let Some(proj) = project {
-            self.projects.get(proj)
+            self.projects
+                .get(proj)
                 .and_then(|p| p.credential_key.as_ref())
                 .map(|k| k.as_str())
                 .unwrap_or("GITHUB_PAT")
@@ -541,7 +616,7 @@ impl KoadConfig {
         if !token.is_empty() {
             return Ok(token);
         }
-        
+
         // Fallback to direct GITHUB_PAT
         Ok(env::var("GITHUB_PAT").unwrap_or_default())
     }
@@ -586,7 +661,6 @@ pub fn default_sessions() -> SessionsConfig {
 }
 
 fn default_sandbox() -> SandboxConfig {
-
     SandboxConfig {
         enabled: true,
         blacklist: vec![
@@ -606,10 +680,85 @@ fn default_sandbox() -> SandboxConfig {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
 
     #[test]
-    fn test_config_loading() {
-        // This test requires actual files to exist or mock data.
-        // For now, we just verify the struct can be instantiated.
+    fn test_skill_blueprint_serialization() {
+        // Parse the hello-world fixture inline (no filesystem dependency)
+        let toml_str = r#"
+            id = "hello-world"
+            name = "Hello World"
+            description = "Test blueprint"
+            xp_multiplier = 1.0
+            max_level = 5
+            version = "0.1.0"
+            runtime = "builtin"
+            entry_point = ""
+            capabilities = ["fs_read"]
+        "#;
+        let bp: SkillBlueprint = toml::from_str(toml_str).expect("blueprint should parse");
+        assert_eq!(bp.id, "hello-world");
+        assert_eq!(bp.name, "Hello World");
+        assert!(matches!(bp.runtime, SkillRuntimeType::Builtin));
+        assert_eq!(bp.capabilities, vec!["fs_read"]);
+    }
+
+    #[test]
+    fn test_skill_instance_equip_round_trip() {
+        use std::collections::HashMap;
+        // Build an AgentIdentityConfig with a SkillInstance and round-trip through TOML
+        let instance = SkillInstance {
+            blueprint_id: "hello-world".to_string(),
+            level: 1,
+            current_xp: 10,
+            settings: HashMap::from([("debug".to_string(), "true".to_string())]),
+        };
+        let agent = AgentIdentityConfig {
+            name: "test-agent".to_string(),
+            role: "Tester".to_string(),
+            rank: "Crew".to_string(),
+            bio: "A test agent".to_string(),
+            vault: None,
+            vault_uri: None,
+            bootstrap: None,
+            preferences: None,
+            runtime: None,
+            tier: 3,
+            xp: 0,
+            skills: vec![instance],
+        };
+        let serialized = toml::to_string(&agent).expect("should serialize");
+        let deserialized: AgentIdentityConfig =
+            toml::from_str(&serialized).expect("should deserialize");
+        assert_eq!(deserialized.skills.len(), 1);
+        assert_eq!(deserialized.skills[0].blueprint_id, "hello-world");
+        assert_eq!(deserialized.skills[0].level, 1);
+        assert_eq!(
+            deserialized.skills[0]
+                .settings
+                .get("debug")
+                .map(String::as_str),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn test_skill_scanner_discovery() {
+        use crate::skills::SkillScanner;
+        use std::fs;
+
+        // Write two .skill.toml blueprints to a temp directory
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let skills_dir = tmp.path().join("skills");
+        fs::create_dir_all(&skills_dir).unwrap();
+
+        let bp1 = "name = \"Alpha\"\ndescription = \"First\"\nxp_multiplier = 1.0\n";
+        let bp2 = "name = \"Beta\"\ndescription = \"Second\"\nxp_multiplier = 2.0\n";
+        fs::write(skills_dir.join("alpha.skill.toml"), bp1).unwrap();
+        fs::write(skills_dir.join("beta.skill.toml"), bp2).unwrap();
+
+        let scanner = SkillScanner::new(tmp.path());
+        let found = scanner.scan().expect("scan should succeed");
+        assert_eq!(found.len(), 2, "scanner should find exactly 2 blueprints");
     }
 }

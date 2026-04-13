@@ -195,11 +195,10 @@ async fn main() -> Result<()> {
         Commands::Version => {
             println!("KoadOS CLI v{}", env!("CARGO_PKG_VERSION"));
             // Query Citadel version
-            if let Ok(mut client) =
-                koad_proto::citadel::v5::admin_client::AdminClient::connect(
-                    config.network.citadel_grpc_addr.clone(),
-                )
-                .await
+            if let Ok(mut client) = koad_proto::citadel::v5::admin_client::AdminClient::connect(
+                config.network.citadel_grpc_addr.clone(),
+            )
+            .await
             {
                 let context = Some(crate::utils::get_trace_context(&agent_name, 3));
                 if let Ok(resp) = client
@@ -266,7 +265,11 @@ async fn main() -> Result<()> {
         Commands::Updates { action } => {
             crate::handlers::updates::handle_updates_action(action, &config).await?;
         }
-        Commands::Pulse { message, role, list } => {
+        Commands::Pulse {
+            message,
+            role,
+            list,
+        } => {
             if list {
                 crate::handlers::pulse::handle_pulse_list(role, &config).await?;
             } else {
@@ -274,8 +277,15 @@ async fn main() -> Result<()> {
                 crate::handlers::pulse::handle_pulse_add(msg, role, &config).await?;
             }
         }
-        Commands::Sandbox { command, image, network, memory, podman } => {
-            crate::handlers::sandbox::handle_sandbox_run(command, image, network, memory, podman).await?;
+        Commands::Sandbox {
+            command,
+            image,
+            network,
+            memory,
+            podman,
+        } => {
+            crate::handlers::sandbox::handle_sandbox_run(command, image, network, memory, podman)
+                .await?;
         }
         Commands::Deploy { action } => {
             crate::handlers::deploy::handle_deploy_action(action, &config).await?;
