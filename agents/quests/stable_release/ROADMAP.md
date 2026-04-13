@@ -26,15 +26,15 @@ This roadmap translates the high-level v3.2.0 Agenda into actionable sprints and
 *   **Task 2.3: gRPC Error Boundary Polish [COMPLETE]**
     *   *Outline:* Audit the error mapping between `koad-agent` CLI and `koad-citadel`. Instead of raw `tonic::Status` dumps, intercept connection failures and provide actionable guidance (e.g., "Citadel offline. Run `koad start` to ignite the kernel.").
 
-## Phase 3: "Vault Phase 3" (Skill Standardization) [ACTIVE]
+## Phase 3: "Vault Phase 3" (Skill Standardization) [COMPLETE]
 **Goal:** Formalize how agents load and execute specialized tools (Skills) dynamically.
 
-*   **Task 3.1: Skill Blueprint Architecture [DELEGATED: TASK-3.1]**
+*   **Task 3.1: Skill Blueprint Architecture [COMPLETE]**
     *   *Outline:* Define the schema for a "Skill Blueprint" vs. a "Skill Instance." Update `koad-core/src/config.rs` to parse skill manifests correctly, allowing agents to "equip" skills dynamically from the central `skills/` directory into their KAPV.
-*   **Task 3.2: `koad vault skill` Implementation [DELEGATED: TASK-3.2]**
+*   **Task 3.2: `koad vault skill` Implementation [COMPLETE]**
     *   *Outline:* Complete the stubbed `VaultAction::Skill` in `koad-cli`. Build the CLI interface for listing globally available skills, inspecting a skill's capabilities, and syncing a skill into the current agent's active memory.
 
-## Phase 4: "Final Polish & Release"
+## Phase 4: "Final Polish & Release" [ACTIVE]
 **Goal:** Clean up technical debt, ensure CI/CD compliance, and merge to `main`.
 
 *   **Task 4.1: Workspace Lint & Audit**

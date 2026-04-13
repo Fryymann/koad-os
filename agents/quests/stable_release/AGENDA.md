@@ -15,8 +15,8 @@
 - [x] **Knowledge Graph (CP-11-SYNC):** Implement **Atlas Pivot**: Dynamic System Map via `code-review-graph` and redesigned `koad map`. (COMPLETE)
 
 ### 2. Vault Phase 3: Skill & Blueprint Standardization
-- [ ] **Blueprint Model (CP-04-VAULT):** Formalize the Skill Blueprint vs. Instance architecture. (DELEGATED to Clyde - TASK 3.1)
-- [ ] **Vault Skill CLI (CP-04-VAULT):** Implement `koad vault skill` to allow listing and inspecting available skills. (DELEGATED to Clyde - TASK 3.2)
+- [x] **Blueprint Model (CP-04-VAULT):** Formalize the Skill Blueprint vs. Instance architecture. (COMPLETE)
+- [x] **Vault Skill CLI (CP-04-VAULT):** Implement `koad vault skill` to allow listing and inspecting available skills. (COMPLETE)
 
 ### 3. Distribution & Onboarding (Shareability)
 - [x] **Sanctuary Audit (COMPLETE):** Scrub all hardcoded paths (e.g., `/home/ideans/`) from `distribution` crates. Absolute reliance on `KOAD_HOME` and `resolve_vault_path` is now enforced.
