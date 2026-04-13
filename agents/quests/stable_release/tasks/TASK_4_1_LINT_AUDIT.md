@@ -1,54 +1,36 @@
-# Task Manifest: 4.1 - Workspace Lint & Audit
-**Status:** ⚪ Draft
-**Assignee:** [Engineer-Agent (Cid/Clyde)]
-**Reviewer:** Tyr (Captain/PM)
-**Branch:** `refactor/workspace-lint-v3.2.0`
+# Task Manifest: 4.1 - Workspace Audit & Canon Compliance
+**Status:** 🟢 Active
+**Assignee:** Cid (Engineer)
+**Reviewer:** Tyr (Captain)
+**Priority:** High
 
 ---
 
 ## 🎯 Objective
-Perform a comprehensive technical debt audit and cleanup of the entire KoadOS workspace. Resolve all `clippy` warnings, ensure consistent formatting, and enforce strict adherence to the KoadOS Rust Canon.
+Eliminate technical debt and ensure the entire KoadOS workspace adheres to the strict standards defined in `RUST_CANON` and `CONTRIBUTOR_CANON`. Produce a warning-free, optimized build.
 
-## 🧱 Context
-As we move toward a stable release, the codebase must be clean, idiomatic, and free of low-level "code smells" (e.g., unused variables, empty doc lines, redundant clones). A clean workspace ensures long-term maintainability and professionalism.
+## 🧱 Technical Requirements
 
-## 🛠️ Technical Requirements
+### 1. Zero-Warning Mandate
+- **Clippy Audit:** Execute `cargo clippy --workspace --all-targets -- -D warnings`.
+- **Resolution:** Resolve every lint violation. Do NOT use `#[allow(...)]` unless explicitly approved by the Captain for specific architectural reasons (e.g., FFI).
+- **Specific Targets:** 
+    - Fix unused imports and variables in `koad-bridge-notion`.
+    - Fix test-related warnings in `koad-cli`.
 
-### 1. Clippy Cleanup
-- **Command:** `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-- **Requirement:** Resolve all errors and warnings detected by Clippy across all 11 crates.
-- **Specific Fixes Needed (Identified):**
-    - `koad-core/src/utils/lock.rs`: Fix empty lines after doc comments (Macro L81).
-    - `koad-bridge-notion/src/mcp.rs`: Remove unused imports and variables.
-    - `koad-agent.rs`: Resolve unused variables and assignments.
+### 2. Dead Code Elimination
+- **Graph Analysis:** Use the `code-review-graph` to identify "Orphan Nodes" (functions, structs, or traits with zero incoming edges).
+- **Verification:** Manually verify if the code is truly dead or intended for future WASM plugin hooks.
+- **Action:** Remove all verified dead code from the distribution.
 
-### 2. Formatting Audit
-- **Command:** `cargo fmt --workspace --all -- --check`
-- **Requirement:** Ensure all files adhere to the project's `rustfmt` standard.
+### 3. Dependency Optimization
+- **Version Sync:** Ensure all workspace crates use consistent versions of shared dependencies (serde, tokio, etc.) via the workspace manifest.
+- **Unused Deps:** Remove any dependencies listed in `Cargo.toml` files that are not actually imported in the source.
 
-### 3. Redundant Dependency Check
-- **Requirement:** Audit `Cargo.toml` files for unused or redundant dependencies.
-- **Requirement:** Verify that all crates are correctly using workspace-level dependencies for unified versioning.
-
-### 4. Dead Code Removal (Final Pass)
-- **Requirement:** Audit the remaining `pub` items in `koad-core` and `koad-proto` that are not used by any internal binary or library.
-
-### 5. Documentation Integrity
-- **Requirement:** Ensure all public structs and functions in `koad-core` have descriptive doc comments (`///`).
-- **Requirement:** Verify that `//!` doc comments are present at the top of all `lib.rs` and `main.rs` files.
+### 4. Canon Documentation
+- **Missing Docs:** Ensure all public structs and functions in the core crates (`koad-core`, `koad-citadel`, `koad-proto`) have proper doc comments (`///`).
 
 ## ✅ Verification Strategy
-1.  **Strict Compilation:** Run `cargo clippy --workspace -- -D warnings` and verify it exits with `0`.
-2.  **Formatting Check:** Run `cargo fmt --workspace -- --check` and verify it exits with `0`.
-3.  **Test Suite:** Run `cargo test --workspace` and verify all tests pass after the cleanup.
-
-## 🚫 Constraints
-- **NEVER** use `#[allow(clippy::...)]` unless there is a strictly documented architectural reason.
-- **NEVER** disable a lint to bypass a fix; find the idiomatic Rust solution.
-- **MUST** be performed across all crates simultaneously.
-
----
-
-## 🛰️ Sovereign Review (Tyr)
-- Confirm that the codebase feels "idiomatic" and follows the KoadOS aesthetic.
-- Verify that the doc comments provide high-signal value.
+1.  **Build Pass:** `cargo build --workspace` produces zero output to stderr.
+2.  **Lint Pass:** `cargo clippy --workspace` produces zero warnings.
+3.  **Graph Pass:** `code-review-graph status` shows a lean node-to-edge ratio.

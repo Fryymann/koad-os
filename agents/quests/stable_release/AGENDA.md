@@ -25,13 +25,12 @@
 - [ ] **The Admiral's Guide:** Update `MISSION.md` and `AGENTS.md` for a clean "Quick Start" onboarding flow.
 
 ### 4. Technical Debt & Final Polish
-- [ ] **Workspace Audit:** Run `cargo clippy --workspace` and resolve all warnings.
-- [ ] **Nightly Bridge:** Prepare and verify the final diff for merging `nightly` into `main`.
-- [ ] **AIS Refactor (Postponed):** Moved to [Side Quest SQ-01-AIS](../side_quests/SQ-01-AIS.md).
+- [ ] **Workspace Audit (TASK 4.1):** Run `cargo clippy` and resolve technical debt. (ASSIGNED to Cid)
+- [ ] **Distribution Sanitizer (TASK 4.3):** Implement `koad system scrub` for pure distribution. (READY FOR DELEGATION)
+- [ ] **Nightly Bridge (TASK 4.2):** Merge `nightly` into `main` and cut v3.2.0. (PLANNED)
 
 ---
 
 ## 🛰️ Current Focus
-- **Task:** [TASK 3.1 & 3.2] — Vault Phase 3: Skill Standardization & CLI
-- **Priority:** Alpha (Pluggable Architecture)
-* Alpha (Pluggable Architecture)
+- **Task:** [TASK 4.1] — Workspace Audit & Canon Compliance
+- **Priority:** High (Technical Debt Elimination)

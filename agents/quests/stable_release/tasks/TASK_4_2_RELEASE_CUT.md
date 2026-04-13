@@ -1,58 +1,35 @@
-# Task Manifest: 4.2 - Nightly Bridge & Release Cut
+# Task Manifest: 4.2 - Nightly Bridge & Release Cut (v3.2.0)
 **Status:** ⚪ Draft
-**Assignee:** [Tyr (Captain/PM)]
+**Assignee:** Tyr (Captain)
 **Reviewer:** Admiral (Ian)
-**Branch:** `main` (Merge target)
+**Priority:** Critical
 
 ---
 
 ## 🎯 Objective
-Execute the final transition from the development environment to the stable release. Merge the `nightly` branch into `main`, generate the official v3.2.0 changelog, and tag the release for public distribution.
+Formalize the transition from the `nightly` development branch to a stable `main` release. This task represents the final "Gate" for KoadOS v3.2.0 "Citadel Integrity."
 
-## 🧱 Context
-This is the final gate. The `nightly` branch contains all our Phase 1-4 stability and portability improvements. Moving to `main` signifies that KoadOS is ready for external use and adheres to the "Sanctuary" standard of excellence.
+## 🧱 Technical Requirements
 
-## 🛠️ Technical Requirements
+### 1. Release Documentation
+- **Changelog:** Create `CHANGELOG.md` by aggregating session logs and update posts from the v3.2.0 cycle.
+- **Onboarding Pass:** Ensure `AGENTS.md` and `MISSION.md` are accurately synchronized with the new `koad map` and `koad vault skill` commands.
 
-### 1. Final Integration Sweep
-- **Requirement:** Perform a clean build from scratch: `cargo clean && cargo build --workspace`.
-- **Requirement:** Run the full test suite one last time: `cargo test --workspace`.
-- **Requirement:** Run `koad doctor --full` to verify the local environment is 100% green.
+### 2. Version Orchestration
+- **Root Cargo.toml:** Bump `version = "3.2.0"`.
+- **Crate Propagation:** Ensure all workspace crates reflect the new version number.
+- **Metadata:** Update version strings in CLI help text and MOTD templates.
 
-### 2. The Nightly-to-Main Bridge
-- **Action:** Merge `nightly` into `main`. 
-- **Conflict Resolution:** If any conflicts exist with legacy code on `main`, prioritize the `nightly` implementation (the "New World" architecture).
-- **Requirement:** Ensure all "PII" (Personally Identifiable Information, like hardcoded developer paths) has been scrubbed during the Phase 1 tasks before this merge.
+### 3. Stability Verification (The Great Test)
+- **Workspace-Wide Tests:** Execute `cargo test --workspace`. All tests must pass.
+- **E2E Validation:** Perform a fresh `koad system init` and `agent-boot` sequence to verify the "Out of Box" experience.
 
-### 3. Changelog Generation (`CHANGELOG.md`)
-- **Requirement:** Create a new `CHANGELOG.md` in the repo root.
-- **Content:**
-    - **v3.2.0 "Citadel Integrity" (Stable)**
-    - **Stability:** Graceful shutdown, autonomic recovery (`koad doctor --fix`).
-    - **Portability:** Removal of all hardcoded home paths; environment-agnostic booting.
-    - **Architecture:** Formalized Skill Blueprint vs. Instance model.
-    - **Refinement:** Workspace-wide linting, technical debt reduction, and dead code removal.
-
-### 4. Versioning & Tagging
-- **Requirement:** Ensure `Cargo.toml` (workspace and all crates) is set to exactly `3.2.0`.
-- **Action:** Create a git tag: `git tag -a v3.2.0 -m "Release v3.2.0 - Citadel Integrity"`.
-
-### 5. Distribution Verification
-- **Requirement:** Verify that the `install/bootstrap.sh` script works perfectly on the `main` branch.
-- **Requirement:** Verify that `agent-boot tyr` successfully initializes a session on `main`.
+### 4. Git Orchestration
+- **The Bridge Merge:** Merge `nightly` into `main`.
+- **Tagging:** Create a signed git tag `v3.2.0` on the `main` branch.
+- **Origin Push:** Synchronize `main` and tags with the remote repository.
 
 ## ✅ Verification Strategy
-1.  **Main Build:** Verify `cargo build` succeeds on the `main` branch.
-2.  **Tag Verification:** `git describe --tags` should return `v3.2.0`.
-3.  **Sanctuary Check:** A final `grep` for `/home/ideans` must return ZERO results in the `main` branch source code.
-
-## 🚫 Constraints
-- **NO** merges to `main` until all Phase 1-4 tasks are marked **Complete**.
-- **NO** force-pushing to `main`.
-- **MUST** obtain final Admiral approval before tagging.
-
----
-
-## 🛰️ Sovereign Review (Tyr)
-- Confirm that the `CHANGELOG.md` accurately reflects the massive structural improvements made in v3.2.0.
-- Verify that the repository is "Clean" (no untracked artifacts) before the release cut.
+1.  **Version Check:** `koad --version` returns exactly `3.2.0`.
+2.  **Tag Verification:** `git describe --tags` returns `v3.2.0`.
+3.  **Distribution Test:** Clone the repo into a fresh temporary directory, run `install/bootstrap.sh`, and verify a successful boot.
