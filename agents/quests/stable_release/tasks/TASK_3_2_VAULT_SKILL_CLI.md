@@ -37,10 +37,14 @@ While the architecture for skills was defined in Task 3.1, users need a way to i
 
 ### 5. Subcommand: `koad vault skill equip <id>`
 - **Requirement:** Add a new `SkillInstance` (based on a blueprint) to the agent's identity TOML.
+- **Requirement:** **Confirmation Step:** Before equipping, the CLI MUST display a clear list of the skill's required `capabilities` and prompt the user/agent for explicit approval (e.g., "This skill requires access to: fs_read, network_out. Proceed? [y/N]").
 - **Requirement:** Scaffolding: Create any required directories in the agent's vault (e.g., `~/.koad-os/agents/tyr/skills/<skill_id>/`).
 
 ### 6. Subcommand: `koad vault skill sync`
 - **Requirement:** Synchronize the local skill state with the Citadel (if online). This ensures that XP gained during a session is persisted back to the identity TOML.
+
+### 7. Capability Registry Integration
+- **Requirement:** Integrate with the `CapabilityRegistry` (to be implemented in Task 3.1) to ensure only valid, sandbox-recognized capabilities are displayed and requested during the `equip` phase.
 
 ## ✅ Verification Strategy
 1.  **List Verification:** Equip a mock skill and verify it appears in `koad vault skill ls`.

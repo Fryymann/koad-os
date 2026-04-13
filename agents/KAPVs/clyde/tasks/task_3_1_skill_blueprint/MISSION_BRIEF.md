@@ -1,41 +1,47 @@
-# Mission Brief: 3.1 - Skill Blueprint Architecture
-**Mission ID:** TASK-3.1-SKILL-BLUEPRINT
+# Mission Brief: 3.1 - Skill Blueprint Architecture & 3.2 - Vault Skill CLI
+**Mission ID:** TASK-3.1-SKILL-BLUEPRINT / TASK-3.2-VAULT-SKILL-CLI
 **Primary Assignee:** Clyde (Officer / Lead)
 **Support Assets:** Cid (Engineer)
 **Reviewer:** Tyr (Captain)
-**Source Specification:** `agents/quests/stable_release/tasks/TASK_3_1_SKILL_BLUEPRINT.md`
+**Source Specifications:** 
+- `agents/quests/stable_release/tasks/TASK_3_1_SKILL_BLUEPRINT.md`
+- `agents/quests/stable_release/tasks/TASK_3_2_VAULT_SKILL_CLI.md`
 
 ---
 
 ## 🎯 Primary Objective
-Formalize the KoadOS Skill System by implementing a two-tier architecture: **Skill Blueprints** (distribution-level templates) and **Skill Instances** (agent-specific configurations). This is a critical infrastructure component for the v3.2.0 "Citadel Integrity" stable release.
+Formalize the KoadOS Skill System and implement the user-facing CLI tools for skill management. This dual-task mission is a critical infrastructure component for the v3.2.0 "Citadel Integrity" stable release.
 
 ## 🧱 Strategic Context
-Currently, KoadOS skills are mere metadata. To achieve true agent specialization and secure capability management, we must decouple the *definition* of a skill from its *mastery* by an agent.
-- **Blueprints** define the skill's name, version, runtime (WASM/Builtin/Remote), and required capabilities.
-- **Instances** track an agent's level, XP, and specific configurations for that skill within their vault.
+We are decoupling the *definition* of a skill (Distribution) from its *mastery* by an agent (Instance/Vault).
+- **Blueprints** (Shared) define capabilities, runtimes, and entry points.
+- **Instances** (Private) track levels, XP, and per-agent configurations.
 
 ## 🛠️ Technical Directives
 
 ### 1. Crate Architecture (`koad-core`)
 - **Refactor `crates/koad-core/src/config.rs`:** 
     - Transition `SkillDefinition` into `SkillBlueprint`.
-    - Implement the `SkillInstance` struct for agent-specific state.
-    - Ensure `AgentIdentityConfig` can persist a `Vec<SkillInstance>`.
+    - Implement `SkillInstance` and ensure `AgentIdentityConfig` supports a persistent `skills: Vec<SkillInstance>` field.
+- **Implement a `CapabilityRegistry`:** Create a new module to validate and manage sandbox-recognized capability strings (e.g., `fs_read`, `network_out`).
 
-### 2. Discovery Logic (The "Skill Scanner")
-- **Implement a Blueprint Scanner:** Add a module in `koad-core` to discover and parse `.toml` skill blueprints from `$KOAD_HOME/skills/`.
+### 2. Discovery & Scaffolding
+- **Skill Scanner:** Implement discovery logic for `.toml` blueprints in `$KOAD_HOME/skills/`.
+- **Vault Scaffolding:** Implement the automated creation of per-skill data directories in an agent's vault upon equipping.
 
-### 3. Security & Sandboxing (`koad-sandbox`)
-- **Capability Mapping:** Ensure the `capabilities` defined in a Blueprint can be mapped to the `koad-sandbox` security policies to prevent unauthorized file or network access.
+### 3. Vault Skill CLI (`koad vault skill`)
+- **`list`**: Show equipped skills, levels, and status.
+- **`info <id>`**: Deep-dive into a skill's blueprint and instance data.
+- **`search`**: Discover new blueprints available in the Citadel.
+- **`equip <id>`**: **MANDATORY Confirmation Step.** Before equipping, the CLI MUST display all required capabilities and prompt the user for explicit approval.
 
 ## 📊 Knowledge Graph Integration
-Leverage the newly implemented **Dynamic System Map (DSM)** via `code-review-graph`. Use the graph to identify existing logic clusters that are candidates for refactoring into "Builtin" skills.
+Use the **Dynamic System Map (DSM)** to identify existing code that should be refactored into "Builtin" skills.
 
 ## ✅ Verification & Validation
 - **Serialization:** Must parse a `hello-world.skill.toml` correctly.
-- **Persistence:** Agent skill instances must survive `KoadConfig::load()`.
-- **Discovery:** The Scanner must detect all blueprints in the designated folder.
+- **Persistence:** Skill instances must survive `KoadConfig::load()`.
+- **CLI Fidelity:** `list`, `search`, and `equip` must be fully functional and atomic.
 
 ---
-**Tyr:** "Clyde, the architecture is ready for your lead. Focus on the core data structures and discovery paths first. Cid is available for gRPC/Proto support if required."
+**Tyr:** "Clyde, the review is complete. I've expanded your scope to include the CLI layer (Task 3.2) to ensure the architecture and the user experience are developed in tight synchronization. Focus on the `CapabilityRegistry` early—it is the bedrock for our security sandboxing."
