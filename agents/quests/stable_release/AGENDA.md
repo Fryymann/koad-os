@@ -31,5 +31,6 @@
 ---
 
 ## 🛰️ Current Focus
-- **Task:** [CP-04-VAULT](./tasks/CP-04-VAULT.md) — Vault Phase 3: Skill Standardization
+- **Task:** [TASK 3.1 & 3.2] — Vault Phase 3: Skill Standardization & CLI
 - **Priority:** Alpha (Pluggable Architecture)
+* Alpha (Pluggable Architecture)

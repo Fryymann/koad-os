@@ -16,22 +16,22 @@ This roadmap translates the high-level v3.2.0 Agenda into actionable sprints and
 *   **Task 1.5: Hierarchical Workspace Deployment [COMPLETE]**
     *   *Outline:* Implement `koad deploy station` and `koad deploy outpost` subcommands. These commands scaffold the necessary directory structure (`data`, `docs`, `config`, `updates`) and create hidden support folders (`.koados-station/outpost`) for mission-specific agent context and quests, while maintaining core identities at the Citadel level.
 
-## Phase 2: "Zero-Ghost Policy" (Robustness & Stability)
+## Phase 2: "Zero-Ghost Policy" (Robustness & Stability) [COMPLETE]
 **Goal:** KoadOS must elegantly handle process lifecycle events, preventing orphaned sockets, stale PIDs, and database locks.
 
-*   **Task 2.1: Autonomic Recovery (The Doctor is In)**
+*   **Task 2.1: Autonomic Recovery (The Doctor is In) [COMPLETE]**
     *   *Outline:* Expand the `koad doctor` command (`koad-cli/src/handlers/status.rs`). Implement automated fix logic to safely delete stale Unix sockets (`run/*.sock`), clear corrupted Redis state keys, and verify database integrity before a fresh boot.
-*   **Task 2.2: Graceful Service Lifecycle**
+*   **Task 2.2: Graceful Service Lifecycle [COMPLETE]**
     *   *Outline:* Enhance the `Kernel` in `koad-citadel/src/kernel.rs`. Ensure that `tokio::signal::ctrl_c()` and SIGTERM events trigger a coordinated teardown: closing gRPC listeners, flushing the `StorageBridge` to SQLite, and formally releasing agent bay locks.
-*   **Task 2.3: gRPC Error Boundary Polish**
+*   **Task 2.3: gRPC Error Boundary Polish [COMPLETE]**
     *   *Outline:* Audit the error mapping between `koad-agent` CLI and `koad-citadel`. Instead of raw `tonic::Status` dumps, intercept connection failures and provide actionable guidance (e.g., "Citadel offline. Run `koad start` to ignite the kernel.").
 
-## Phase 3: "Vault Phase 3" (Skill Standardization)
+## Phase 3: "Vault Phase 3" (Skill Standardization) [ACTIVE]
 **Goal:** Formalize how agents load and execute specialized tools (Skills) dynamically.
 
-*   **Task 3.1: Skill Blueprint Architecture**
+*   **Task 3.1: Skill Blueprint Architecture [DELEGATED: TASK-3.1]**
     *   *Outline:* Define the schema for a "Skill Blueprint" vs. a "Skill Instance." Update `koad-core/src/config.rs` to parse skill manifests correctly, allowing agents to "equip" skills dynamically from the central `skills/` directory into their KAPV.
-*   **Task 3.2: `koad vault skill` Implementation**
+*   **Task 3.2: `koad vault skill` Implementation [DELEGATED: TASK-3.2]**
     *   *Outline:* Complete the stubbed `VaultAction::Skill` in `koad-cli`. Build the CLI interface for listing globally available skills, inspecting a skill's capabilities, and syncing a skill into the current agent's active memory.
 
 ## Phase 4: "Final Polish & Release"

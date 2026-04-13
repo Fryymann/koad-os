@@ -105,6 +105,7 @@ Small models, running locally, spending tokens only on real thinking, accumulati
 - **Phase 5 (COMPLETE):** koad-agent MVP — Context Generation Engine and standalone boot/task management are live.
 - **Phase 6 (COMPLETE):** Canon Lock — Documentation distillation and architectural stabilization.
 - **Phase 7 (ACTIVE):** v3.2.0 Stable Release — "Citadel Integrity" push.
+- **Phase 10 (COMPLETE):** Knowledge Graph — Dynamic System Map (DSM) powered by `code-review-graph`.
 </aside>
 
 ---
