@@ -70,14 +70,8 @@ impl Kernel {
         info!("Kernel: Shutdown complete.");
     }
 }
-...
-        Ok(Kernel { 
-            shutdown_tx,
-            storage,
-            admin_uds_path: self.admin_uds_path,
-        })
-    }
-}
+
+#[derive(Default)]
 pub struct KernelBuilder {
     home_dir: Option<PathBuf>,
     tcp_addr: Option<String>,
@@ -241,13 +235,13 @@ impl KernelBuilder {
         });
 
         // 2. Admin UDS Listener (Emergency Bypass)
-        if let Some(admin_uds_path) = self.admin_uds_path {
+        if let Some(ref admin_uds_path) = self.admin_uds_path {
             // Remove existing socket if any
             if admin_uds_path.exists() {
-                let _ = std::fs::remove_file(&admin_uds_path);
+                let _ = std::fs::remove_file(admin_uds_path);
             }
 
-            let uds = tokio::net::UnixListener::bind(&admin_uds_path)?;
+            let uds = tokio::net::UnixListener::bind(admin_uds_path)?;
             let uds_stream = UnixListenerStream::new(uds);
 
             let admin_router = Server::builder()
@@ -258,10 +252,11 @@ impl KernelBuilder {
                 .add_service(XpServiceServer::new(xp_svc_impl));
 
             let mut rx_admin = shutdown_rx.clone();
+            let admin_path_clone = admin_uds_path.clone();
             tokio::spawn(async move {
                 info!(
                     "Kernel: Admin UDS listener active at {}",
-                    admin_uds_path.display()
+                    admin_path_clone.display()
                 );
                 if let Err(e) = admin_router
                     .serve_with_incoming_shutdown(uds_stream, async move {
@@ -274,6 +269,10 @@ impl KernelBuilder {
             });
         }
 
-        Ok(Kernel { shutdown_tx })
+        Ok(Kernel { 
+            shutdown_tx,
+            storage,
+            admin_uds_path: self.admin_uds_path,
+        })
     }
 }
