@@ -13,6 +13,8 @@
 | 2026-04-03 | Clyde | clyde-20260403-dev-03 | DONE | Phase 7 Implementation: L1 (Redis), L2 (SQLite), L3 (Qdrant) tiers with orchestrated fallback in TieredStorage. Build clean. |
 | 2026-04-12 | Tyr | CP-02-STABLE | DONE | v3.2.0 "Citadel Integrity" Push: Implemented graceful shutdown (Task 2.2), autonomic recovery (Task 2.1), and finalized Sanctuary Alignment (Task 1.1). |
 | 2026-04-12 | Clyde | CP-03-GRPC | DONE | Refactored gRPC error boundaries with custom KoadGrpcError wrapper and stylized guidance. (Task 2.3) |
+| 2026-04-13 | Cid | TASK-4.1 | PARTIAL | Resolved all workspace clippy blockers and formatting. Build Green. Dead code and docs pending. |
+| 2026-04-13 | Tyr | TASK-4.4 | PLANNED | Drafted manifest for Deep Audit & Dead Code elimination based on Cid's findings. |
 | 2026-04-13 | Cid | TASK-4.1 | ASSIGNED | Delegated Workspace Audit and technical debt cleanup. |
 | 2026-04-13 | Clyde | TASK-4.3 | ASSIGNED | Delegated Distribution Sanitizer (koad-scrub) implementation. |
 | 2026-04-13 | Tyr | CP-11-SYNC | DONE | Implemented **Atlas Pivot**: Dynamic System Map via `code-review-graph`. Redesigned `koad map`. |
