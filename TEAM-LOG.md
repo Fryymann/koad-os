@@ -14,6 +14,7 @@
 | 2026-04-12 | Tyr | CP-02-STABLE | DONE | v3.2.0 "Citadel Integrity" Push: Implemented graceful shutdown (Task 2.2), autonomic recovery (Task 2.1), and finalized Sanctuary Alignment (Task 1.1). |
 | 2026-04-12 | Clyde | CP-03-GRPC | DONE | Refactored gRPC error boundaries with custom KoadGrpcError wrapper and stylized guidance. (Task 2.3) |
 | 2026-04-13 | Tyr | CP-11-SYNC | DONE | Implemented **Atlas Pivot**: Dynamic System Map via `code-review-graph`. Redesigned `koad map`. |
+| 2026-04-13 | Tyr | TASK-3.2 | ASSIGNED | Delegated Vault Skill CLI implementation to Clyde. |
 | 2026-04-13 | Tyr | TASK-3.1 | ASSIGNED | Delegated Skill Blueprint Architecture to Clyde. |
 | 2026-04-12 | Clyde | CP-05-FIX | DONE | Resolved critical build blockers in status.rs related to fred hscan streams and RedisMap iteration. |
 | 2026-04-12 | Tyr | CP-04-VAULT | PLANNED| Drafted Phase 3 "Vault Standardization" plan for Blueprint/Instance model. |
