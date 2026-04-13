@@ -37,10 +37,10 @@ This roadmap translates the high-level v3.2.0 Agenda into actionable sprints and
 ## Phase 4: "Final Polish & Release" [ACTIVE]
 **Goal:** Clean up technical debt, ensure CI/CD compliance, and merge to `main`.
 
-*   **Task 4.1: Workspace Audit & Canon Compliance [PARTIAL: CID]**
+*   **Task 4.1: Workspace Audit & Canon Compliance [COMPLETE]**
     *   *Outline:* Resolve all `cargo clippy` warnings and verify build health. (See [TASK_4_1_LINT_AUDIT.md](./tasks/TASK_4_1_LINT_AUDIT.md))
-*   **Task 4.4: Deep Audit & Dead Code Elimination [PLANNED]**
-    *   *Outline:* Leverage knowledge graph to purge orphan code, synchronize dependencies across crates, and complete rustdoc Canon sweep.
+*   **Task 4.4: Deep Audit & Dead Code Elimination [COMPLETE]**
+    *   *Outline:* Leverage knowledge graph to purge orphan code, synchronize dependencies across crates, and complete rustdoc Canon sweep. (See [TASK_4_4_DEEP_AUDIT.md](./tasks/TASK_4_4_DEEP_AUDIT.md))
 *   **Task 4.3: The Distribution Sanitizer (`koad-scrub`) [ASSIGNED: CLYDE]**
     *   *Outline:* Implement `koad system scrub` to purge instance-specific data for distribution. (See [TASK_4_3_SANITIZER.md](./tasks/TASK_4_3_SANITIZER.md))
 *   **Task 4.2: Nightly Bridge & Release Cut [PLANNED]**

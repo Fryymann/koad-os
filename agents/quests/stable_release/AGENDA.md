@@ -25,8 +25,8 @@
 - [ ] **The Admiral's Guide:** Update `MISSION.md` and `AGENTS.md` for a clean "Quick Start" onboarding flow.
 
 ### 4. Technical Debt & Final Polish
-- [ ] **Workspace Audit (TASK 4.1):** Resolve technical debt and clippy blockers. (PARTIAL - Build Green)
-- [ ] **Deep Audit & Dead Code (TASK 4.4):** Eliminate dead code and optimize dependencies. (PLANNED)
+- [x] **Workspace Audit (TASK 4.1):** Resolve technical debt and clippy blockers. (COMPLETE)
+- [x] **Deep Audit & Dead Code (TASK 4.4):** Eliminate dead code and optimize dependencies. (COMPLETE)
 - [ ] **Distribution Sanitizer (TASK 4.3):** Implement `koad system scrub` for pure distribution. (ASSIGNED to Clyde)
 - [ ] **Nightly Bridge (TASK 4.2):** Merge `nightly` into `main` and cut v3.2.0. (PLANNED)
 
