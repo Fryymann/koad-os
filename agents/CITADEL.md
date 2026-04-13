@@ -29,11 +29,11 @@ The **Citadel** is the "Body" (Infrastructure) layer of KoadOS. It serves as the
 7.5. **Citadel Pulse:** [COMPLETE] Global intelligence and agent hydration.
 8. **koad-agent Full:** [PLANNED] CASS integration, End-of-Watch pipeline, knowledge migration.
 9. **Minion Swarm:** [PLANNED] Hangar manager, minion proto, and task delegation.
-10. **Advanced Features:** [PLANNED] Agent signaling, Federation, Knowledge Graph.
+10. **Advanced Features:** [COMPLETE] Agent signaling, Federation, Knowledge Graph (code-review-graph integration).
 
 ## V. Key References
 - `AGENTS.md`: Root onboarding portal and New World Canon.
-- `SYSTEM_MAP.md`: Canonical workspace index and directory tree.
+- `SYSTEM_MAP.md`: Canonical workspace index and dynamic Dynamic System Map (DSM).
 - `MISSION.md`: Core mission, vision, and architectural philosophy.
 - `docs/protocols/`: Engineering standards and RUST_CANON.
 - `updates/`: Real-time chronological board of system updates.

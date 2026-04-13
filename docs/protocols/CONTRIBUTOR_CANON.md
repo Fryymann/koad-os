@@ -21,11 +21,12 @@ A valid Plan MUST include:
 
 ## II. The Execution Cycle
 All tasks must follow the **Research -> Strategy -> Execution** cycle without exception.
-1. **Research:** Explore the codebase and validate assumptions.
-2. **Strategy:** Enter **Plan Mode** and map the solution.
-3. **Approval:** Present the Plan to the Admiral (Ian) and wait for the "Condition Green" signature.
-4. **Execution:** Implement the plan surgically.
-5. **Review:** Perform a KSRP (Koad Self-Review Protocol) pass.
+1. **Discovery:** \x1b[1mGraph-First.\x1b[0m Use `code-review-graph` to map dependencies, callers, and impact.
+2. **Research:** Explore the codebase, validate graph findings, and confirm assumptions.
+3. **Strategy:** Enter **Plan Mode** and map the solution.
+4. **Approval:** Present the Plan to the Admiral (Ian) and wait for the "Condition Green" signature.
+5. **Execution:** Implement the plan surgically.
+6. **Review:** Perform a KSRP (Koad Self-Review Protocol) pass.
 
 ## III. The Experience Point (XP) System
 Experience Points (XP) serve as a persistent ledger of an agent's operational impact and Canon compliance.
@@ -33,9 +34,9 @@ Experience Points (XP) serve as a persistent ledger of an agent's operational im
 ### 1. XP Sources (Earned)
 | Event | XP Awarded | Notes |
 | :--- | :--- | :--- |
-| Clean KSRP Exit — `trivial` | +5 XP | First-iteration clean = ×1.5 (7 XP) |
 | Clean KSRP Exit — `standard` | +15 XP | First-iteration clean = ×1.5 (22 XP) |
 | Clean KSRP Exit — `complex` | +30 XP | First-iteration clean = ×1.5 (45 XP) |
+| Graph-First Discovery | +5 XP | Used `code-review-graph` to identify impact/dead code |
 | Full PSRP Saveup | +5 XP | Flat. `null` ponder on non-trivial = 0 XP |
 | Gate Discipline | +3 XP | Per gate (4 or 9) honored |
 | Critical Evaluation Fired | +5 XP | Agent pushes back per mandate |

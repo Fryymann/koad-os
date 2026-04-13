@@ -15,6 +15,18 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
+use rusqlite::Connection;
+
+/// Path to the code-review-graph database.
+fn get_graph_db_path(config: &KoadConfig) -> PathBuf {
+    config.home.join(".code-review-graph/graph.db")
+}
+
+/// Connect to the code-review-graph database.
+fn connect_graph_db(config: &KoadConfig) -> Result<Connection> {
+    let path = get_graph_db_path(config);
+    Connection::open(&path).context(format!("Failed to open graph database at {}", path.display()))
+}
 
 /// Handles the 'map' command group.
 ///
@@ -36,10 +48,10 @@ pub async fn handle_map(
             render_look(&current_dir, verbose, &agent_name, config, db).await?;
         }
         Some(MapAction::Exits) => {
-            render_exits(&current_dir, &agent_name, db).await?;
+            render_exits(&current_dir, &agent_name, config, db).await?;
         }
         Some(MapAction::Goto { target }) => {
-            handle_goto(&target, &agent_name, db).await?;
+            handle_goto(&target, &agent_name, config, db).await?;
         }
         Some(MapAction::Pin { alias, path, scope }) => {
             let p = path.unwrap_or_else(|| current_dir.to_string_lossy().to_string());
@@ -111,6 +123,34 @@ async fn render_look(
         println!("📍 {}", dir.display());
     }
 
+    // --- Dynamic Graph Integration ---
+    if let Ok(conn) = connect_graph_db(config) {
+        let abs_path = fs::canonicalize(dir).await.unwrap_or_else(|_| dir.to_path_buf());
+        let path_str = abs_path.to_string_lossy();
+
+        // Query for Community of this directory
+        let mut stmt = conn.prepare(
+            "SELECT c.name, cs.purpose, c.id 
+             FROM communities c 
+             JOIN community_summaries cs ON c.id = cs.community_id
+             JOIN nodes n ON n.community_id = c.id
+             WHERE n.file_path = ?1 OR n.file_path LIKE ?2
+             LIMIT 1"
+        )?;
+
+        let result = stmt.query_row(rusqlite::params![path_str, format!("{}%", path_str)], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+        });
+
+        if let Ok((name, purpose, community_id)) = result {
+            println!("🏘️  COMMUNITY: {} (ID: {})", name.to_uppercase(), community_id);
+            if !purpose.is_empty() {
+                println!("📝 PURPOSE: {}", purpose);
+            }
+        }
+    }
+    // ---------------------------------
+
     // List immediate children (Concise)
     let mut entries = fs::read_dir(dir).await.context("Failed to read directory")?;
     while let Some(entry) = entries.next_entry().await? {
@@ -175,11 +215,34 @@ async fn render_pins(agent: &str, db: &KoadDB) -> Result<()> {
     Ok(())
 }
 
-async fn render_exits(dir: &Path, agent: &str, db: &KoadDB) -> Result<()> {
+async fn render_exits(dir: &Path, agent: &str, config: &KoadConfig, db: &KoadDB) -> Result<()> {
     println!("🧭 EXITS");
     if let Some(parent) = dir.parent() {
         println!("   ↑ ../{} (Parent)", parent.file_name().unwrap_or_default().to_string_lossy());
     }
+    
+    // --- Dynamic Graph Integration ---
+    if let Ok(conn) = connect_graph_db(config) {
+        let abs_path = fs::canonicalize(dir).await.unwrap_or_else(|_| dir.to_path_buf());
+        let path_str = abs_path.to_string_lossy();
+
+        // Query for outgoing dependencies (IMPORTS_FROM, CALLS)
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT target_qualified FROM edges 
+             WHERE (file_path = ?1 OR file_path LIKE ?2) 
+             AND (kind = 'IMPORTS_FROM' OR kind = 'CALLS')
+             LIMIT 10"
+        )?;
+
+        let targets: Vec<String> = stmt.query_map(rusqlite::params![path_str, format!("{}%", path_str)], |row| {
+            row.get(0)
+        })?.filter_map(Result::ok).collect();
+
+        for target in targets {
+            println!("   → [DEP] {}", target);
+        }
+    }
+    // ---------------------------------
     
     let pins = db.get_pins(agent)?;
     for (alias, path, _) in pins {
@@ -188,18 +251,50 @@ async fn render_exits(dir: &Path, agent: &str, db: &KoadDB) -> Result<()> {
     Ok(())
 }
 
-async fn handle_goto(target: &str, agent: &str, db: &KoadDB) -> Result<()> {
+async fn handle_goto(target: &str, agent: &str, config: &KoadConfig, db: &KoadDB) -> Result<()> {
+    // 1. Check Pins first (Existing behavior)
     if let Some(path) = db.resolve_pin(target, agent)? {
-        println!(">>> [GOTO] Teleporting to: {}", path);
+        println!(">>> [GOTO] Teleporting to Pin: {}", path);
         println!("cd {}", path);
-    } else {
-        let p = PathBuf::from(target);
-        if p.exists() {
-            println!("cd {}", p.display());
-        } else {
-            println!("Error: Target '{}' not found in pins or filesystem.", target);
+        return Ok(());
+    }
+
+    // 2. Search Dynamic Graph (New behavior)
+    if let Ok(conn) = connect_graph_db(config) {
+        let mut stmt = conn.prepare(
+            "SELECT file_path, line_start FROM nodes_fts 
+             WHERE nodes_fts MATCH ?1 
+             LIMIT 1"
+        )?;
+
+        let result: Option<(String, i32)> = stmt.query_row(rusqlite::params![target], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        }).ok();
+
+        if let Some((path, line)) = result {
+            println!(">>> [GOTO] Located symbol/file in Graph: {}:{}", path, line);
+            
+            // If it's a file, we can CD to its directory
+            let p = PathBuf::from(&path);
+            if p.is_file() {
+                if let Some(parent) = p.parent() {
+                    println!("cd {}", parent.display());
+                }
+            } else if p.is_dir() {
+                println!("cd {}", p.display());
+            }
+            return Ok(());
         }
     }
+
+    // 3. Fallback to filesystem
+    let p = PathBuf::from(target);
+    if p.exists() {
+        println!("cd {}", p.display());
+    } else {
+        println!("Error: Target '{}' not found in pins, graph, or filesystem.", target);
+    }
+    
     Ok(())
 }
 
@@ -300,9 +395,31 @@ fn render_region_status(path: &Path, config: &KoadConfig) {
     }
 }
 
-async fn render_nearby(dir: &Path, agent: &str, _config: &KoadConfig, db: &KoadDB) -> Result<()> {
+async fn render_nearby(dir: &Path, agent: &str, config: &KoadConfig, db: &KoadDB) -> Result<()> {
     println!("🔍 SCANNING PROXIMITY...");
     
+    // --- Dynamic Graph Integration ---
+    if let Ok(conn) = connect_graph_db(config) {
+        let abs_path = fs::canonicalize(dir).await.unwrap_or_else(|_| dir.to_path_buf());
+        let path_str = abs_path.to_string_lossy();
+
+        // Query for incoming dependencies (who depends on this?)
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT source_qualified, kind FROM edges 
+             WHERE (target_qualified = ?1 OR target_qualified LIKE ?2) 
+             LIMIT 10"
+        )?;
+
+        let impacts: Vec<(String, String)> = stmt.query_map(rusqlite::params![path_str, format!("{}%", path_str)], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?.filter_map(Result::ok).collect();
+
+        for (source, kind) in impacts {
+            println!("   [IMPACT] {} ({})", source, kind);
+        }
+    }
+    // ---------------------------------
+
     // 1. Find related configs/docs
     if let Some(parent) = dir.parent() {
         let mut entries = fs::read_dir(parent).await?;

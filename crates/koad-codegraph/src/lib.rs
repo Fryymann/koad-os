@@ -1,4 +1,7 @@
-//! # KoadOS Code Knowledge Graph
+//! # KoadOS Code Knowledge Graph (DEPRECATED)
+//!
+//! **NOTICE:** This crate is deprecated in favor of the `code-review-graph` 
+//! Dynamic System Map (DSM) integration. 
 //!
 //! Provides AST-based symbol indexing and querying using tree-sitter.
 //! This tool enables agents to perform high-fidelity codebase navigation
