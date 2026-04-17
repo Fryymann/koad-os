@@ -1,0 +1,27 @@
+pub mod abc;
+pub mod agent;
+pub mod board;
+pub mod board_sync;
+pub mod boot;
+pub mod bridge;
+pub mod cognitive;
+pub mod deploy;
+pub mod fleet;
+pub mod guide;
+pub mod import;
+pub mod intel;
+pub mod map;
+pub mod motd;
+pub mod project;
+pub mod review;
+pub mod signal;
+pub mod status;
+pub mod system;
+pub mod system_init;
+pub mod vault;
+
+pub mod pulse;
+pub mod sandbox;
+pub mod updates;
+pub mod whoami;
+pub mod xp;

@@ -1,0 +1,13 @@
+[package]
+name = "koad-plugins"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+wasmtime.workspace = true
+async-trait.workspace = true
+libloading.workspace = true
+koad-sandbox = { path = "../koad-sandbox", features = ["container"] }

@@ -1,0 +1,20 @@
+[package]
+name = "koad-board"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "debug_fields"
+path = "src/debug_fields.rs"
+
+[dependencies]
+koad-core = { path = "../koad-core" }
+tokio = { workspace = true, features = ["full"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+log.workspace = true
+tracing = { workspace = true }

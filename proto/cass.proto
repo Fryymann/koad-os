@@ -1,0 +1,191 @@
+syntax = "proto3";
+package koad.cass.v1;
+
+import "google/protobuf/timestamp.proto";
+import "citadel.proto";
+
+// --- Memory Services ---
+
+service MemoryService {
+  // Commit a high-signal fact to the persistent ledger.
+  rpc CommitFact(FactCard) returns (koad.citadel.v5.StatusResponse);
+  // Query facts based on domain, tags, or relevance.
+  rpc QueryFacts(FactQuery) returns (FactResponse);
+  // Record a summary of a session's episode.
+  rpc RecordEpisode(EpisodicMemory) returns (koad.citadel.v5.StatusResponse);
+}
+
+service HydrationService {
+  // Request a Temporal Context Packet for session boot.
+  rpc Hydrate(HydrationRequest) returns (HydrationResponse);
+}
+
+service StreamService {
+  // Post a signal to the Koad Stream (Notion Message Bus).
+  rpc PostSignal(SignalRequest) returns (koad.citadel.v5.StatusResponse);
+}
+
+service SymbolService {
+  // Query the project's code knowledge graph for a symbol.
+  rpc Query(SymbolQuery) returns (SymbolResponse);
+  // Trigger a re-index of the project code graph.
+  rpc IndexProject(IndexRequest) returns (koad.citadel.v5.StatusResponse);
+}
+
+service ToolRegistryService {
+  // Register a new WASM-based MCP tool.
+  rpc RegisterTool(RegisterToolRequest) returns (koad.citadel.v5.StatusResponse);
+  // Deregister a tool by name.
+  rpc DeregisterTool(DeregisterToolRequest) returns (koad.citadel.v5.StatusResponse);
+  // Invoke a registered tool.
+  rpc InvokeTool(InvokeToolRequest) returns (InvokeToolResponse);
+  // List all registered tools.
+  rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
+}
+
+service PulseService {
+  // Broadcast a short-lived signal to all agents.
+  rpc AddPulse(AddPulseRequest) returns (koad.citadel.v5.StatusResponse);
+  // Retrieve active pulses for an agent role or "global".
+  rpc GetPulses(GetPulsesRequest) returns (GetPulsesResponse);
+}
+
+// --- Data Structures ---
+
+message RegisterToolRequest {
+  koad.citadel.v5.TraceContext context = 1;
+  string name = 2;
+  string component_path = 3; // Absolute path to the .wasm component
+  string container_image = 4; // Optional: if set, tool is invoked via ContainerSandbox
+}
+
+message DeregisterToolRequest {
+  koad.citadel.v5.TraceContext context = 1;
+  string name = 2;
+}
+
+message InvokeToolRequest {
+  koad.citadel.v5.TraceContext context = 1;
+  string name = 2;
+  string topic = 3;
+  string payload = 4; // JSON payload for the tool
+}
+
+message InvokeToolResponse {
+  string output = 1; // Tool execution result (JSON)
+  uint64 duration_ms = 2;
+  uint64 memory_bytes = 3;
+  koad.citadel.v5.TraceContext context = 4;
+}
+
+message ListToolsRequest {
+  koad.citadel.v5.TraceContext context = 1;
+}
+
+message ListToolsResponse {
+  repeated string tool_names = 1;
+  koad.citadel.v5.TraceContext context = 2;
+}
+
+message FactCard {
+  string id = 1;
+  string source_agent = 2;
+  string session_id = 3;
+  string domain = 4;
+  string content = 5;
+  float confidence = 6;
+  repeated string tags = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message EpisodicMemory {
+  string session_id = 1;
+  string project_path = 2;
+  string summary = 3;
+  uint32 turn_count = 4;
+  google.protobuf.Timestamp timestamp = 5;
+  repeated string task_ids = 6;
+}
+
+message FactQuery {
+  string domain = 1;
+  repeated string tags = 2;
+  uint32 limit = 3;
+  koad.citadel.v5.WorkspaceLevel min_level = 4;
+}
+
+message FactResponse {
+  repeated FactCard facts = 1;
+}
+
+message HydrationRequest {
+  string agent_name = 1;
+  string project_root = 2;
+  koad.citadel.v5.WorkspaceLevel level = 3;
+  uint32 token_budget = 4;
+  string task_id = 5; // Optional task filter for JIT context
+}
+
+message HydrationResponse {
+  string markdown_packet = 1; // The bundled context injected into the agent
+  uint32 estimated_tokens = 2;
+  repeated string source_files = 3;
+}
+
+message SignalRequest {
+  koad.citadel.v5.TraceContext context = 5;
+  string target_agent = 1;
+  string topic = 2;
+  string content = 3;
+  string priority = 4; // LOW | MEDIUM | HIGH | URGENT
+}
+
+message Symbol {
+  string name = 1;
+  string kind = 2;
+  string path = 3;
+  uint32 start_line = 4;
+  uint32 end_line = 5;
+}
+
+message SymbolQuery {
+  koad.citadel.v5.TraceContext context = 1;
+  string name = 2;
+  string kind = 3; // Optional filter: func | struct | trait
+}
+
+message SymbolResponse {
+  repeated Symbol symbols = 1;
+  koad.citadel.v5.TraceContext context = 2;
+}
+
+message IndexRequest {
+  koad.citadel.v5.TraceContext context = 1;
+  string project_root = 2;
+}
+
+message Pulse {
+  string id = 1;
+  string author = 2;
+  string role = 3;       // agent role filter, or "global"
+  string message = 4;
+  google.protobuf.Timestamp created_at = 5;
+  uint32 ttl_seconds = 6;
+}
+
+message AddPulseRequest {
+  koad.citadel.v5.TraceContext context = 1;
+  string author = 2;
+  string role = 3;       // "global" or specific role
+  string message = 4;
+  uint32 ttl_seconds = 5; // 0 = use default (3600)
+}
+
+message GetPulsesRequest {
+  koad.citadel.v5.TraceContext context = 1;
+  string role = 2;  // Return pulses matching this role OR "global"
+}
+
+message GetPulsesResponse {
+  repeated Pulse pulses = 1;
+}

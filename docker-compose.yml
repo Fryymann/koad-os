@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  citadel-redis:
+    image: redis/redis-stack:latest
+    container_name: koad-redis-stack
+    ports:
+      - "6379:6379"
+      - "8001:8001" # RedisInsight UI
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: koad-qdrant
+    ports:
+      - "6333:6333" # HTTP / REST + Web UI
+      - "6334:6334" # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  cass:
+    build:
+      context: .
+      dockerfile: Dockerfile.citadel
+    container_name: koad-cass
+    depends_on:
+      - citadel-redis
+      - qdrant
+    ports:
+      - "50051:50051"
+    environment:
+      - REDIS_URL=redis://citadel-redis:6379
+      - QDRANT_URL=http://qdrant:6333
+    volumes:
+      - cass_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  qdrant_data:
+  cass_data:

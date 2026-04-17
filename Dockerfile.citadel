@@ -1,0 +1,48 @@
+# Stage 1: Build
+FROM rust:1.81-slim-bookworm as builder
+
+# Install dependencies for compilation (including protoc for gRPC)
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/src/koad-os
+
+# Copy the entire workspace configuration
+COPY Cargo.toml ./
+
+# Copy all crates (koad-cass depends on most of them)
+COPY crates ./crates
+
+# Build koad-cass in release mode
+RUN cargo build --release -p koad-cass
+
+# Stage 2: Runtime
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the binary from the builder stage
+COPY --from=builder /usr/src/koad-os/target/release/koad-cass /app/koad-cass
+
+# Create data directory for persistent state
+RUN mkdir -p /app/data
+
+# Environment variables for service connections (defaults)
+ENV REDIS_URL="redis://citadel-redis:6379"
+ENV QDRANT_URL="http://qdrant:6333"
+ENV RUST_LOG="info"
+
+# Expose gRPC port
+EXPOSE 50051
+
+CMD ["/app/koad-cass"]

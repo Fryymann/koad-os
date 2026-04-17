@@ -1,0 +1,7 @@
+// crates/koad-plugins/wit/hooks.wit
+package koad:hooks@0.1.0;
+
+world citadel-hooks {
+    import log: func(msg: string);
+    export invoke: func(topic: string, payload: string) -> string;
+}

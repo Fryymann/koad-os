@@ -1,0 +1,369 @@
+syntax = "proto3";
+package koad.citadel.v5;
+
+import "google/protobuf/timestamp.proto";
+
+// --- Core Primitives ---
+
+enum WorkspaceLevel {
+  LEVEL_UNSPECIFIED = 0;
+  LEVEL_OUTPOST = 1;   // Repository scope
+  LEVEL_STATION = 2;   // Domain/Project Hub scope
+  LEVEL_CITADEL = 3;   // KoadOS platform scope
+  LEVEL_SYSTEM = 4;    // Machine scope
+}
+
+enum AgentRole {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_CREW = 1;
+  ROLE_CAPTAIN = 2;
+  ROLE_ADMIRAL = 3;
+  ROLE_ADMIN_OVERRIDE = 4; // Emergency UDS bypass role
+}
+
+enum SignalPriority {
+  SIGNAL_PRIORITY_LOW = 0;
+  SIGNAL_PRIORITY_STANDARD = 1;
+  SIGNAL_PRIORITY_HIGH = 2;
+  SIGNAL_PRIORITY_CRITICAL = 3;
+}
+
+enum SignalStatus {
+  SIGNAL_STATUS_PENDING = 0;
+  SIGNAL_STATUS_READ = 1;
+  SIGNAL_STATUS_ARCHIVED = 2;
+}
+
+// Mandatory context for every request across the Tri-Tier model.
+message TraceContext {
+  string trace_id = 1;     // TRC-{actor}-{uuid-short}
+  string origin = 2;       // CLI | Citadel | CASS | Agent
+  string actor = 3;        // agent name or "admiral"
+  google.protobuf.Timestamp timestamp = 4;
+  WorkspaceLevel level = 5; // NEW: Hierarchical context
+}
+
+message TurnMetrics {
+  uint32 input_tokens = 1;
+  uint32 output_tokens = 2;
+  uint32 thinking_tokens = 3;
+  uint32 tool_calls = 4;
+}
+
+message StatusResponse {
+  bool success = 1;
+  string message = 2;
+  TraceContext context = 3;
+}
+
+// --- Services ---
+
+service CitadelSession {
+  // Request a new session lease (Handshake).
+  rpc CreateLease(LeaseRequest) returns (LeaseResponse);
+  // Heartbeat to maintain an active lease.
+  rpc Heartbeat(HeartbeatRequest) returns (StatusResponse);
+  // Terminate a session (EndOfWatch).
+  rpc CloseSession(CloseRequest) returns (StatusResponse);
+}
+
+service Sector {
+  // Acquire a lock on a shared resource/sector.
+  rpc AcquireLock(LockRequest) returns (LockResponse);
+  // Release a lock.
+  rpc ReleaseLock(LockRequest) returns (StatusResponse);
+  // Validate an agent command or intent against sandbox policies.
+  rpc ValidateIntent(IntentRequest) returns (IntentResponse);
+}
+
+service Signal {
+  // Subscribe to the Signal Corps event stream.
+  rpc Subscribe(SubscribeRequest) returns (stream Event);
+  // Broadcast a high-signal event to the bus.
+  rpc Broadcast(Event) returns (StatusResponse);
+
+  // --- Agent-to-Agent Signals (A2A-S) ---
+  rpc SendSignal(SendSignalRequest) returns (StatusResponse);
+  rpc GetSignals(GetSignalsRequest) returns (GetSignalsResponse);
+  rpc UpdateSignalStatus(UpdateSignalStatusRequest) returns (StatusResponse);
+}
+
+service PersonalBay {
+  // Provision or format a Personal Bay.
+  rpc Provision(ProvisionRequest) returns (StatusResponse);
+  // Provision a workspace (git worktree) for a task.
+  rpc ProvisionWorkspace(WorkspaceRequest) returns (WorkspaceResponse);
+  // Query the health and status of a bay.
+  rpc GetStatus(BayQuery) returns (BayStatus);
+}
+
+service Admin {
+  // Gracefully shutdown the Citadel kernel.
+  rpc Shutdown(ShutdownRequest) returns (StatusResponse);
+  // Retrieve high-level system health and metrics.
+  rpc GetSystemStatus(SystemStatusRequest) returns (SystemStatusResponse);
+  // Forcefully terminate a session by ID.
+  rpc ForcePurgeSession(PurgeRequest) returns (StatusResponse);
+  // Commit knowledge/learnings to the Memory Bank.
+  rpc CommitKnowledge(CommitKnowledgeRequest) returns (StatusResponse);
+  // Retrieve a snippet of a file from the Citadel's cache or disk.
+  rpc GetFileSnippet(GetFileSnippetRequest) returns (SnippetResponse);
+  // Post a system event to the telemetry stream.
+  rpc PostSystemEvent(SystemEvent) returns (StatusResponse);
+  // Trigger a system-wide backup or a specific source.
+  rpc TriggerBackup(TriggerBackupRequest) returns (TriggerBackupResponse);
+  // Flush all volatile context for a session.
+  rpc FlushContext(FlushContextRequest) returns (StatusResponse);
+}
+
+message FlushContextRequest {
+  TraceContext context = 1;
+  string session_id = 2;
+}
+
+service XpService {
+  // Get current XP status for an agent.
+  rpc GetStatus(XpStatusRequest) returns (XpStatusResponse);
+  // Programmatically award XP to an agent.
+  rpc AwardXp(XpAwardRequest) returns (StatusResponse);
+}
+
+// --- Message Definitions ---
+
+enum XpSource {
+  XP_SOURCE_UNSPECIFIED = 0;
+  XP_SOURCE_TASK = 1;
+  XP_SOURCE_SKILL = 2;
+  XP_SOURCE_SYSTEM = 3;
+}
+
+message XpStatusRequest {
+  TraceContext context = 1;
+  string agent_name = 2;
+}
+
+message XpStatusResponse {
+  string agent_name = 1;
+  int32 total_xp = 2;
+  int32 level = 3;
+  string tier_name = 4;
+  int32 next_level_xp = 5;
+  TraceContext context = 6;
+}
+
+message XpAwardRequest {
+  TraceContext context = 1;
+  string agent_name = 2;
+  int32 amount = 3;
+  string reason = 4;
+  XpSource source = 5;
+  string source_id = 6; // e.g., task-id or skill-name
+}
+
+message ShutdownRequest {
+  TraceContext context = 1;
+  string reason = 2;
+}
+
+message SystemStatusRequest {
+  TraceContext context = 1;
+}
+
+message SystemStatusResponse {
+  string version = 1;
+  uint32 active_sessions = 2;
+  uint32 total_bays = 3;
+  string uptime = 4;
+  TraceContext context = 5;
+}
+
+message PurgeRequest {
+  TraceContext context = 1;
+  string session_id = 2;
+}
+
+message CommitKnowledgeRequest {
+  TraceContext context = 1;
+  string session_id = 2;
+  string category = 3; // "fact", "learning", "pondering"
+  string content = 4;
+  string tags = 5;
+}
+
+message GetFileSnippetRequest {
+  TraceContext context = 1;
+  string path = 2;
+  int32 start_line = 3;
+  int32 end_line = 4;
+  bool bypass_cache = 5;
+}
+
+message SnippetResponse {
+  string content = 1;
+  int32 total_lines = 2;
+  string source = 3; // "cache" or "disk"
+  TraceContext context = 4;
+}
+
+message LeaseRequest {
+  TraceContext context = 1;
+  string agent_name = 2;
+  string project_root = 3;
+  bool force = 4;             // Take over existing lease if true
+  string body_id = 5;         // Unique terminal/shell identifier
+  string driver_id = 6;       // CLI driver: "claude" | "gemini" | "codex" | "cli"
+  TurnMetrics metrics = 7;    // Optional: Boot-time metrics (e.g. hydration cost)
+}
+
+message LeaseResponse {
+  string session_id = 1;
+  string token = 2;
+  TraceContext context = 3;
+}
+
+message HeartbeatRequest {
+  TraceContext context = 1;
+  string session_id = 2;
+  TurnMetrics metrics = 3; // NEW: Native telemetry
+}
+
+message CloseRequest {
+  TraceContext context = 1;
+  string session_id = 2;
+  string summary_path = 3; // Path to the EoW markdown summary
+}
+
+message TriggerBackupRequest {
+  TraceContext context = 1;
+  string source = 2; // "sqlite" | "redis" | "all"
+}
+
+message TriggerBackupResponse {
+  bool success = 1;
+  string message = 2;
+  string backup_id = 3;
+  TraceContext context = 4;
+}
+
+message LockRequest {
+  TraceContext context = 1;
+  string sector_id = 2;
+  uint32 ttl_ms = 3;
+}
+
+message LockResponse {
+  bool acquired = 1;
+  string lock_id = 2;
+  TraceContext context = 3;
+}
+
+message IntentRequest {
+  TraceContext context = 1;
+  string agent_name = 2;
+  string agent_rank = 3;
+  string command = 4;
+}
+
+message IntentResponse {
+  bool allowed = 1;
+  string reason = 2;
+  TraceContext context = 3;
+}
+
+message SubscribeRequest {
+  TraceContext context = 1;
+  repeated string topics = 2;
+}
+
+message Event {
+  string topic = 1;
+  string payload = 2; // JSON-serialized event data
+  TraceContext context = 3;
+}
+
+enum EventSeverity {
+  EVENT_SEVERITY_DEBUG = 0;
+  EVENT_SEVERITY_INFO = 1;
+  EVENT_SEVERITY_WARN = 2;
+  EVENT_SEVERITY_ERROR = 3;
+  EVENT_SEVERITY_CRITICAL = 4;
+}
+
+message SystemEvent {
+  string event_id = 1;
+  string source = 2; 
+  EventSeverity severity = 3;
+  string message = 4;
+  string metadata_json = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  TraceContext context = 7;
+}
+
+message ProvisionRequest {
+  TraceContext context = 1;
+  string agent_name = 2;
+  uint32 initial_xp = 3;
+}
+
+message BayQuery {
+  TraceContext context = 1;
+  string agent_name = 2;
+}
+
+message BayStatus {
+  string agent_name = 1;
+  string health = 2; // GREEN | YELLOW | RED
+  string last_sync = 3;
+  uint32 xp = 4;
+  uint32 level = 5;
+  TraceContext context = 6;
+}
+
+message WorkspaceRequest {
+  TraceContext context = 1;
+  string agent_name = 2;
+  string task_id = 3;         // e.g. "issue-147-session-brokering"
+}
+
+message WorkspaceResponse {
+  string worktree_path = 1;
+  TraceContext context = 2;
+}
+
+// --- Signal Messages ---
+
+message SendSignalRequest {
+  TraceContext context = 1;
+  string target_agent = 2;
+  string message = 3;
+  SignalPriority priority = 4;
+  map<string, string> metadata = 5;
+}
+
+message GetSignalsRequest {
+  TraceContext context = 1;
+  string agent_name = 2;
+  SignalStatus filter_status = 3;
+}
+
+message GetSignalsResponse {
+  repeated GhostSignal signals = 1;
+  TraceContext context = 2;
+}
+
+message UpdateSignalStatusRequest {
+  TraceContext context = 1;
+  string signal_id = 2;
+  SignalStatus status = 3;
+}
+
+message GhostSignal {
+  string id = 1;
+  string source_agent = 2;
+  string target_agent = 3;
+  string message = 4;
+  SignalPriority priority = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  map<string, string> metadata = 7;
+  SignalStatus status = 8;
+}

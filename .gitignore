@@ -1,0 +1,76 @@
+
+!/bin/*.sh
+!agents/crews/TEMPLATE.md
+# (stable_release and side_quests remain tracked as distribution roadmaps)
+# --- Agents Directory (Instance State) ---
+# --- Binaries & Build Artifacts ---
+# --- Instance-Specific State & Config ---
+# --- Standard Ignore Rules ---
+# Added by code-review-graph
+# Claude Code Agent Workspace (Root only)
+# Crews: Ignore all manifests except the distribution template
+# IDE & OS
+# KAPVs: Ignore all personal vaults (Identities, Memory, local tasks)
+# KoadOS v3 Exhaustive Ignore Rules
+# Quests: Ignore instance-specific quests
+# Root-level ignored data
+# Station/Outpost Support Directories
+**/.claude/worktrees/
+**/node_modules/
+**/target/
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.log.*
+*.rdb
+*.swo
+*.swp
+.DS_Store
+.code-review-graph/
+.codex/
+.crates.toml
+.crates2.json
+.env
+.env.*
+.idea/
+.koados-outpost/agents/*
+.koados-outpost/cache/*
+.koados-outpost/quests/*
+.koados-station/agents/*
+.koados-station/cache/*
+.koados-station/quests/*
+.vscode/
+/.claude/
+/bin/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+agents/*
+agents/.claude/
+agents/.claude/worktrees/
+agents/.gemini/
+agents/KAPVs/*
+agents/SESSIONS_LOG.md
+agents/bays/*
+agents/bodies/*
+agents/crews/*
+agents/inbox/*
+agents/quests/master_development/
+agents/sessions_archive/*
+backups/
+cache/
+config/integrations/*.toml
+config/kernel.toml
+config/redis.conf
+data/db/
+data/redis/
+debug/
+logs/
+new_world/
+node_modules/
+plans/
+portals/
+release/
+run/
+target/
