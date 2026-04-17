@@ -89,6 +89,19 @@ section "Database & State"
 # Future: Run migrations here
 ok "Database state verified."
 
+# 8. Graph Initialization
+section "Graph-Centric Navigation Setup"
+if command -v "code-review-graph" &>/dev/null; then
+    info "Initializing and building the codebase graph..."
+    code-review-graph init
+    code-review-graph build
+    ok "Graph built successfully."
+else
+    warn "code-review-graph not found. Graph-centric navigation will be disabled."
+    info "To enable it, install the tool: ${BOLD}pipx install code-review-graph${RESET}"
+    info "Then run: ${CYAN}code-review-graph init && code-review-graph build${RESET}"
+fi
+
 section "Initialization Complete"
 info "Citadel '$CITADEL_NAME' is ready."
 echo -e "\n${BOLD}Final Actions:${RESET}"

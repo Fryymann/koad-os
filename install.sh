@@ -43,6 +43,17 @@ check_cmd "cargo"
 check_cmd "docker"
 check_cmd "docker-compose"
 check_cmd "protoc"
+check_cmd "python3"
+check_cmd "pipx"
+
+# 1.1 specialized check for code-review-graph
+if command -v "code-review-graph" &>/dev/null; then
+    ok "code-review-graph found ($(command -v "code-review-graph"))"
+else
+    fail "code-review-graph not found."
+    info "Please install it via pipx: ${BOLD}pipx install code-review-graph${RESET}"
+    ERRORS=$((ERRORS + 1))
+fi
 
 if [[ $ERRORS -gt 0 ]]; then
     echo

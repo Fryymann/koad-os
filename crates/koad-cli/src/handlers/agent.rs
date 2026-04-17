@@ -31,7 +31,6 @@
 //! ### Tier 2 — Crew Docs (human-read at boot; affects agent context quality)
 //! 3. `agents/CREW.md`   — Append row to personnel manifest table
 //! 4. `AGENTS.md` (root)  — Append row to Section VII Personnel & Roles table
-//! 5. `SYSTEM_MAP.md`     — Append row to Agent Bays Index table
 //!
 //! ### Tier 3 — Automatic (no action required)
 //! - Citadel bay store (`agents/bays/<key>/state.db`) — Auto-provisioned by kernel on startup
@@ -192,7 +191,6 @@ async fn handle_new_agent(request: NewAgentRequest<'_>, config: &KoadConfig) -> 
             println!("  {}/  (KAPV tree)", vault_path.display());
             println!("  agents/CREW.md  (append row)");
             println!("  AGENTS.md        (append row)");
-            println!("  SYSTEM_MAP.md    (append row)");
             return Ok(());
         }
 
@@ -214,7 +212,6 @@ async fn handle_new_agent(request: NewAgentRequest<'_>, config: &KoadConfig) -> 
         .await?;
         patch_crew_md(config, request.name, eff_rank, eff_runtime, eff_role).await?;
         patch_root_agents_md(config, request.name, eff_rank, eff_role).await?;
-        patch_system_map(config, request.name, &vault_str).await?;
 
         println!();
         println!(
@@ -282,7 +279,6 @@ async fn handle_new_agent(request: NewAgentRequest<'_>, config: &KoadConfig) -> 
         println!("  {}/  (KAPV tree)", vault_path.display());
         println!("  agents/CREW.md  (append row)");
         println!("  AGENTS.md        (append row)");
-        println!("  SYSTEM_MAP.md    (append row)");
         return Ok(());
     }
 
@@ -325,7 +321,6 @@ async fn handle_new_agent(request: NewAgentRequest<'_>, config: &KoadConfig) -> 
     // TIER 2: Crew docs
     patch_crew_md(config, request.name, request.rank, request.runtime, role).await?;
     patch_root_agents_md(config, request.name, request.rank, role).await?;
-    patch_system_map(config, request.name, &vault_str).await?;
 
     println!();
     println!(
@@ -637,12 +632,12 @@ async fn scaffold_kapv(spec: KapvScaffoldSpec<'_>, config: &KoadConfig) -> Resul
          4. Read `instructions/RULES.md`.\n\
          5. Read `memory/WORKING_MEMORY.md`.\n\n\
          ## Working Pattern\n\n\
-         - Consult `SYSTEM_MAP.md` before any file traversal.\n\
+         - Consult `koad map look` before any file traversal.\n\
          - Inspect local context before acting.\n\
          - Prefer precise edits over broad rewrites.\n\
          - Escalate KoadOS changes outside the vault to Dood/Tyr.\n\n\
          ## Task Protocol\n\n\
-         1. **Research** — Gather context. Grep codebase, consult SYSTEM_MAP.\n\
+         1. **Research** — Gather context. Grep codebase, consult graph via `koad map`.\n\
          2. **Strategy** — Plan. Get Dood approval for Medium+ tasks.\n\
          3. **Execution** — Implement. Clippy-clean Rust. Targeted edits.\n\
          4. **KSRP** — Self-review. Log decisions to memory.\n",
@@ -800,38 +795,6 @@ async fn patch_root_agents_md(
 
     let focus = extract_focus(role);
     let new_row = format!("| **{}** | {} | {} | {} |\n", name, rank, role, focus);
-    let patched = content.replacen(sentinel, &format!("{}{}", new_row, sentinel), 1);
-    fs::write(&path, patched).await?;
-    println!("\x1b[32m[PATCH]\x1b[0m {} (appended row)", path.display());
-    Ok(())
-}
-
-/// Append a row to SYSTEM_MAP.md Agent Bays Index before the Crate/Module Index section.
-async fn patch_system_map(config: &KoadConfig, name: &str, vault_str: &str) -> Result<()> {
-    let path = config.home.join("SYSTEM_MAP.md");
-    let content = fs::read_to_string(&path)
-        .await
-        .with_context(|| format!("Could not read {}", path.display()))?;
-
-    // Sentinel: the Crate/Module section header immediately follows the bays table
-    let sentinel = "\n## Crate/Module Index";
-    if !content.contains(sentinel) {
-        eprintln!("\x1b[33m[WARN]\x1b[0m Could not find Crate/Module sentinel in SYSTEM_MAP.md — skipping patch.");
-        return Ok(());
-    }
-    if content.contains(&format!("| **{}** |", name)) {
-        println!(
-            "\x1b[33m[SKIP]\x1b[0m {} already in SYSTEM_MAP.md",
-            path.display()
-        );
-        return Ok(());
-    }
-
-    // Extract the relative vault path for display (strip the koad-os prefix if present)
-    let display_path = vault_str
-        .replace("~/.koad-os/", "")
-        .replace("~/.koad-os", "agents/");
-    let new_row = format!("| **{}** | `{}` | Active |\n", name, display_path);
     let patched = content.replacen(sentinel, &format!("{}{}", new_row, sentinel), 1);
     fs::write(&path, patched).await?;
     println!("\x1b[32m[PATCH]\x1b[0m {} (appended row)", path.display());
