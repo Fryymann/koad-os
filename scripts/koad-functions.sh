@@ -1,9 +1,9 @@
 #!/bin/bash
 # KoadOS Shell Functions
-# Source this file from ~/.bashrc:
-#   source ~/.koad-os/bin/koad-functions.sh
+# Source this file from your shell config (e.g., ~/.bashrc):
+#   source $KOADOS_HOME/bin/koad-functions.sh
 
-export KOAD_HOME="${KOADOS_HOME:-${KOAD_HOME:-$HOME/.koad-os}}"
+export KOAD_HOME="${KOADOS_HOME:-$HOME/.koad-os}"
 export KOAD_BIN="$KOAD_HOME/bin"
 
 # Auto-detect active runtime for agent body authorization.
@@ -29,7 +29,7 @@ function agent-boot() {
     fi
 
     local _AGENT_LOWER=$(echo "$1" | tr '[:upper:]' '[:lower:]')
-    local _KOAD_HOME="${KOADOS_HOME:-${KOAD_HOME:-$HOME/.koad-os}}"
+    local _KOAD_HOME="$KOAD_HOME"
     local _AGENT_TOML="$_KOAD_HOME/config/identities/${_AGENT_LOWER}.toml"
     local _BRIEF_CACHE="$_KOAD_HOME/cache/session-brief-${_AGENT_LOWER}.md"
 

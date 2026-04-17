@@ -25,8 +25,12 @@ echo -e "${RESET}"
 echo "  Unified Stable Installer  ·  v3.2.0"
 echo
 
+# 0. Global Configuration
+KOAD_HOME="${KOADOS_HOME:-$HOME/.koad-os}"
+
 # 1. Prerequisite Detection
 section "Prerequisite Detection"
+info "KoadOS Target Instance: $KOAD_HOME"
 ERRORS=0
 
 check_cmd() {

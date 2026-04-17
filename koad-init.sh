@@ -4,7 +4,7 @@
 # =============================================================================
 set -euo pipefail
 
-KOAD_HOME="${KOADOS_HOME:-$HOME/.koad-os}"
+KOAD_HOME="${KOADOS_HOME:-${1:-$HOME/.koad-os}}"
 BIN_DIR="$KOAD_HOME/bin"
 
 # Colours
@@ -118,7 +118,8 @@ section "Initialization Complete"
 info "Citadel '$CITADEL_NAME' is ready."
 echo -e "\n${BOLD}Final Actions:${RESET}"
 echo -e "1. Add KoadOS to your shell (e.g., ~/.bashrc):"
-echo -e "   ${CYAN}export PATH=\"\$HOME/.koad-os/bin:\$PATH\"${RESET}"
-echo -e "   ${CYAN}source \$HOME/.koad-os/bin/koad-functions.sh${RESET}"
+echo -e "   ${CYAN}export KOADOS_HOME=\"$KOAD_HOME\"${RESET}"
+echo -e "   ${CYAN}export PATH=\"\$KOADOS_HOME/bin:\$PATH\"${RESET}"
+echo -e "   ${CYAN}source \$KOADOS_HOME/bin/koad-functions.sh${RESET}"
 echo -e "2. Reload your shell: ${CYAN}source ~/.bashrc${RESET}"
 echo -e "3. Boot your Captain: ${BOLD}agent-boot captain${RESET}\n"
