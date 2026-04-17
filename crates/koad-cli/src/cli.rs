@@ -316,7 +316,7 @@ pub enum AgentAction {
         #[arg(long, default_value = "claude")]
         runtime: String,
 
-        /// Vault path override. Defaults to ~/.koad-os/agents/<key>.
+        /// Vault path override. Defaults to agents/<key> within the KoadOS home directory.
         #[arg(long)]
         vault: Option<String>,
 

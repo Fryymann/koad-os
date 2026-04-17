@@ -179,7 +179,11 @@ fn provision_captain(name: &str, bio: &str, runtime: &str, config: &KoadConfig) 
         );
     }
 
-    let vault_str = format!("~/.koad-os/agents/{}", key);
+    let vault_path = config.agent_dir(&key);
+    let vault_str = vault_path
+        .to_string_lossy()
+        .to_string()
+        .replace(&config.home.to_string_lossy().to_string(), "~");
     let access_keys_toml = "access_keys = [\"GITHUB_PAT\"]"; // Default for Captain
 
     let toml_content = format!(
@@ -214,8 +218,6 @@ auto_saveup = true
     fs::write(&identity_toml_path, toml_content)?;
 
     // However, for a good UX, we should at least create the vault dir.
-    let _home_dir = dirs::home_dir().context("Could not determine home directory.")?;
-    let vault_path = config.home.join(format!("agents/{}", key));
     fs::create_dir_all(&vault_path)?;
 
     Ok(())

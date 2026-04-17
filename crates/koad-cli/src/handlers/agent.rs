@@ -156,10 +156,6 @@ async fn handle_new_agent(request: NewAgentRequest<'_>, config: &KoadConfig) -> 
             &home_dir,
             config,
         );
-        let vault_str = vault_path
-            .to_string_lossy()
-            .to_string()
-            .replace(&home_dir.to_string_lossy().to_string(), "~");
 
         if vault_path.exists() {
             bail!(
@@ -355,7 +351,7 @@ fn resolve_vault_path(
     if let Some(v) = toml_vault {
         return expand(v);
     }
-    config.home.join(format!("agents/{}", key))
+    config.agent_dir(key)
 }
 
 // ---------------------------------------------------------------------------
@@ -426,6 +422,12 @@ async fn scaffold_kapv(spec: KapvScaffoldSpec<'_>, config: &KoadConfig) -> Resul
     };
 
     let koad_os_path = config.home.display().to_string();
+    let home_dir = dirs::home_dir().context("Could not determine home directory.")?;
+    let vault_path_str = spec
+        .vault
+        .to_string_lossy()
+        .to_string()
+        .replace(&home_dir.to_string_lossy().to_string(), "~");
 
     // README.md
     write_file(
@@ -531,7 +533,7 @@ async fn scaffold_kapv(spec: KapvScaffoldSpec<'_>, config: &KoadConfig) -> Resul
          body = \"{runtime_body}\"\n\
          role = \"{role}\"\n\
          status = \"CONDITION GREEN\"\n\
-         sanctuary = \"~/.koad-os/agents/{key}\"\n\
+         sanctuary = \"{vault_path}\"\n\
          source_of_truth = [\n\
          \x20 \"AGENTS.md\",\n\
          \x20 \"identity/IDENTITY.md\",\n\
@@ -544,6 +546,7 @@ async fn scaffold_kapv(spec: KapvScaffoldSpec<'_>, config: &KoadConfig) -> Resul
             tier = spec.tier,
             role = spec.role,
             runtime_body = to_runtime_display(spec.runtime),
+            vault_path = vault_path_str,
             ak_list = ak_toml_list,
         ),
     )
@@ -560,16 +563,16 @@ async fn scaffold_kapv(spec: KapvScaffoldSpec<'_>, config: &KoadConfig) -> Resul
          - Tier: `{tier}`\n\
          - Body: `{runtime_body}`\n\
          - Role: `{role}`\n\
-         - Sanctuary: `~/.koad-os/agents/{key}/`\n\
+         - Sanctuary: `{vault_path}/`\n\
          - Bio: {bio}\n\n\
          *Established: {today}*\n",
             name = spec.name,
-            key = spec.key,
             rank = spec.rank,
             tier = spec.tier,
             runtime_body = to_runtime_display(spec.runtime),
             role = spec.role,
             bio = spec.bio,
+            vault_path = vault_path_str,
             today = spec.today,
         ),
     )
@@ -601,7 +604,7 @@ async fn scaffold_kapv(spec: KapvScaffoldSpec<'_>, config: &KoadConfig) -> Resul
          - This sanctuary is {name}'s private KAPV.\n\
          - Ghost persists across sessions — memory is half the agent.\n\n\
          ## Boundaries\n\n\
-         - Local edits inside `~/.koad-os/agents/{key}/` are allowed without escalation.\n\
+         - Local edits inside `{vault_path}/` are allowed without escalation.\n\
          - KoadOS source, shared config, or other agents' sanctuaries require Dood approval.\n\
          - Escalate architecture decisions to Tyr via GitHub issues.\n\n\
          ## Working Standard\n\n\
@@ -614,7 +617,7 @@ async fn scaffold_kapv(spec: KapvScaffoldSpec<'_>, config: &KoadConfig) -> Resul
          - On session close, distill to `memory/LEARNINGS.md` and `memory/SAVEUPS.md`.\n\
          - XP events must be recorded in `identity/XP_LEDGER.md`.\n",
             name = spec.name,
-            key = spec.key,
+            vault_path = vault_path_str,
         ),
     )
     .await?;
@@ -871,10 +874,10 @@ async fn handle_agent_verify(agent: &str, config: &KoadConfig) -> Result<()> {
                 PathBuf::from(v)
             }
         } else {
-            config.home.join(format!("agents/{}", key))
+            config.agent_dir(&key)
         }
     } else {
-        config.home.join(format!("agents/{}", key))
+        config.agent_dir(&key)
     };
 
     if !vault_path.exists() {

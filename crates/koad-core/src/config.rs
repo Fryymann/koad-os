@@ -48,7 +48,7 @@ pub struct CitadelStatusRegistry {
 /// TOML files in the `config/identities/` directory.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KoadConfig {
-    /// Canonical path to the KoadOS home directory (e.g., `~/.koad-os`).
+    /// Canonical path to the KoadOS home directory.
     pub home: PathBuf,
     /// High-level system metadata (version, repository info).
     pub system: SystemConfig,
@@ -373,6 +373,14 @@ impl KoadConfig {
         self.home.join(&self.storage.db_name)
     }
 
+    pub fn agent_dir(&self, name: &str) -> PathBuf {
+        self.home.join("agents").join(name)
+    }
+
+    pub fn vault_path(&self, name: &str) -> PathBuf {
+        self.home.join("agents").join(name)
+    }
+
     /// Resolves the active agent name by checking environment variables
     /// and verifying against the live Citadel session if possible.
     pub async fn resolve_active_agent(&self) -> String {
@@ -432,11 +440,9 @@ impl KoadConfig {
             }
         }
 
-        // 3. Fallback to standard local discovery (file://~/.koad-os/agents/<name>)
+        // 3. Fallback to standard local discovery (file://<home>/agents/<name>)
         let home = dirs::home_dir()?;
-        let path = self
-            .home
-            .join(format!("agents/{}", agent_name.to_lowercase()));
+        let path = self.agent_dir(&agent_name.to_lowercase());
         if path.exists() {
             return Some(format!("file://{}", path.display()));
         }
