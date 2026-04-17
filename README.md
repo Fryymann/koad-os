@@ -1,31 +1,27 @@
-# KoadOS — The Agent Operating System
+# KoadOS — The Frontier Agent Exoskeleton
 
-KoadOS is a local-first, model-agnostic agent operating system designed to turn open-source AI models into a self-improving swarm of specialized software development agents. 
+KoadOS is a local-first capability layer designed to enhance frontier agent harnesses (Claude Code, Gemini CLI, Codex) with persistent memory, active workspace awareness, and compounding cognitive context.
 
-**The Agents are the product.** Everything in this repository exists to support their ability to perform high-level engineering tasks with persistent memory, active context recall, and minimal token consumption.
+**The Agents are the product.** KoadOS provides the infrastructure that allows frontier models to transcend the single-session limit, reducing token burn while increasing system-wide engineering accuracy.
 
 ## 🛡 Stable Release: v3.2.0 "Citadel Integrity"
 
-The v3.2.0 release establishes the **Hybrid Citadel Architecture**:
-- **The Brain (Docker):** CASS, Redis, and Qdrant isolated for stability.
-- **The Body (Host):** Native CLI and Agent Runtime for full system access.
-- **The Crew (Local):** Specialized agent identities (Tyr, Clyde, etc.) that live in your Citadel but remain private to you.
-
-### Key Highlights:
-- **Graph-Centric Navigation**: Real-time workspace awareness via `code-review-graph`.
-- **Zero-Touch Infrastructure**: One-command setup for the entire backend stack.
-- **Persistent Memory (L1-L4)**: Compounds knowledge across every session.
+The v3.2.0 release establishes the **Frontier Uplink Architecture**:
+- **Capability Layer (Docker):** CASS (Citadel Agent Support System), Redis, and Qdrant provide the "Brain" enhancements.
+- **Navigation Engine (Host):** `code-review-graph` provides real-time workspace topology to the agent.
+- **Unified Harnessing:** Standardized environment and tool access across all supported agent CLIs.
 
 ---
 
-## 🏗 Architecture: The Agent Lifecycle
+## 🏗 Architecture: The Capability Stack
 
-Developers use KoadOS not to develop the OS, but to **build and command an Agent Crew**.
+KoadOS works *with* your existing frontier agent tools:
 
-1.  **Engine:** The core Rust crates and CASS gRPC services (CASS = Citadel Agent Support System).
-2.  **Citadel:** Your local instance of KoadOS.
-3.  **Crew:** The specialized agents (e.g., Captain, Engineer, Scribe) you initialize to manage your projects.
-4.  **Stations & Outposts:** The Project Hubs and individual projects developed by your agents.
+1.  **Harness Layer:** You run `claude`, `gemini`, or `codex` as your primary interface.
+2.  **KoadOS Layer (The Enhancer):**
+    *   **Context:** `koad map` provides the agent with a high-fidelity "look" at the codebase via the knowledge graph.
+    *   **Memory:** CASS records episodic and procedural facts, allowing the agent to "remember" previous sessions.
+    *   **Governance:** The Citadel Kernel manages identities, permissions, and skill registration.
 
 ---
 
