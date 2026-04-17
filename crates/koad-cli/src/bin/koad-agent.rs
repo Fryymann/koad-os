@@ -379,8 +379,8 @@ async fn main() -> Result<()> {
 
                     // --- AI Anchor Generation ---
                     let mut anchor_content = format!(
-                    "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`source ~/.koad-os/bin/koad-functions.sh && agent-boot {}`\n",
-                    timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, agent_key
+                    "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`source {}/bin/koad-functions.sh && agent-boot {}`\n",
+                    timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, config.home.display(), agent_key
                 );
 
                     // --- [AIS: Live Awareness Section] ---

@@ -230,10 +230,7 @@ async fn handle_new_agent(request: NewAgentRequest<'_>, config: &KoadConfig) -> 
     )?;
 
     let vault_path = resolve_vault_path(request.vault_override, None, &key, &home_dir, config);
-    let vault_str = vault_path
-        .to_string_lossy()
-        .to_string()
-        .replace(&home_dir.to_string_lossy().to_string(), "~");
+    let vault_str = vault_path.display().to_string();
 
     // Parse access keys
     let access_keys: Vec<String> = request
@@ -423,11 +420,7 @@ async fn scaffold_kapv(spec: KapvScaffoldSpec<'_>, config: &KoadConfig) -> Resul
 
     let koad_os_path = config.home.display().to_string();
     let home_dir = dirs::home_dir().context("Could not determine home directory.")?;
-    let vault_path_str = spec
-        .vault
-        .to_string_lossy()
-        .to_string()
-        .replace(&home_dir.to_string_lossy().to_string(), "~");
+    let vault_path_str = spec.vault.display().to_string();
 
     // README.md
     write_file(

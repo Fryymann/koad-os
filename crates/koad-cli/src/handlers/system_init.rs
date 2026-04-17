@@ -180,10 +180,7 @@ fn provision_captain(name: &str, bio: &str, runtime: &str, config: &KoadConfig) 
     }
 
     let vault_path = config.agent_dir(&key);
-    let vault_str = vault_path
-        .to_string_lossy()
-        .to_string()
-        .replace(&config.home.to_string_lossy().to_string(), "~");
+    let vault_str = vault_path.display().to_string();
     let access_keys_toml = "access_keys = [\"GITHUB_PAT\"]"; // Default for Captain
 
     let toml_content = format!(

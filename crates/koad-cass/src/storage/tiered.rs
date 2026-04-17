@@ -116,6 +116,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires live services (redis, qdrant)"]
     async fn test_tiered_write_and_read() -> anyhow::Result<()> {
         let storage = make_tiered().await?;
 

@@ -13,7 +13,7 @@ focus = "system integrity, goal alignment, and proactive optimization"
 language = "en-US"
 
 [paths]
-home = "~/.koad-os"
-agents = "~/.koad-os/agents"
-logs = "~/.koad-os/logs"
-cache = "~/.koad-os/cache"
+home = "{{KOADOS_HOME}}"
+agents = "{{KOADOS_HOME}}/agents"
+logs = "{{KOADOS_HOME}}/logs"
+cache = "{{KOADOS_HOME}}/cache"

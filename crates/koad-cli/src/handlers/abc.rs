@@ -226,8 +226,17 @@ mod tests {
 
     #[test]
     fn test_abc_collector_new() {
-        let config = KoadConfig::load()
-            .unwrap_or_else(|_| KoadConfig::from_json("{}").expect("Failed to parse empty config"));
+        let config = KoadConfig::load().unwrap_or_else(|_| {
+            KoadConfig::from_json(
+                r#"{
+                "home": "/tmp",
+                "system": { "version": "test" },
+                "network": { "citadel_grpc_port": 0, "citadel_grpc_addr": "", "cass_grpc_port": 0, "cass_grpc_addr": "", "redis_socket": "", "citadel_socket": "" },
+                "storage": { "db_name": "", "drain_interval_secs": 0 }
+            }"#,
+            )
+            .expect("Failed to parse empty config")
+        });
         let collector = AbcCollector::new(config, PathBuf::from("/tmp"), "tyr".to_string());
         assert_eq!(collector.vault_path, PathBuf::from("/tmp"));
         assert_eq!(collector.agent_name, "tyr");

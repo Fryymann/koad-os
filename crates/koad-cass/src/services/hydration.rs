@@ -251,7 +251,17 @@ mod tests {
     #[tokio::test]
     async fn test_hydration_bundles_sections() -> anyhow::Result<()> {
         let storage = Arc::new(MockStorage::new());
-        let config = koad_core::config::KoadConfig::load()?;
+        let config = koad_core::config::KoadConfig::load().unwrap_or_else(|_| {
+            koad_core::config::KoadConfig::from_json(
+                r#"{
+                "home": "/tmp",
+                "system": { "version": "test" },
+                "network": { "citadel_grpc_port": 0, "citadel_grpc_addr": "", "cass_grpc_port": 0, "cass_grpc_addr": "", "redis_socket": "", "citadel_socket": "" },
+                "storage": { "db_name": "", "drain_interval_secs": 0 }
+            }"#,
+            )
+            .unwrap()
+        });
         let hierarchy = Arc::new(HierarchyManager::new(config));
         let codegraph = Arc::new(CodeGraph::new_with_memory()?);
         let intelligence = Arc::new(InferenceRouter::new_default()?);
@@ -276,7 +286,17 @@ mod tests {
     #[tokio::test]
     async fn test_hydration_includes_pulse_section() -> anyhow::Result<()> {
         let storage = Arc::new(MockStorage::new());
-        let config = koad_core::config::KoadConfig::load()?;
+        let config = koad_core::config::KoadConfig::load().unwrap_or_else(|_| {
+            koad_core::config::KoadConfig::from_json(
+                r#"{
+                "home": "/tmp",
+                "system": { "version": "test" },
+                "network": { "citadel_grpc_port": 0, "citadel_grpc_addr": "", "cass_grpc_port": 0, "cass_grpc_addr": "", "redis_socket": "", "citadel_socket": "" },
+                "storage": { "db_name": "", "drain_interval_secs": 0 }
+            }"#,
+            )
+            .unwrap()
+        });
         let hierarchy = Arc::new(HierarchyManager::new(config));
         let codegraph = Arc::new(CodeGraph::new_with_memory()?);
         let intelligence = Arc::new(InferenceRouter::new_default()?);

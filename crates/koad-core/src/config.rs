@@ -324,6 +324,7 @@ impl KoadConfig {
 
         let kernel_path = home.join("config/kernel.toml");
         let status_path = home.join("config/citadel_status.toml");
+        
         let mut builder = Config::builder()
             .set_default("home", home.to_string_lossy().to_string())?
             .add_source(File::from(kernel_path).required(false))
