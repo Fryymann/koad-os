@@ -29,6 +29,32 @@ impl RedisClient {
     pub async fn new(koad_home: &str, manage_process: bool) -> Result<Self> {
         let home_path = PathBuf::from(koad_home);
 
+        // 1. Check for TCP URL override (Standard for Docker/Production)
+        if let Ok(redis_url) = std::env::var("KOADOS_URL_REDIS").or_else(|_| std::env::var("REDIS_URL")) {
+            let config = RedisConfig::from_url(&redis_url)?;
+            let pool = Builder::from_config(config.clone())
+                .with_connection_config(|c| {
+                    c.connection_timeout = Duration::from_secs(5);
+                })
+                .build_pool(8)?;
+
+            let subscriber = Builder::from_config(config)
+                .with_connection_config(|c| {
+                    c.connection_timeout = Duration::from_secs(5);
+                })
+                .build()?;
+
+            pool.init().await?;
+            subscriber.init().await?;
+
+            return Ok(Self {
+                pool,
+                subscriber,
+                process: None,
+            });
+        }
+
+        // 2. Fallback to Unix Domain Sockets (UDS) or Local Process
         let socket_path = if let Ok(env_socket) = std::env::var("REDIS_SOCKET") {
             PathBuf::from(env_socket)
         } else {

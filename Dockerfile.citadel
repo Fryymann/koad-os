@@ -29,17 +29,20 @@ RUN apt-get update && apt-get install -y \
     sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
+# Create a non-root user
+RUN useradd -m koad && \
+    mkdir -p /app/data && \
+    chown -R koad:koad /app
+
+USER koad
 WORKDIR /app
 
 # Copy the binary from the builder stage
-COPY --from=builder /usr/src/koad-os/target/release/koad-cass /app/koad-cass
-
-# Create data directory for persistent state
-RUN mkdir -p /app/data
+COPY --from=builder --chown=koad:koad /usr/src/koad-os/target/release/koad-cass /app/koad-cass
 
 # Environment variables for service connections (defaults)
-ENV REDIS_URL="redis://citadel-redis:6379"
-ENV QDRANT_URL="http://qdrant:6333"
+ENV KOADOS_URL_REDIS="redis://citadel-redis:6379"
+ENV KOADOS_URL_QDRANT="http://qdrant:6333"
 ENV RUST_LOG="info"
 
 # Expose gRPC port

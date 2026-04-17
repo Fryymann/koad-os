@@ -1,61 +1,67 @@
 # KoadOS — The Agent Operating System
 
-KoadOS is a local-first, model-agnostic agent operating system designed to turn open-source AI models into a self-improving swarm of specialized software development agents. It provides reasoning-only token budgets, externalized cognition, and compounding memory.
+KoadOS is a local-first, model-agnostic agent operating system designed to turn open-source AI models into a self-improving swarm of specialized software development agents. 
+
+**The Agents are the product.** Everything in this repository exists to support their ability to perform high-level engineering tasks with persistent memory, active context recall, and minimal token consumption.
 
 ## 🛡 Stable Release: v3.2.0 "Citadel Integrity"
 
-The v3.2.0 release focuses on stability, purge of technical debt, and real-time project awareness.
+The v3.2.0 release establishes the **Hybrid Citadel Architecture**:
+- **The Brain (Docker):** CASS, Redis, and Qdrant isolated for stability.
+- **The Body (Host):** Native CLI and Agent Runtime for full system access.
+- **The Crew (Local):** Specialized agent identities (Tyr, Clyde, etc.) that live in your Citadel but remain private to you.
 
 ### Key Highlights:
-- **AIS Modernization**: "Citadel Pulse & Beacon" system for real-time inter-agent awareness.
-- **Project Synchronization**: Mandatory Captain-level enforcement of GitHub Project state.
-- **Refined Infrastructure**: Complete purge of Spine-era shims and dead code.
-- **Standardized Skills**: Integrated Skill Blueprint/Instance architecture.
+- **Graph-Centric Navigation**: Real-time workspace awareness via `code-review-graph`.
+- **Zero-Touch Infrastructure**: One-command setup for the entire backend stack.
+- **Persistent Memory (L1-L4)**: Compounds knowledge across every session.
 
-For full release details, see the [Changelog](./CHANGELOG.md).
+---
 
-## 🚀 Key Accomplishments (v3.x Series):
-*   **Tiered Memory Stack (L1-L4):** A high-performance cognitive backbone featuring Redis (Hot), SQLite (Episodic/Procedural), and Qdrant (Semantic) tiers.
-*   **MCP Tool Registry:** Dynamic registration and invocation of WASM-based MCP tools (Skills).
-*   **Infrastructure Resilience:** Graceful gRPC degradation for `koad-agent boot` (Dark Mode) and hardened systemd services.
-*   **Automated Code Review (ACR):** Multi-stage audit pipeline ensures RUST_CANON and Zero-Panic compliance.
-*   **Sovereign Identities:** Established persistent vaults (KAPVs) and working memory for the core agent team (Tyr, Clyde, Cid, Scribe, Helm).
+## 🏗 Architecture: The Agent Lifecycle
 
-## 🛠 Architecture
+Developers use KoadOS not to develop the OS, but to **build and command an Agent Crew**.
 
-KoadOS operates on a **Hybrid Architecture** designed for high performance and isolation:
-1.  **Brain (The Citadel):** Running in **Docker**, the Citadel Agent Support System (CASS) provides memory (Redis, Qdrant, SQLite), cognition, and context management.
-2.  **Body (The Host):** Running natively on your **Host machine**, the CLI and agents interact with your local filesystem, compilers, and development tools.
-3.  **Link (gRPC/Unix Sockets):** The high-speed control plane orchestrating communication between the Brain and Body.
+1.  **Engine:** The core Rust crates and CASS gRPC services (CASS = Citadel Agent Support System).
+2.  **Citadel:** Your local instance of KoadOS.
+3.  **Crew:** The specialized agents (e.g., Captain, Engineer, Scribe) you initialize to manage your projects.
+4.  **Stations & Outposts:** The Project Hubs and individual projects developed by your agents.
 
-## 📦 Getting Started
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites:
-*   **Docker Desktop** (Must be running)
-*   Rust (Latest Stable)
-*   Ollama (For local model inference: Llama 3.2, Qwen 2.5 Coder)
+*   **Rust** (Latest Stable)
+*   **Docker Desktop** (Running)
+*   **Python 3 & PIPX** (For graph tools)
 
-### Installation:
+### 1. Installation
 ```bash
-# Clone the repository
-git clone https://github.com/Fryymann/koad-os
-cd koad-os
+# Clone the monorepo
+git clone git@github.com-fryymann:Fryymann/koad-os ~/koados-citadel
+cd ~/koados-citadel
 
-# Run the installation script (handles Docker containers and host dependencies)
+# Build backend infrastructure and host binaries
 ./install.sh
 ```
 
-### Initialization:
+### 2. Initialization ("The Great Awakening")
 ```bash
-# Initialize the KoadOS environment and verify integrity
+# Set up your Citadel name and initial Captain agent
 ./koad-init.sh
 ```
 
-### Booting an Agent:
+### 3. Commanding the Crew
 ```bash
+# Add KoadOS to your shell
 source ~/.koad-os/bin/koad-functions.sh
-agent-boot <agent_name>
+
+# Boot your Captain to begin operations
+agent-boot captain
 ```
+
+---
 
 ## 📜 The Canon
 All development follows the **KoadOS Contributor Canon** and **RUST_CANON**. Methods are verified via KSRP (KoadOS Self-Review Protocol) and PSRP (Post-Session Reflection Protocol).

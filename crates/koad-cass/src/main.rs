@@ -40,22 +40,27 @@ async fn main() -> Result<()> {
         &config.home.join("data/db/cass.db").to_string_lossy(),
     )?);
     let redis_tier = Arc::new(RedisTier::new(redis.pool.clone()));
+
+    let qdrant_url = std::env::var("KOADOS_URL_QDRANT")
+        .or_else(|_| std::env::var("QDRANT_URL"))
+        .unwrap_or_else(|_| "http://127.0.0.1:6334".to_string());
+
     let qdrant = match tokio::time::timeout(
         std::time::Duration::from_secs(3),
-        QdrantTier::new("http://127.0.0.1:6334"),
+        QdrantTier::new(&qdrant_url),
     )
     .await
     {
         Ok(Ok(q)) => {
-            tracing::info!("Qdrant L3: ONLINE");
+            tracing::info!("Qdrant L3: ONLINE ({})", qdrant_url);
             Arc::new(q)
         }
         Ok(Err(e)) => {
-            tracing::warn!(error = %e, "Qdrant L3: OFFLINE — starting in degraded mode (L1+L2 only)");
+            tracing::warn!(error = %e, "Qdrant L3: OFFLINE ({}) — starting in degraded mode (L1+L2 only)", qdrant_url);
             Arc::new(QdrantTier::new_offline())
         }
         Err(_) => {
-            tracing::warn!("Qdrant L3: TIMEOUT — starting in degraded mode (L1+L2 only)");
+            tracing::warn!("Qdrant L3: TIMEOUT ({}) — starting in degraded mode (L1+L2 only)", qdrant_url);
             Arc::new(QdrantTier::new_offline())
         }
     };
@@ -102,7 +107,9 @@ async fn main() -> Result<()> {
         eow_pipeline.start_listener().await;
     });
 
-    let addr = "127.0.0.1:50052".parse()?;
+    let grpc_port = std::env::var("CASS_GRPC_PORT")
+        .unwrap_or_else(|_| "50052".to_string());
+    let addr = format!("0.0.0.0:{}", grpc_port).parse()?;
     info!("CASS: gRPC server listening on {}", addr);
 
     Server::builder()

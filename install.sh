@@ -41,8 +41,18 @@ check_cmd() {
 check_cmd "rustc"
 check_cmd "cargo"
 check_cmd "docker"
-check_cmd "docker-compose"
 check_cmd "protoc"
+
+# Check for docker-compose or docker compose
+if command -v "docker-compose" &>/dev/null; then
+    ok "docker-compose found"
+elif docker compose version &>/dev/null; then
+    ok "docker compose plugin found"
+else
+    fail "docker-compose or docker compose plugin not found."
+    ERRORS=$((ERRORS + 1))
+fi
+
 check_cmd "python3"
 check_cmd "pipx"
 
@@ -64,7 +74,11 @@ fi
 # 2. Infrastructure Boot
 section "Infrastructure Boot (Docker)"
 info "Starting CASS, Redis, and Qdrant..."
-docker-compose up -d --build
+if command -v "docker-compose" &>/dev/null; then
+    docker-compose up -d --build
+else
+    docker compose up -d --build
+fi
 ok "Infrastructure is running in the background."
 
 # 3. Host Binary Compilation

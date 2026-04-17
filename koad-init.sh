@@ -17,6 +17,18 @@ fail() { echo -e "${RED}  ✗${RESET}  $*"; }
 info() { echo -e "${CYAN}  →${RESET}  $*"; }
 section() { echo -e "\n${BOLD}[$*]${RESET}"; }
 
+# 0. Root Check & Portability Helpers
+if [[ ! -d "blueprints" || ! -f "Cargo.toml" ]]; then
+    echo -e "${RED}  ✗${RESET}  Execution error: Run this script from the root of the koad-os repository."
+    exit 1
+fi
+
+portable_sed() {
+    local pattern="$1"
+    local file="$2"
+    sed "$pattern" "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+}
+
 section "KoadOS Initialization"
 
 # 1. Citadel Identity
@@ -40,7 +52,7 @@ else
     if [[ -f ".env.template" ]]; then
         cp .env.template "$KOAD_HOME/.env"
         # Attempt to set KOADOS_HOME in the new .env
-        sed -i "s|KOADOS_HOME=.*|KOADOS_HOME=$KOAD_HOME|" "$KOAD_HOME/.env"
+        portable_sed "s|KOADOS_HOME=.*|KOADOS_HOME=$KOAD_HOME|" "$KOAD_HOME/.env"
         ok ".env initialized from template"
     else
         warn ".env.template not found. Skipping .env initialization."
@@ -57,7 +69,7 @@ else
         cp blueprints/captain/SYSTEM.md "$KOAD_HOME/agents/captain/SYSTEM.md"
         
         # Customize IDENTITY.toml
-        sed -i "s/station = \"Citadel\"/station = \"$CITADEL_NAME\"/" "$KOAD_HOME/agents/captain/IDENTITY.toml"
+        portable_sed "s/station = \"Citadel\"/station = \"$CITADEL_NAME\"/" "$KOAD_HOME/agents/captain/IDENTITY.toml"
         ok "Captain identity initialized for $CITADEL_NAME"
     else
         fail "Blueprints not found. Captain identity could not be initialized."
