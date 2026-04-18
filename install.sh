@@ -14,6 +14,16 @@ fail() { echo -e "${RED}  ✗${RESET}  $*"; }
 info() { echo -e "${CYAN}  →${RESET}  $*"; }
 section() { echo -e "\n${BOLD}[$*]${RESET}"; }
 
+# Cleanup Logic
+cleanup() {
+    local exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        echo -e "\n${RED}${BOLD}Installation failed at step: ${CURRENT_STEP:-Unknown}${RESET}"
+        fail "Please resolve the issue and try again."
+    fi
+}
+trap cleanup EXIT ERR INT TERM
+
 echo -e "${BOLD}"
 echo "  ██╗  ██╗ ██████╗  █████╗ ██████╗      ██████╗ ███████╗"
 echo "  ██║ ██╔╝██╔═══██╗██╔══██╗██╔══██╗    ██╔═══██╗██╔════╝"
@@ -26,26 +36,30 @@ echo "  Unified Stable Installer  ·  v3.2.0"
 echo
 
 # 0. Global Configuration
+CURRENT_STEP="Configuration"
 KOAD_HOME="${KOADOS_HOME:-$HOME/.koad-os}"
 
 # 1. Prerequisite Detection
+CURRENT_STEP="Prerequisite Detection"
 section "Prerequisite Detection"
 info "KoadOS Target Instance: $KOAD_HOME"
 ERRORS=0
 
 check_cmd() {
-    if command -v "$1" &>/dev/null; then
-        ok "$1 found ($(command -v "$1"))"
+    local cmd=$1
+    local msg=${2:-$1}
+    if command -v "$cmd" &>/dev/null; then
+        ok "$msg found ($(command -v "$cmd"))"
     else
-        fail "$1 not found. Please install it to continue."
+        fail "$msg not found. Please install it to continue."
         ERRORS=$((ERRORS + 1))
     fi
 }
 
-check_cmd "rustc"
-check_cmd "cargo"
-check_cmd "docker"
-check_cmd "protoc"
+check_cmd "rustc" "Rust Compiler (rustc)"
+check_cmd "cargo" "Rust Package Manager (cargo)"
+check_cmd "docker" "Docker"
+check_cmd "protoc" "Protocol Buffers Compiler (protoc)"
 
 # Check for docker-compose or docker compose
 if command -v "docker-compose" &>/dev/null; then
@@ -57,8 +71,8 @@ else
     ERRORS=$((ERRORS + 1))
 fi
 
-check_cmd "python3"
-check_cmd "pipx"
+check_cmd "python3" "Python 3"
+check_cmd "pipx" "pipx"
 
 # 1.1 specialized check for code-review-graph
 if command -v "code-review-graph" &>/dev/null; then
@@ -76,6 +90,7 @@ if [[ $ERRORS -gt 0 ]]; then
 fi
 
 # 2. Infrastructure Boot
+CURRENT_STEP="Infrastructure Boot"
 section "Infrastructure Boot (Docker)"
 info "Starting CASS, Redis, and Qdrant..."
 if command -v "docker-compose" &>/dev/null; then
@@ -86,12 +101,14 @@ fi
 ok "Infrastructure is running in the background."
 
 # 3. Host Binary Compilation
+CURRENT_STEP="Binary Compilation"
 section "Host Binary Compilation (Rust)"
 info "Building 'koad' and 'koad-agent' in release mode..."
 cargo build --release --bin koad --bin koad-agent
 ok "Binaries compiled successfully."
 
 # 4. Next Steps
+CURRENT_STEP="Finalizing"
 section "Installation Phase 1 Complete"
 info "Infrastructure is online and binaries are built."
 echo -e "\n${BOLD}Next Step:${RESET}"

@@ -860,6 +860,9 @@ fn stop_citadel_processes() {
 /// Tries systemctl first (when units are installed). Falls back to spawning
 /// the binaries directly from the koad-os bin/ directory with log file output.
 fn start_citadel_services(config: &KoadConfig) -> Result<()> {
+    println!("Pre-flight cleanup: Terminating existing Citadel processes...");
+    stop_citadel_processes();
+
     let log_dir = config.home.join("logs");
     let _ = std::fs::create_dir_all(&log_dir);
 
