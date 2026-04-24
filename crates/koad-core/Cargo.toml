@@ -10,6 +10,8 @@ chrono.workspace = true
 uuid.workspace = true
 anyhow.workspace = true
 rusqlite.workspace = true
+r2d2.workspace = true
+r2d2_sqlite.workspace = true
 async-trait.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -19,6 +21,7 @@ tokio.workspace = true
 config = { workspace = true, features = ["toml"] }
 toml.workspace = true
 koad-proto = { path = "../koad-proto" }
+tonic.workspace = true
 tiktoken-rs.workspace = true
 dirs.workspace = true
 

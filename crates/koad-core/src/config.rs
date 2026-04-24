@@ -96,6 +96,7 @@ pub struct KoadConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkConfig {
+    pub admin_token: Option<String>,
     pub citadel_grpc_port: u32,
     pub citadel_grpc_addr: String,
     pub cass_grpc_port: u32,
@@ -104,6 +105,10 @@ pub struct NetworkConfig {
     pub citadel_socket: String,
     #[serde(default = "default_admin_socket")]
     pub admin_socket: String,
+}
+
+fn default_admin_token() -> String {
+    "koad-emergency-admin".to_string()
 }
 
 fn default_admin_socket() -> String {
@@ -280,6 +285,12 @@ pub struct AgentPreferences {
     /// Agent-specific whitelist of directories accessible via the Filesystem MCP Server.
     #[serde(default)]
     pub allowed_directories: Vec<String>,
+    /// List of languages the agent is proficient in.
+    #[serde(default)]
+    pub languages: Vec<String>,
+    /// Core principles guiding the agent.
+    #[serde(default)]
+    pub principles: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -647,6 +658,7 @@ pub fn default_network() -> NetworkConfig {
         redis_socket: DEFAULT_REDIS_SOCK.to_string(),
         citadel_socket: DEFAULT_CITADEL_SOCK.to_string(),
         admin_socket: DEFAULT_ADMIN_SOCK.to_string(),
+        admin_token: Some("koad-emergency-admin".to_string()),
     }
 }
 

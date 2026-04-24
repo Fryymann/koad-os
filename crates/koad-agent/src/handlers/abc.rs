@@ -99,7 +99,7 @@ impl AbcCollector {
         // 3. Live GitHub Board State (Force Directive)
         raw.push_str("--- GITHUB PROJECT BOARD (PROJECT #6) ---\n");
         let gh_items = std::process::Command::new("gh")
-            .args(["project", "item-list", "6", "--limit", "10"])
+            .args(["project", "item-list", "6", "--owner", "Fryymann", "--limit", "10"])
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
             .unwrap_or_else(|_| "GH CLI failure or auth missing.".to_string());
@@ -151,7 +151,7 @@ impl AbcGenerator {
     /// Returns an error if the Ollama client cannot be initialized.
     pub fn new() -> Result<Self> {
         Ok(Self {
-            llama: OllamaClient::new(Some("llama3.2:1b"), None)?,
+            llama: OllamaClient::new(Some("qwen2.5-coder:7b"), None)?,
             qwen: OllamaClient::new(Some("qwen2.5-coder:7b"), None)?,
         })
     }
@@ -161,17 +161,17 @@ impl AbcGenerator {
     /// # Errors
     /// Returns an error if the local LLM inference fails.
     pub async fn generate_brief(&self, raw_data: &str, agent_name: &str) -> Result<String> {
-        info!("🧠 ABC: Extracting signal via Llama 3.2:1B...");
+        info!("🧠 ABC: Extracting signal via qwen2.5-coder:7b...");
         let llama_prompt = format!(
             "You are a KoadOS Intelligence Agent. From the following raw system data, extract ONLY the 3 most recent accomplishments, the 3 most critical active missions, and the current 'Next Action' from working memory. Be extremely concise. Use bullet points.\n\n### RAW DATA:\n{}",
             raw_data
         );
         let signal = self.llama.chat(&llama_prompt).await
-            .context("Local extraction via Llama 3.2:1B failed. Ensure Ollama is running and llama3.2:1b is pulled.")?;
+            .context("Local extraction via qwen2.5-coder:7b failed. Ensure Ollama is running and qwen2.5-coder:7b is pulled.")?;
 
         debug!(signal_len = signal.len(), "ABC Signal Extracted");
 
-        info!("♟️ ABC: Synthesizing brief via Qwen 2.5-Coder:7B...");
+        info!("♟️ ABC: Synthesizing brief via qwen2.5-coder:7b...");
         let qwen_prompt = format!(
             "You are the Citadel Chief of Staff. Based on the following extracted project signals, draft a 3-paragraph Tactical Brief for the Captain ({:?}). 
             Paragraph 1: Summary of the current state of the Citadel.
@@ -183,6 +183,40 @@ impl AbcGenerator {
         );
         let brief = self.qwen.chat(&qwen_prompt).await
             .context("Local synthesis via Qwen 2.5-Coder:7B failed. Ensure Ollama is running and qwen2.5-coder:7b is pulled.")?;
+
+        Ok(brief)
+    }
+
+    /// Generates a task-specific tactical brief for sub-agent injection.
+    pub async fn generate_task_brief(&self, raw_data: &str, agent_name: &str, task_desc: &str) -> Result<String> {
+        info!("🧠 ABC: Extracting task-relevant signal via qwen2.5-coder:7b...");
+        let llama_prompt = format!(
+            "You are a KoadOS Intelligence Agent. A sub-agent is being spawned to perform a specific task: {:?}.
+            From the following raw system data, extract only the information directly relevant to this task (e.g. related files, recent changes, project state).
+            Be extremely concise. Use bullet points.\n\n### RAW DATA:\n{}",
+            task_desc,
+            raw_data
+        );
+        let signal = self.llama.chat(&llama_prompt).await
+            .context("Local extraction via qwen2.5-coder:7b failed.")?;
+
+        info!("♟️ ABC: Synthesizing task brief via qwen2.5-coder:7b...");
+        let qwen_prompt = format!(
+            "You are the Citadel Chief of Staff. You are briefing a sub-agent (Minion) on the following task: {:?}.
+            The parent agent is {:?}.
+            
+            Based on the following project signals, provide a high-density Tactical Brief that includes:
+            1. **Context**: Current project status and why this task matters.
+            2. **Technical Bounds**: Relevant files, dependencies, and constraints.
+            3. **Mission**: A clear, actionable directive for the sub-agent.
+            
+            Maintain a professional, dense, and senior military tone. No conversational filler.\n\n### SIGNALS:\n{}",
+            task_desc,
+            agent_name,
+            signal
+        );
+        let brief = self.qwen.chat(&qwen_prompt).await
+            .context("Local synthesis via Qwen 2.5-Coder:7B failed.")?;
 
         Ok(brief)
     }

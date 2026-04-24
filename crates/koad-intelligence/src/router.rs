@@ -1,5 +1,6 @@
 //! Inference Routing & Task Management
 
+use koad_core::intelligence::IntelligenceRouter;
 use crate::clients::OllamaClient;
 use crate::InferenceClient;
 use anyhow::Result;
@@ -56,5 +57,15 @@ impl InferenceRouter {
         self.select(InferenceTask::Evaluation)
             .score_significance(text)
             .await
+    }
+}
+
+#[async_trait::async_trait]
+impl IntelligenceRouter for InferenceRouter {
+    async fn summarize(&self, text: &str) -> Result<String> {
+        self.summarize(text).await
+    }
+    async fn analyze(&self, text: &str) -> Result<String> {
+        self.analyze(text).await
     }
 }

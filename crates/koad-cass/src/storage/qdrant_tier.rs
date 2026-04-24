@@ -144,6 +144,30 @@ impl QdrantTier {
             created_at: None,
         })
     }
+
+    pub async fn commit_facts(&self, facts: Vec<FactCard>) -> Result<()> {
+        let Some(client) = &self.client else {
+            return Ok(());
+        };
+        if facts.is_empty() {
+            return Ok(());
+        }
+
+        let points: Vec<PointStruct> = facts
+            .into_iter()
+            .map(|fact| {
+                let vector = Self::content_vector(&fact.content);
+                let payload = Self::make_payload(&fact);
+                PointStruct::new(Self::point_id(&fact.id), vector, payload)
+            })
+            .collect();
+
+        client
+            .upsert_points(UpsertPointsBuilder::new(COLLECTION, points))
+            .await
+            .context("QdrantTier: batch upsert failed")?;
+        Ok(())
+    }
 }
 
 #[async_trait]

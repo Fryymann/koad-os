@@ -20,6 +20,7 @@ use koad_core::storage::StorageBridge;
 
 use koad_core::config::KoadConfig;
 use koad_core::utils::redis::RedisClient;
+use koad_core::auth::AdminInterceptor;
 use koad_proto::citadel::v5::admin_server::AdminServer;
 use koad_proto::citadel::v5::citadel_session_server::CitadelSessionServer;
 use koad_proto::citadel::v5::personal_bay_server::PersonalBayServer;
@@ -32,6 +33,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
+use tokio::task::JoinSet;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 use tracing::{error, info};
@@ -40,18 +42,23 @@ pub struct Kernel {
     shutdown_tx: watch::Sender<bool>,
     storage: Arc<CitadelStorageBridge>,
     admin_uds_path: Option<PathBuf>,
+    tasks: JoinSet<()>,
 }
 
 impl Kernel {
     /// Initiates a graceful shutdown of all kernel services and listeners.
-    pub async fn shutdown(self) {
+    pub async fn shutdown(mut self) {
         info!("Kernel: Initiating graceful shutdown...");
 
         // 1. Notify all tasks to stop
         let _ = self.shutdown_tx.send(true);
 
         // 2. Wait for background tasks (reaper, drain loop, servers) to settle
-        tokio::time::sleep(Duration::from_millis(800)).await;
+        while let Some(res) = self.tasks.join_next().await {
+            if let Err(e) = res {
+                error!("Kernel: Task join error: {}" , e);
+            }
+        }
 
         // 3. Final Storage Drain (L1 -> L2)
         info!("Kernel: Finalizing neuronal flush (L1 -> L2 drain)...");
@@ -134,6 +141,7 @@ impl KernelBuilder {
             .ok_or_else(|| anyhow::anyhow!("TCP address not specified"))?;
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let mut tasks = JoinSet::new();
 
         info!("Kernel: Initializing at {}...", home_dir.display());
 
@@ -177,7 +185,7 @@ impl KernelBuilder {
 
         let drain_storage = storage.clone();
         let mut rx_drain = shutdown_rx.clone();
-        tokio::spawn(async move {
+        tasks.spawn(async move {
             tokio::select! {
                 _ = drain_storage.start_drain_loop() => {},
                 _ = rx_drain.changed() => { info!("Kernel: Drain loop stopping."); }
@@ -190,7 +198,7 @@ impl KernelBuilder {
         let purge_timeout = config.sessions.purge_timeout_secs;
         let reaper_interval = Duration::from_secs(config.sessions.reaper_interval_secs);
         let mut rx_reaper = shutdown_rx.clone();
-        tokio::spawn(async move {
+        tasks.spawn(async move {
             loop {
                 tokio::select! {
                     _ = tokio::time::sleep(reaper_interval) => { reaper_clone.reap(dark_timeout, purge_timeout).await; }
@@ -223,7 +231,7 @@ impl KernelBuilder {
             .add_service(XpServiceServer::new(xp_svc_impl.clone()));
 
         let mut rx_tcp = shutdown_rx.clone();
-        tokio::spawn(async move {
+        tasks.spawn(async move {
             info!("Kernel: TCP listener active at {}", tcp_addr_parsed);
             if let Err(e) = tcp_router
                 .serve_with_shutdown(tcp_addr_parsed, async move {
@@ -246,7 +254,7 @@ impl KernelBuilder {
             let uds_stream = UnixListenerStream::new(uds);
 
             let admin_router = Server::builder()
-                .add_service(AdminServer::new(admin_svc_impl))
+                .add_service(AdminServer::with_interceptor(admin_svc_impl, AdminInterceptor::new(&config)))
                 // Also serve core services on UDS without interceptor for emergency maintenance
                 .add_service(CitadelSessionServer::new(session_svc_impl))
                 .add_service(SectorServer::new(sector_svc_impl))
@@ -254,7 +262,7 @@ impl KernelBuilder {
 
             let mut rx_admin = shutdown_rx.clone();
             let admin_path_clone = admin_uds_path.clone();
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 info!(
                     "Kernel: Admin UDS listener active at {}",
                     admin_path_clone.display()
@@ -274,6 +282,7 @@ impl KernelBuilder {
             shutdown_tx,
             storage,
             admin_uds_path: self.admin_uds_path,
+            tasks,
         })
     }
 }

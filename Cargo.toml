@@ -4,13 +4,16 @@ members = [
     "crates/koad-proto",
     "crates/koad-citadel",
     "crates/koad-cli",
+    "crates/koad-agent",
     "crates/koad-board",
     "crates/koad-bridge-notion",
+    "crates/koad-mcp",
     "crates/koad-cass",
     "crates/koad-intelligence",
     "crates/koad-sandbox",
     "crates/koad-codegraph",
-    "crates/koad-plugins"
+    "crates/koad-plugins",
+    "crates/koad-system",
 ]
 resolver = "2"
 
@@ -37,7 +40,7 @@ prost = "0.13"
 prost-types = "0.13"
 hyper-util = "0.1"
 tower = "0.4"
-hyper = "0.14"
+hyper = "1"
 tonic-build = "0.12"
 
 # Persistence & State
@@ -51,7 +54,6 @@ tower-http = { version = "0.5", features = ["fs", "cors"] }
 
 # CLI / TUI
 clap = { version = "4.4", features = ["derive"] }
-ratatui = "0.26"
 crossterm = "0.27"
 
 # Observability

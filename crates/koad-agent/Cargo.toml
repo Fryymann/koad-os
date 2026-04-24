@@ -1,0 +1,24 @@
+[package]
+name = "koad-agent"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Workspace Unified
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+chrono.workspace = true
+tonic.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+dirs.workspace = true
+
+# Internal
+koad-core = { path = "../koad-core" }
+koad-proto = { path = "../koad-proto" }
+koad-codegraph = { path = "../koad-codegraph" }
+koad-intelligence = { path = "../koad-intelligence" }
+tracing.workspace = true

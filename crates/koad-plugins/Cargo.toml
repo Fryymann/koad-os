@@ -7,7 +7,7 @@ edition.workspace = true
 anyhow.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-wasmtime.workspace = true
+wasmtime = { version = "22.0", features = ["component-model", "async"] }
 async-trait.workspace = true
 libloading.workspace = true
 koad-sandbox = { path = "../koad-sandbox", features = ["container"] }

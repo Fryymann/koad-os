@@ -18,6 +18,10 @@ impl HierarchyManager {
         Self { config }
     }
 
+    pub fn config(&self) -> &KoadConfig {
+        &self.config
+    }
+
     /// Resolves an absolute path to its corresponding [`WorkspaceLevel`].
     pub fn resolve_level(&self, path: &Path) -> WorkspaceLevel {
         let home = &self.config.home;

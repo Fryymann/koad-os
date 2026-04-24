@@ -9,9 +9,10 @@ use crate::storage::{MemoryTier, PulseTier};
 use koad_codegraph::CodeGraph;
 use koad_core::hierarchy::HierarchyManager;
 use koad_core::utils::tokens::count_tokens;
-use koad_intelligence::router::InferenceRouter;
+use koad_core::intelligence::IntelligenceRouter;
 use koad_proto::cass::v1::hydration_service_server::HydrationService;
 use koad_proto::cass::v1::{HydrationRequest, HydrationResponse};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
@@ -22,7 +23,7 @@ pub struct CassHydrationService {
     storage: Arc<dyn MemoryTier>,
     hierarchy: Arc<HierarchyManager>,
     codegraph: Arc<CodeGraph>,
-    intelligence: Arc<InferenceRouter>,
+    intelligence: Arc<dyn IntelligenceRouter>,
     pulse_store: Option<Arc<dyn PulseTier>>,
 }
 
@@ -32,7 +33,7 @@ impl CassHydrationService {
         storage: Arc<dyn MemoryTier>,
         hierarchy: Arc<HierarchyManager>,
         codegraph: Arc<CodeGraph>,
-        intelligence: Arc<InferenceRouter>,
+        intelligence: Arc<dyn IntelligenceRouter>,
     ) -> Self {
         Self {
             storage,
@@ -73,14 +74,50 @@ impl HydrationService for CassHydrationService {
         info!(agent = %agent, path = %req.project_root, budget = %budget, task = ?task_id, "TCH: Hydration requested");
 
         let mut packet = format!(
-            "# Temporal Context Hydration: {}
-Date: {}
-
-",
+            "# Temporal Context Hydration: {}\nDate: {}\n\n",
             agent,
             chrono::Utc::now().format("%Y-%m-%d")
         );
+        let mut tokens_used = count_tokens(&packet);
         let mut source_files = Vec::new();
+
+        // 0. Identity Anchor (New)
+        if let Some(id_config) = self.hierarchy.config().identities.get(&agent.to_lowercase()) {
+            let mut identity_section = "## ⚓ Identity Anchor\n".to_string();
+            identity_section.push_str(&format!("- **Name:** {}\n", id_config.name));
+            identity_section.push_str(&format!("- **Role:** {}\n", id_config.role));
+            identity_section.push_str(&format!("- **Rank:** {}\n", id_config.rank));
+            identity_section.push_str(&format!("- **Bio:** {}\n", id_config.bio));
+            
+            if let Some(pref) = &id_config.preferences {
+                if !pref.principles.is_empty() {
+                    identity_section.push_str("\n### Core Principles\n");
+                    for p in &pref.principles {
+                        identity_section.push_str(&format!("- {}\n", p));
+                    }
+                }
+            }
+            identity_section.push_str("\n");
+
+            let section_tokens = count_tokens(&identity_section);
+            if tokens_used + section_tokens < budget {
+                packet.push_str(&identity_section);
+                tokens_used += section_tokens;
+            }
+        }
+
+        // 0.1 Project Brief (New)
+        let brief_path = current_path.join("agents/CITADEL.md");
+        if brief_path.exists() {
+            if let Ok(content) = fs::read_to_string(&brief_path) {
+                let brief_section = format!("## 📋 Project Brief\n{}\n\n", content);
+                let section_tokens = count_tokens(&brief_section);
+                if tokens_used + section_tokens < budget {
+                    packet.push_str(&brief_section);
+                    tokens_used += section_tokens;
+                }
+            }
+        }
 
         // 1. Agent History Distillation (Upgrade 2 + 3)
         let episodes = self
@@ -95,29 +132,18 @@ Date: {}
                 raw_history.push_str(&format!("Session {}: {}\n", ep.session_id, ep.summary));
             }
 
-            // Distill history into a State of the Union paragraph
-            let prompt = format!(
-                "Synthesize the following recent agent session reports into a single, high-density paragraph \
-                 describing the current 'State of the Union' for the project. Focus on completed work, \
-                 active blockers, and next steps. Reports:\n\n{}", 
-                raw_history
-            );
+            // Use precomputed episodic summaries directly to avoid on-the-fly LLM synthesis
+            let mut summary_block = "## Ⅰ. Recent Episode Summaries (Distilled History)\n".to_string();
+            for ep in &episodes {
+                summary_block.push_str(&format!("- Session {}: {}\n", ep.session_id, ep.summary));
+            }
+            summary_block.push_str("\n");
+            let ep_section = summary_block;
 
-            let distilled = self
-                .intelligence
-                .summarize(&prompt)
-                .await
-                .unwrap_or_else(|_| {
-                    "History distillation failed. Review raw episodes.".to_string()
-                });
-
-            let ep_section = format!(
-                "## Ⅰ. State of the Union (Distilled History)\n{}\n\n",
-                distilled
-            );
-
-            if count_tokens(&packet) + count_tokens(&ep_section) < budget {
+            let section_tokens = count_tokens(&ep_section);
+            if tokens_used + section_tokens < budget {
                 packet.push_str(&ep_section);
+                tokens_used += section_tokens;
             }
         }
 
@@ -136,9 +162,41 @@ Date: {}
                     fact.domain, fact.confidence, fact.content
                 ));
             }
+            fact_section.push_str("\n");
 
-            if count_tokens(&packet) + count_tokens(&fact_section) < budget {
+            let section_tokens = count_tokens(&fact_section);
+            if tokens_used + section_tokens < budget {
                 packet.push_str(&fact_section);
+                tokens_used += section_tokens;
+            }
+        }
+
+        // 2.5 Pending Inbox (New)
+        let inbox_dir = current_path.join("agents/inbox");
+        if inbox_dir.is_dir() {
+            if let Ok(entries) = fs::read_dir(inbox_dir) {
+                let mut inbox_section = "## 📨 Pending Inbox\n".to_string();
+                let mut found_messages = false;
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                        let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                        // Check if message is for this agent or 'all'
+                        if filename.contains(&agent.to_lowercase()) || filename.contains("all") {
+                            if let Ok(content) = fs::read_to_string(&path) {
+                                inbox_section.push_str(&format!("### Message: {}\n{}\n\n", filename, content));
+                                found_messages = true;
+                            }
+                        }
+                    }
+                }
+                if found_messages {
+                    let section_tokens = count_tokens(&inbox_section);
+                    if tokens_used + section_tokens < budget {
+                        packet.push_str(&inbox_section);
+                        tokens_used += section_tokens;
+                    }
+                }
             }
         }
 
@@ -162,7 +220,7 @@ Date: {}
 
         if !layers.is_empty() {
             let home_dir = std::env::var("HOME").unwrap_or_default();
-            packet.push_str("## Ⅲ. Workspace Hierarchy\n");
+            let mut hierarchy_section = "## Ⅲ. Workspace Hierarchy\n".to_string();
             for layer in layers.iter().rev() {
                 let level = self.hierarchy.resolve_level(layer);
                 let display_path = layer.to_string_lossy();
@@ -171,49 +229,51 @@ Date: {}
                 } else {
                     display_path.into_owned()
                 };
-                let layer_info = format!("### Level: {:?}\nPath: {}\n\n", level, sanitized);
-                if count_tokens(&packet) + count_tokens(&layer_info) < budget {
-                    packet.push_str(&layer_info);
-                    source_files.push(layer.to_string_lossy().to_string());
-                } else {
-                    break;
-                }
+                hierarchy_section.push_str(&format!("### Level: {:?}\nPath: {}\n\n", level, sanitized));
+                source_files.push(layer.to_string_lossy().to_string());
+            }
+
+            let section_tokens = count_tokens(&hierarchy_section);
+            if tokens_used + section_tokens < budget {
+                packet.push_str(&hierarchy_section);
+                tokens_used += section_tokens;
             }
         }
 
         // 4. Ghost API Summaries (Upgrade 1)
-        let mut api_section = "## Ⅳ. Crate API Maps (Ghost Summaries)\n".to_string();
-        api_section.push_str("The following public items are available in your current workspace members. Use these to find symbols without reading files.\n");
+        let mut api_header = "## Ⅳ. Crate API Maps (Ghost Summaries)\n".to_string();
+        api_header.push_str("The following public items are available in your current workspace members. Use these to find symbols without reading files.\n");
 
-        // We'll summarize the current crate and core
-        let crate_list = vec![
-            current_path.to_string_lossy().to_string(),
-            current_path
-                .join("crates/koad-core")
-                .to_string_lossy()
-                .to_string(),
-        ];
+        let header_tokens = count_tokens(&api_header);
+        if tokens_used + header_tokens < budget {
+            packet.push_str(&api_header);
+            tokens_used += header_tokens;
 
-        for c_path in crate_list {
-            if let Ok(summary) = self.codegraph.get_crate_summary(&c_path) {
-                if !summary.is_empty() {
-                    let c_name = Path::new(&c_path)
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("unknown");
-                    let block = format!("\n### Crate: {}\n{}\n", c_name, summary);
-                    if count_tokens(&packet) + count_tokens(&api_section) + count_tokens(&block)
-                        < budget
-                    {
-                        api_section.push_str(&block);
+            // We'll summarize the current crate and core
+            let crate_list = vec![
+                current_path.to_string_lossy().to_string(),
+                current_path
+                    .join("crates/koad-core")
+                    .to_string_lossy()
+                    .to_string(),
+            ];
+
+            for c_path in crate_list {
+                if let Ok(summary) = self.codegraph.get_crate_summary(&c_path) {
+                    if !summary.is_empty() {
+                        let c_name = Path::new(&c_path)
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown");
+                        let block = format!("\n### Crate: {}\n{}\n", c_name, summary);
+                        let block_tokens = count_tokens(&block);
+                        if tokens_used + block_tokens < budget {
+                            packet.push_str(&block);
+                            tokens_used += block_tokens;
+                        }
                     }
                 }
             }
-        }
-
-        if api_section.len() > 150 {
-            // Only add if we actually found something
-            packet.push_str(&api_section);
         }
 
         // 5. Global Pulses
@@ -226,21 +286,23 @@ Date: {}
                         pulse_section
                             .push_str(&format!("- [{}] {}: {}\n", p.role, p.author, p.message));
                     }
-                    if count_tokens(&packet) + count_tokens(&pulse_section) < budget {
+                    let section_tokens = count_tokens(&pulse_section);
+                    if tokens_used + section_tokens < budget {
                         packet.push_str(&pulse_section);
+                        tokens_used += section_tokens;
                     }
                 }
             }
         }
 
-        let tokens = count_tokens(&packet);
         Ok(Response::new(HydrationResponse {
             markdown_packet: packet,
-            estimated_tokens: tokens as u32,
+            estimated_tokens: tokens_used as u32,
             source_files,
         }))
     }
 }
+
 
 #[cfg(test)]
 mod tests {
