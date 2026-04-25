@@ -58,6 +58,11 @@ pub enum Commands {
         #[arg(long)]
         done: bool,
     },
+    /// Perform deep situational synthesis via the ABC pipeline (LLM intensive).
+    Intel {
+        /// The name of the agent to gather intel for.
+        agent: String,
+    },
 }
 
 pub async fn run() -> Result<()> {
@@ -82,6 +87,9 @@ pub async fn run() -> Result<()> {
         }
         Commands::Task { manifest, done } => {
             commands::handle_task(&config, manifest, done).await?;
+        }
+        Commands::Intel { agent } => {
+            commands::handle_intel(&config, &agent).await?;
         }
     }
     Ok(())

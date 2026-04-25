@@ -380,49 +380,13 @@ pub async fn handle_boot(
         );
 
         // --- [ABC: Automated Boot Cognition] ---
-        if let Some(id) = identity_config {
-            if id.tier >= 3 {
-                let config_clone = config.clone();
-                let vault_clone = vault_path.clone();
-                let agent_clone = agent_name.clone();
-                let agent_key_clone = agent_key.clone();
-                let cache_dir_clone = cache_dir.clone();
-                let brief_content_clone = brief_content.clone();
-
-                tokio::spawn(async move {
-                    if let Ok(tactical_brief) = crate::handlers::abc::run_abc(
-                        &config_clone,
-                        &vault_clone,
-                        &agent_clone,
-                    )
-                    .await
-                    {
-                        let mut final_brief = brief_content_clone;
-                        final_brief.push_str("\n## Tactical Brief (Citadel ABC)\n");
-                        final_brief.push_str(&tactical_brief);
-                        final_brief.push('\n');
-
-                        let wm_path = vault_clone.join("memory/WORKING_MEMORY.md");
-                        if let Ok(mem) = fs::read_to_string(&wm_path).await {
-                            final_brief.push_str("\n## Working Memory\n");
-                            final_brief.push_str(&mem);
-                        }
-                        let _ = fs::write(
-                            cache_dir_clone
-                                .join(format!("session-brief-{}.md", agent_key_clone)),
-                            &final_brief,
-                        )
-                        .await;
-                    }
-                });
-            }
+        // We now use a centralized SITREP.md at the workspace root instead of isolated
+        // working memory files. This ensures global consistency across the crew.
+        if let Ok(sitrep) = std::fs::read_to_string("SITREP.md") {
+            brief_content.push_str("\n## Tactical Brief (Citadel SITREP)\n");
+            brief_content.push_str(&sitrep);
         }
 
-        let working_memory_path = vault_path.join("memory/WORKING_MEMORY.md");
-        if let Ok(mem) = fs::read_to_string(&working_memory_path).await {
-            brief_content.push_str("\n## Working Memory\n");
-            brief_content.push_str(&mem);
-        }
         let _ = fs::write(
             cache_dir.join(format!("session-brief-{}.md", agent_key)),
             &brief_content,
