@@ -1,4 +1,5 @@
 
+.worktrees/
 !/bin/*.sh
 !agents/crews/TEMPLATE.md
 # (stable_release and side_quests remain tracked as distribution roadmaps)
