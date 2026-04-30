@@ -70,6 +70,7 @@ logs/
 new_world/
 node_modules/
 plans/
+!docs/superpowers/plans/
 portals/
 release/
 run/
