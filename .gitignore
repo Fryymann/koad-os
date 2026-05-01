@@ -47,6 +47,7 @@
 AGENTS.md
 CLAUDE.md
 GEMINI.md
+!plugin/GEMINI.md
 agents/*
 agents/.claude/
 agents/.claude/worktrees/

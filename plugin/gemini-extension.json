@@ -1,0 +1,6 @@
+{
+  "name": "koad-agents",
+  "description": "KoadOS agent boot skill for Tyr and crew",
+  "version": "1.0.0",
+  "contextFileName": "GEMINI.md"
+}
