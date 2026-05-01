@@ -1,7 +1,6 @@
 #![allow(dead_code, unused_imports, clippy::type_complexity)]
 
 mod cli;
-mod db;
 mod handlers;
 mod tui;
 mod utils;
@@ -13,11 +12,12 @@ use koad_core::config::KoadConfig;
 use koad_core::logging::init_logging;
 use koad_core::session::AgentSession;
 use koad_core::utils::redis::RedisClient;
+use koad_core::db::KoadDB;
 use std::env;
 use std::path::PathBuf;
 
 use crate::cli::{AgentAction, Cli, Commands, SystemAction, UpdatesAction, XpCommands};
-use crate::db::KoadDB;
+// use crate::db::KoadDB;
 use crate::handlers::boot::handle_boot_command;
 use crate::handlers::bridge::handle_bridge_action;
 use crate::handlers::fleet::handle_fleet_action;

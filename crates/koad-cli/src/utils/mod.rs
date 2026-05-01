@@ -35,11 +35,28 @@ pub fn get_trace_context(actor: &str, level: i32) -> TraceContext {
 
 pub fn authenticated_request<T>(payload: T) -> tonic::Request<T> {
     let mut req = tonic::Request::new(payload);
+
+    // 1. x-actor (Required by Citadel Interceptor)
+    if let Ok(actor) = env::var("KOAD_AGENT_NAME") {
+        if let Ok(val) = actor.parse::<tonic::metadata::MetadataValue<tonic::metadata::Ascii>>() {
+            req.metadata_mut().insert("x-actor", val);
+        }
+    }
+
+    // 2. x-session-id (Required by Citadel Interceptor)
     if let Ok(sid) = env::var("KOAD_SESSION_ID") {
         if let Ok(val) = sid.parse::<tonic::metadata::MetadataValue<tonic::metadata::Ascii>>() {
             req.metadata_mut().insert("x-session-id", val);
         }
     }
+
+    // 3. x-session-token (Required by Citadel Interceptor)
+    if let Ok(token) = env::var("KOAD_SESSION_TOKEN") {
+        if let Ok(val) = token.parse::<tonic::metadata::MetadataValue<tonic::metadata::Ascii>>() {
+            req.metadata_mut().insert("x-session-token", val);
+        }
+    }
+
     req
 }
 

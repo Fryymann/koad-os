@@ -1,4 +1,4 @@
-use crate::db::KoadDB;
+use koad_core::db::KoadDB;
 use anyhow::Result;
 use fred::interfaces::HashesInterface;
 use koad_core::config::KoadConfig;

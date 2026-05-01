@@ -1,5 +1,5 @@
 use crate::cli::{BridgeAction, FsAction, NotionAction, SkillAction, StreamAction};
-use crate::db::KoadDB;
+use koad_core::db::KoadDB;
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use koad_bridge_notion::{NotionClient, NotionMcpProxy};

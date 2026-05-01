@@ -6,7 +6,7 @@
 //! Following RUST_CANON v1.0 standards for async I/O and zero-panic stability.
 
 use crate::cli::MapAction;
-use crate::db::KoadDB;
+use koad_core::db::KoadDB;
 use anyhow::{Context, Result};
 use koad_core::config::KoadConfig;
 use koad_proto::citadel::v5::WorkspaceLevel;

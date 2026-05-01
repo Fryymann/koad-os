@@ -18,7 +18,7 @@ pub async fn handle_import(
     labels: Vec<String>,
     dry_run: bool,
     config: &KoadConfig,
-    db: &crate::db::KoadDB,
+    db: &koad_core::db::KoadDB,
 ) -> Result<()> {
     println!(
         ">>> [IMPORT] Energizing Ingestion Pipeline: {}...",

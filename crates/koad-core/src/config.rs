@@ -51,10 +51,13 @@ pub struct KoadConfig {
     /// Canonical path to the KoadOS home directory.
     pub home: PathBuf,
     /// High-level system metadata (version, repository info).
+    #[serde(default = "default_system")]
     pub system: SystemConfig,
     /// Network and socket configuration for inter-service communication.
+    #[serde(default = "default_network")]
     pub network: NetworkConfig,
     /// Persistence settings for the primary SQLite database.
+    #[serde(default = "default_storage")]
     pub storage: StorageConfig,
     /// Optional registry for MOTD and status board visualization.
     #[serde(default)]
@@ -646,6 +649,14 @@ impl KoadConfig {
             }
         }
         None
+    }
+}
+
+pub fn default_system() -> SystemConfig {
+    SystemConfig {
+        version: "3.2".to_string(),
+        github_owner: Some(DEFAULT_GITHUB_OWNER.to_string()),
+        github_repo: Some(DEFAULT_GITHUB_REPO.to_string()),
     }
 }
 

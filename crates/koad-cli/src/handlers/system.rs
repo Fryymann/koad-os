@@ -1,5 +1,5 @@
 use crate::cli::{ConfigAction, SystemAction};
-use crate::db::KoadDB;
+use koad_core::db::KoadDB;
 use crate::utils::errors::map_connect_err;
 use crate::utils::{get_gdrive_token_for_path, get_gh_pat_for_path};
 use anyhow::{Context, Result};
