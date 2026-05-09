@@ -186,6 +186,43 @@ impl MemoryTier for SqliteTier {
         Ok(())
     }
 
+    async fn search_semantic(
+        &self,
+        query: &str,
+        partition: &str,
+        limit: u32,
+    ) -> Result<Vec<FactCard>> {
+        let conn = self.conn.lock().await;
+        let pattern = format!("%{}%", query);
+        let agent_pattern = format!("%{}%", partition);
+        let mut stmt = conn.prepare(
+            "SELECT id, source_agent, session_id, domain, content, confidence, tags
+             FROM fact_cards WHERE content LIKE ?1 AND source_agent LIKE ?2
+             ORDER BY confidence DESC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![pattern, agent_pattern, limit], |row| {
+            Ok(FactCard {
+                id: row.get(0)?,
+                source_agent: row.get(1)?,
+                session_id: row.get(2)?,
+                domain: row.get(3)?,
+                content: row.get(4)?,
+                confidence: row.get(5)?,
+                tags: row
+                    .get::<_, String>(6)?
+                    .split(',')
+                    .map(|s| s.to_string())
+                    .collect(),
+                created_at: None,
+            })
+        })?;
+        let mut facts = Vec::new();
+        for row in rows {
+            facts.push(row?);
+        }
+        Ok(facts)
+    }
+
     async fn query_recent_episodes(
         &self,
         _agent_name: &str,

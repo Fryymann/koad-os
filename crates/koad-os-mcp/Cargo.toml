@@ -1,0 +1,23 @@
+[package]
+name = "koad-os-mcp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "koad-os-mcp"
+path = "src/main.rs"
+
+[dependencies]
+koad-mcp = { path = "../koad-mcp" }
+koad-proto = { path = "../koad-proto" }
+tokio = { workspace = true }
+tonic = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+async-trait = { workspace = true }

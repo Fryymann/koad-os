@@ -240,4 +240,37 @@ impl MemoryTier for QdrantTier {
     ) -> Result<Vec<EpisodicMemory>> {
         Ok(vec![])
     }
+
+    async fn search_semantic(
+        &self,
+        _query: &str,
+        partition: &str,
+        limit: u32,
+    ) -> Result<Vec<FactCard>> {
+        let Some(client) = &self.client else {
+            return Ok(vec![]);
+        };
+        let filter = Filter::must([Condition::matches(
+            "source_agent",
+            partition.to_string(),
+        )]);
+
+        let result = client
+            .scroll(
+                ScrollPointsBuilder::new(COLLECTION)
+                    .filter(filter)
+                    .limit(limit)
+                    .with_payload(true),
+            )
+            .await
+            .context("QdrantTier: search_semantic scroll failed")?;
+
+        let facts = result
+            .result
+            .iter()
+            .filter_map(|p| Self::payload_to_fact(&p.payload))
+            .collect();
+
+        Ok(facts)
+    }
 }

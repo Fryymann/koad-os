@@ -142,6 +142,16 @@ impl MemoryTier for RedisTier {
     ) -> Result<Vec<EpisodicMemory>> {
         Ok(vec![])
     }
+
+    async fn search_semantic(
+        &self,
+        _query: &str,
+        _partition: &str,
+        _limit: u32,
+    ) -> Result<Vec<FactCard>> {
+        // Redis has no full-text search capability.
+        Ok(vec![])
+    }
 }
 
 impl RedisTier {

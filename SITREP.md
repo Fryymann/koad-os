@@ -1,23 +1,24 @@
 # Citadel SITREP (Situation Report)
-**Date:** 2026-04-25
-**Current Objective:** Centralize agent awareness and streamline the boot process.
+**Date:** 2026-05-02
+**Current Objective:** Token-efficiency rollout and harness optimization.
 
 ## 🎯 Active Missions
+- [ ] **P2 OpenRouter Integration:** Route requests to cost-effective models for lightweight tasks.
+- [ ] **P3 caveman/cavemem Skill:** Implement output and context compression skills.
 - [ ] **Phase 3 Vault Integration:** Integrate `koad vault skill` with the Blueprint/Instance model.
 - [ ] **Rust Review Skill:** Refine `koad-review.sh` into a permanent Rust skill.
-- [ ] **Docker Stabilization:** Enable Docker WSL integration to bring Qdrant and CASS online.
-- [ ] **Crew Formalization:** Formalize the Crew contract with Clyde (Implementation Lead).
 
 ## 🛠️ Recent Accomplishments
-- **Phase 2 Vault Complete:** Identity decoupled from absolute paths via `KOAD_VAULT_URI`.
-- **ABC Pipeline Native:** Ported ABC from Bash to native Rust in `koad-agent`.
-- **Entry-Point Anchoring:** Implemented automatic identity anchor generation on boot.
+- **RTK Global Rollout (P1):** Integrated `rtk` (Rust Token Killer) across all agents and runtimes. Measured 70%+ savings on standard CLI tool calls.
+- **Task-Scoped Caveman (P3):** Deployed the `caveman` skill suite with "Sovereign Prose vs. Task-Talk" boundaries.
+- **Efficiency Core Blueprint:** Codified `skill-efficiency-core` as a canonical Citadel Skill blueprint for cross-harness parity (Claude/Codex/Gemini).
+- **Navigation Recovery:** Fixed `koad map look` failure by implementing automatic SQLite schema initialization for `notion-sync.db`.
 
 ## 🏗️ Architectural Decisions
-- **Centralized Awareness:** All agents will now read from `SITREP.md` at the workspace root instead of isolated `WORKING_MEMORY.md` files.
-- **On-Demand Intel:** Heavy LLM synthesis (ABC) is moved from the boot path to an explicit `koad-agent intel` command.
+- **Token Efficiency First:** `rtk` initialization is now a foundational requirement for all neural link sessions via `agent-boot.sh`.
+- **Self-Healing Data Layers:** Bridge proxies are now responsible for their own schema initialization to prevent database-missing errors on first-run.
 
 ## 🔜 Immediate Next Actions
-1. Modify `koad-agent boot` to read `SITREP.md`.
-2. Implement `koad-agent intel` command for on-demand deep synthesis.
-3. Remove automatic background ABC execution from `boot.rs`.
+1. Deploy `ANTHROPIC_BASE_URL` routing for OpenRouter (P2).
+2. Install and register `caveman` skill for squad-leader+ agents (P3).
+3. Finalize Docker WSL stabilization for Qdrant/CASS.

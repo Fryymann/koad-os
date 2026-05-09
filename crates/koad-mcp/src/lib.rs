@@ -95,7 +95,7 @@ impl McpServer {
         Ok(())
     }
 
-    async fn handle_request(&self, req: JsonRpcRequest) -> JsonRpcResponse {
+    pub async fn handle_request(&self, req: JsonRpcRequest) -> JsonRpcResponse {
         let result = match req.method.as_str() {
             "initialize" => {
                 Some(serde_json::json!({

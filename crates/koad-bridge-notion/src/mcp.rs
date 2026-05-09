@@ -12,7 +12,85 @@ pub struct NotionMcpProxy {
 impl NotionMcpProxy {
     pub fn new(api_key: String, db_path: PathBuf) -> Result<Self> {
         let client = NotionClient::new(api_key)?;
-        Ok(Self { client, db_path })
+        let proxy = Self { client, db_path };
+        proxy.setup_schema()?;
+        Ok(proxy)
+    }
+
+    fn setup_schema(&self) -> Result<()> {
+        let conn = Connection::open(&self.db_path)?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS sync_sources (
+                source_id       TEXT PRIMARY KEY,
+                source_name     TEXT NOT NULL,
+                last_sync_at    TEXT,
+                page_count      INTEGER DEFAULT 0,
+                sync_status     TEXT DEFAULT 'never'
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS pages (
+                page_id         TEXT PRIMARY KEY,
+                source_id       TEXT NOT NULL,
+                title           TEXT NOT NULL,
+                content_md      TEXT,
+                properties_json TEXT,
+                notion_url      TEXT,
+                created_at      TEXT NOT NULL,
+                updated_at      TEXT NOT NULL,
+                synced_at       TEXT NOT NULL,
+                is_deleted      INTEGER DEFAULT 0,
+                FOREIGN KEY (source_id) REFERENCES sync_sources(source_id)
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
+                title,
+                content_md,
+                content='pages',
+                content_rowid='rowid'
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS sync_log (
+                sync_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at      TEXT NOT NULL,
+                completed_at    TEXT,
+                source_id       TEXT,
+                pages_added     INTEGER DEFAULT 0,
+                pages_updated   INTEGER DEFAULT 0,
+                pages_deleted   INTEGER DEFAULT 0,
+                pages_unchanged INTEGER DEFAULT 0,
+                status          TEXT DEFAULT 'running',
+                error_message   TEXT
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pages_source ON pages(source_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pages_updated ON pages(updated_at)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pages_synced ON pages(synced_at)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pages_deleted ON pages(is_deleted) WHERE is_deleted = 0",
+            [],
+        )?;
+
+        Ok(())
     }
 
     /// Optimized: Try local cache first for page content.

@@ -85,6 +85,15 @@ impl MemoryTier for TieredStorage {
             .query_recent_episodes(agent_name, limit, task_id)
             .await
     }
+
+    async fn search_semantic(
+        &self,
+        query: &str,
+        partition: &str,
+        limit: u32,
+    ) -> Result<Vec<FactCard>> {
+        self.l2.search_semantic(query, partition, limit).await
+    }
 }
 
 #[cfg(test)]

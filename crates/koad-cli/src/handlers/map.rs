@@ -13,22 +13,112 @@ use koad_proto::citadel::v5::WorkspaceLevel;
 use rusqlite::Connection;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use tokio::fs;
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
 /// Path to the code-review-graph database.
-fn get_graph_db_path(config: &KoadConfig) -> PathBuf {
+async fn get_graph_db_path(config: &KoadConfig) -> PathBuf {
+    // 1. Try current git root first
+    if let Some(git_root) = find_git_root().await {
+        let p = git_root.join(".code-review-graph/graph.db");
+        if p.exists() {
+            return p;
+        }
+    }
+    // 2. Fallback to config.home
     config.home.join(".code-review-graph/graph.db")
 }
 
 /// Connect to the code-review-graph database.
-fn connect_graph_db(config: &KoadConfig) -> Result<Connection> {
-    let path = get_graph_db_path(config);
+async fn connect_graph_db(config: &KoadConfig) -> Result<Connection> {
+    let path = get_graph_db_path(config).await;
     Connection::open(&path).context(format!(
         "Failed to open graph database at {}",
         path.display()
     ))
+}
+
+async fn find_git_root() -> Option<PathBuf> {
+    let output = Command::new("git")
+        .args(&["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Some(PathBuf::from(path_str))
+    } else {
+        None
+    }
+}
+
+async fn get_current_sha() -> Option<String> {
+    let output = Command::new("git")
+        .args(&["rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        None
+    }
+}
+
+fn find_graph_binary() -> PathBuf {
+    // Try standard location
+    if let Some(home) = dirs::home_dir() {
+        let p = home.join(".local/bin/code-review-graph");
+        if p.exists() {
+            return p;
+        }
+    }
+    PathBuf::from("code-review-graph")
+}
+
+async fn sync_graph(config: &KoadConfig) -> Result<()> {
+    let db_path = get_graph_db_path(config).await;
+    if !db_path.exists() {
+        return Ok(());
+    }
+
+    let current_sha = match get_current_sha().await {
+        Some(sha) => sha,
+        None => return Ok(()),
+    };
+
+    let conn = Connection::open(&db_path)?;
+    let built_sha: Option<String> = conn
+        .query_row(
+            "SELECT value FROM metadata WHERE key = 'git_head_sha'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+
+    if let Some(built_sha) = built_sha {
+        if built_sha != current_sha {
+            println!(
+                ">>> [SYNC] Graph is stale (built at {}, current is {}).",
+                &built_sha[..12],
+                &current_sha[..12]
+            );
+            println!(">>> [SYNC] Rebuilding graph via code-review-graph...");
+
+            let binary = find_graph_binary();
+            let status = Command::new(binary).arg("update").status()?;
+
+            if status.success() {
+                println!(">>> [SYNC] Graph update complete.");
+            } else {
+                warn!("Graph update failed with status: {}", status);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Handles the 'map' command group.
@@ -43,6 +133,11 @@ pub async fn handle_map(
 ) -> Result<()> {
     let agent_name = config.get_agent_name();
     let current_dir = env::current_dir().context("Failed to get current directory")?;
+
+    // Sync graph if needed before any action
+    if let Err(e) = sync_graph(config).await {
+        debug!("Graph sync skipped or failed: {}", e);
+    }
 
     debug!(agent = %agent_name, path = %current_dir.display(), "Executing map command");
 
@@ -134,7 +229,7 @@ async fn render_look(
     }
 
     // --- Dynamic Graph Integration ---
-    if let Ok(conn) = connect_graph_db(config) {
+    if let Ok(conn) = connect_graph_db(config).await {
         let abs_path = fs::canonicalize(dir)
             .await
             .unwrap_or_else(|_| dir.to_path_buf());
@@ -266,7 +361,7 @@ async fn render_exits(dir: &Path, agent: &str, config: &KoadConfig, db: &KoadDB)
     }
 
     // --- Dynamic Graph Integration ---
-    if let Ok(conn) = connect_graph_db(config) {
+    if let Ok(conn) = connect_graph_db(config).await {
         let abs_path = fs::canonicalize(dir)
             .await
             .unwrap_or_else(|_| dir.to_path_buf());
@@ -310,7 +405,7 @@ async fn handle_goto(target: &str, agent: &str, config: &KoadConfig, db: &KoadDB
     }
 
     // 2. Search Dynamic Graph (New behavior)
-    if let Ok(conn) = connect_graph_db(config) {
+    if let Ok(conn) = connect_graph_db(config).await {
         let mut stmt = conn.prepare(
             "SELECT file_path, line_start FROM nodes_fts 
              WHERE nodes_fts MATCH ?1 
@@ -452,7 +547,7 @@ async fn render_nearby(dir: &Path, agent: &str, config: &KoadConfig, db: &KoadDB
     println!("🔍 SCANNING PROXIMITY...");
 
     // --- Dynamic Graph Integration ---
-    if let Ok(conn) = connect_graph_db(config) {
+    if let Ok(conn) = connect_graph_db(config).await {
         let abs_path = fs::canonicalize(dir)
             .await
             .unwrap_or_else(|_| dir.to_path_buf());

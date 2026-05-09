@@ -13,6 +13,9 @@ service MemoryService {
   rpc QueryFacts(FactQuery) returns (FactResponse);
   // Record a summary of a session's episode.
   rpc RecordEpisode(EpisodicMemory) returns (koad.citadel.v5.StatusResponse);
+  // Search facts by content similarity within a partition.
+  // NOTE: Uses content-hash fingerprint matching until InferenceRouter supports embed().
+  rpc SearchSemantic(SemanticQuery) returns (FactResponse);
 }
 
 service HydrationService {
@@ -112,6 +115,13 @@ message FactQuery {
   repeated string tags = 2;
   uint32 limit = 3;
   koad.citadel.v5.WorkspaceLevel min_level = 4;
+}
+
+message SemanticQuery {
+  string query = 1;     // free-text query string
+  string partition = 2; // agent partition key (e.g. "rook_hostname_user")
+  uint32 limit = 3;
+  float min_score = 4;  // 0.0–1.0; ignored until real embeddings land
 }
 
 message FactResponse {

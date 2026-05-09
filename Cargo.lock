@@ -2169,6 +2169,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "koad-os-mcp"
+version = "3.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "koad-mcp",
+ "koad-proto",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tonic",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "koad-plugins"
 version = "3.2.0"
 dependencies = [

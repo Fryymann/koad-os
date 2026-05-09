@@ -8,6 +8,7 @@ members = [
     "crates/koad-board",
     "crates/koad-bridge-notion",
     "crates/koad-mcp",
+    "crates/koad-os-mcp",
     "crates/koad-cass",
     "crates/koad-intelligence",
     "crates/koad-sandbox",

@@ -123,4 +123,24 @@ impl MemoryTier for MockStorage {
             .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         Ok(episodes.clone())
     }
+
+    async fn search_semantic(
+        &self,
+        query: &str,
+        _partition: &str,
+        limit: u32,
+    ) -> Result<Vec<FactCard>> {
+        let facts = self
+            .facts
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let query_lower = query.to_lowercase();
+        let results = facts
+            .iter()
+            .filter(|f| f.content.to_lowercase().contains(&query_lower))
+            .take(limit as usize)
+            .cloned()
+            .collect();
+        Ok(results)
+    }
 }

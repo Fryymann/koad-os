@@ -46,6 +46,7 @@ ENV KOADOS_URL_QDRANT="http://qdrant:6333"
 ENV RUST_LOG="info"
 
 # Expose gRPC port
-EXPOSE 50051
+ENV CASS_GRPC_PORT=50052
+EXPOSE 50052
 
 CMD ["/app/koad-cass"]

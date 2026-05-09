@@ -3,7 +3,7 @@
 use crate::storage::MemoryTier;
 use koad_intelligence::router::InferenceRouter;
 use koad_proto::cass::v1::memory_service_server::MemoryService;
-use koad_proto::cass::v1::{EpisodicMemory, FactCard, FactQuery, FactResponse};
+use koad_proto::cass::v1::{EpisodicMemory, FactCard, FactQuery, FactResponse, SemanticQuery};
 use koad_proto::citadel::v5::StatusResponse;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
@@ -83,5 +83,19 @@ impl MemoryService for CassMemoryService {
             message: "Episode recorded.".to_string(),
             context: None,
         }))
+    }
+
+    async fn search_semantic(
+        &self,
+        request: Request<SemanticQuery>,
+    ) -> Result<Response<FactResponse>, Status> {
+        let req = request.into_inner();
+        let facts = self
+            .storage
+            .search_semantic(&req.query, &req.partition, req.limit)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(FactResponse { facts }))
     }
 }
