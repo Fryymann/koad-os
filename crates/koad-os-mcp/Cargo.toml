@@ -8,6 +8,10 @@ authors.workspace = true
 name = "koad-os-mcp"
 path = "src/main.rs"
 
+[[bin]]
+name = "cass-ingest"
+path = "src/bin/cass-ingest.rs"
+
 [dependencies]
 koad-mcp = { path = "../koad-mcp" }
 koad-proto = { path = "../koad-proto" }
@@ -21,3 +25,7 @@ tracing-subscriber = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
 async-trait = { workspace = true }
+clap = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+prost-types = { workspace = true }
