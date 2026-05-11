@@ -1,0 +1,21 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m koad && mkdir -p /app/data && chown -R koad:koad /app
+USER koad
+WORKDIR /app
+
+COPY --chown=koad:koad bin/koad-cass /app/koad-cass
+
+ENV KOADOS_URL_REDIS="redis://redis:6379"
+ENV KOADOS_URL_QDRANT="http://qdrant:6333"
+ENV RUST_LOG="info"
+ENV CASS_GRPC_PORT=50052
+EXPOSE 50052
+
+CMD ["/app/koad-cass"]

@@ -175,14 +175,24 @@ fi
 # 6. Binary Installation (Final Check)
 CURRENT_STEP="Binary Installation"
 section "Binary Installation"
-for bin in koad koad-agent koad-os-mcp; do
+for bin in koad koad-agent koad-cass koad-os-mcp; do
     if [[ -f "target/release/$bin" ]]; then
+        # Remove symlink or old binary before copy
+        rm -f "$BIN_DIR/$bin"
         cp "target/release/$bin" "$BIN_DIR/$bin"
         ok "$bin installed to $BIN_DIR"
     else
         warn "$bin not found in target/release/. Ensure you ran ./install.sh first."
     fi
 done
+
+# 6b. Docker Rook Assets
+CURRENT_STEP="Docker Rook Deploy"
+section "Docker Rook Assets"
+ROOK_DEST="$KOAD_HOME/docker/rook"
+mkdir -p "$ROOK_DEST"
+cp -r docker/rook/. "$ROOK_DEST/"
+ok "docker/rook/ deployed to $ROOK_DEST"
 
 # 7. Database Migrations / Setup
 CURRENT_STEP="Database & State"
@@ -237,14 +247,14 @@ if [[ "$SETUP_CLAUDE_AGENT" = true ]]; then
 
     echo ""
     echo -e "${BOLD}To start your Claude Desktop memory agent:${RESET}"
-    echo -e "  ${CYAN}AGENT_NAME=\"$CLAUDE_AGENT_NAME\" ./docker/rook/rook-up.sh${RESET}"
+    echo -e "  ${CYAN}AGENT_NAME=\"$CLAUDE_AGENT_NAME\" $KOAD_HOME/docker/rook/rook-up.sh${RESET}"
     echo ""
     echo -e "Then add this to your ${BOLD}claude_desktop_config.json${RESET}:"
     echo -e "  ${CYAN}\"mcpServers\": { \"$CLAUDE_AGENT_NAME\": { \"transport\": \"http\", \"url\": \"http://localhost:9742/mcp\" } }${RESET}"
     echo ""
     ok "Claude Desktop agent '$CLAUDE_AGENT_NAME' configured."
 else
-    info "Skipping Claude Desktop agent setup. Run './docker/rook/rook-up.sh' later to enable."
+    info "Skipping Claude Desktop agent setup. Run '$KOAD_HOME/docker/rook/rook-up.sh' later to enable."
 fi
 
 CURRENT_STEP="Finalizing"
