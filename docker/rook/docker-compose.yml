@@ -3,14 +3,14 @@ services:
     image: redis/redis-stack:7.2.0-v10
     container_name: rook-redis
     volumes:
-      - ./data/redis:/data
+      - rook-redis:/data
     restart: unless-stopped
 
   qdrant:
     image: qdrant/qdrant:v1.11.0
     container_name: rook-qdrant
     volumes:
-      - ./data/qdrant:/qdrant/storage
+      - rook-qdrant:/qdrant/storage
     restart: unless-stopped
 
   cass:
@@ -25,7 +25,7 @@ services:
       - CASS_GRPC_PORT=50052
       - RUST_LOG=info
     volumes:
-      - ./data/sqlite:/app/data
+      - rook-cass-data:/app/data
     restart: unless-stopped
 
   koad-os-mcp:
@@ -37,8 +37,13 @@ services:
       - "9742:9742"
     environment:
       - CASS_URL=http://cass:50052
-      - QDRANT_URL=http://qdrant:6334
+      - QDRANT_URL=http://qdrant:6333
       - MCP_MODE=read_only
-      - AGENT_PARTITION=${AGENT_NAME:-agent}_${HOSTNAME}_${USER}
+      - AGENT_PARTITION=${AGENT_NAME:-rook}_${HOSTNAME:-skylinks}_${USER:-admin}
       - RUST_LOG=info
     restart: unless-stopped
+
+volumes:
+  rook-redis:
+  rook-qdrant:
+  rook-cass-data:
