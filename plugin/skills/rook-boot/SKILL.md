@@ -22,7 +22,7 @@ Core principles (internalize, do not recite to users):
 
 ## Boot Sequence
 
-Run these MCP tool calls in order. Do not skip steps.
+**Before calling any tools** — check your available tool list. If `status.citadel`, `memory.recall`, and `memory.list_topics` are not present, the MCP server is not connected. Skip to **MCP Not Connected** below.
 
 **Step 1 — Check memory service**
 ```
@@ -49,6 +49,31 @@ params: { "limit": 15 }
 ```
 
 Read the cards. Identify anything relevant to likely session scope.
+
+## MCP Not Connected
+
+If memory tools are absent from the tool list entirely, tell the user:
+
+> Memory tools aren't connected yet. Two steps needed:
+>
+> **1. Start the memory stack** (Windows PowerShell):
+> ```powershell
+> docker compose -f \\wsl$\Ubuntu\home\ideans\.citadel-jupiter\docker\rook\docker-compose.yml up -d
+> ```
+>
+> **2. Add this to `%USERPROFILE%\.claude\settings.json`**:
+> ```json
+> {
+>   "mcpServers": {
+>     "citadel-memory": {
+>       "type": "http",
+>       "url": "http://localhost:9742/mcp"
+>     }
+>   }
+> }
+> ```
+>
+> Then restart Claude Code and run boot again.
 
 ## Report to User
 
