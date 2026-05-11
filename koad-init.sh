@@ -122,10 +122,23 @@ else
     if [[ -d "blueprints/captain" ]]; then
         cp blueprints/captain/IDENTITY.toml "$KOAD_HOME/agents/captain/IDENTITY.toml"
         cp blueprints/captain/SYSTEM.md "$KOAD_HOME/agents/captain/SYSTEM.md"
-        
+
         # Customize IDENTITY.toml
         portable_sed "s/station = \"Citadel\"/station = \"$CITADEL_NAME\"/" "$KOAD_HOME/agents/captain/IDENTITY.toml"
         ok "Captain identity initialized for $CITADEL_NAME"
+
+        # Generate root harness context files (gitignored, machine-specific)
+        GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        for context_file in CLAUDE.md AGENTS.md GEMINI.md; do
+            blueprint="blueprints/captain/$context_file"
+            if [[ -f "$blueprint" ]]; then
+                cp "$blueprint" "./$context_file"
+                portable_sed "s|{{KOADOS_HOME}}|$KOAD_HOME|g" "./$context_file"
+                portable_sed "s|{{CITADEL_NAME}}|$CITADEL_NAME|g" "./$context_file"
+                portable_sed "s|{{GENERATED_AT}}|$GENERATED_AT|g" "./$context_file"
+                ok "$context_file generated"
+            fi
+        done
     else
         fail "Blueprints not found. Captain identity could not be initialized."
     fi
@@ -148,10 +161,21 @@ else
     warn "plugin/bin/agent-boot.sh not found."
 fi
 
+# 5b. Skills Deployment
+CURRENT_STEP="Skills Deployment"
+section "Skills Deployment"
+if [[ -d "plugin/skills" ]]; then
+    mkdir -p "$KOAD_HOME/skills"
+    cp -r plugin/skills/. "$KOAD_HOME/skills/"
+    ok "Skills deployed to $KOAD_HOME/skills"
+else
+    warn "plugin/skills/ not found. Skipping."
+fi
+
 # 6. Binary Installation (Final Check)
 CURRENT_STEP="Binary Installation"
 section "Binary Installation"
-for bin in koad koad-agent; do
+for bin in koad koad-agent koad-os-mcp; do
     if [[ -f "target/release/$bin" ]]; then
         cp "target/release/$bin" "$BIN_DIR/$bin"
         ok "$bin installed to $BIN_DIR"

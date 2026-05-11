@@ -21,7 +21,7 @@ services:
       - qdrant
     environment:
       - KOADOS_URL_REDIS=redis://redis:6379
-      - KOADOS_URL_QDRANT=http://qdrant:6334
+      - KOADOS_URL_QDRANT=http://qdrant:6333
       - CASS_GRPC_PORT=50052
       - RUST_LOG=info
     volumes:

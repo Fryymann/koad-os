@@ -91,6 +91,16 @@ else
     ok "code-review-graph installed."
 fi
 
+# Install rtk (Rust Token Killer — context compression for agent CLI tools)
+if command -v "rtk" &>/dev/null; then
+    ok "rtk already installed ($(command -v "rtk"))"
+else
+    info "Installing rtk..."
+    curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+    ok "rtk installed."
+fi
+
 # 3. Infrastructure Boot
 CURRENT_STEP="Infrastructure Boot"
 section "Infrastructure Boot (Docker)"
@@ -105,8 +115,8 @@ ok "Infrastructure is running in the background."
 # 4. Host Binary Compilation
 CURRENT_STEP="Binary Compilation"
 section "Host Binary Compilation (Rust)"
-info "Building 'koad' and 'koad-agent' in release mode..."
-cargo build --release --bin koad --bin koad-agent
+info "Building 'koad', 'koad-agent', and 'koad-os-mcp' in release mode..."
+cargo build --release --bin koad --bin koad-agent --bin koad-os-mcp
 ok "Binaries compiled successfully."
 
 # 5. Next Steps

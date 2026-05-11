@@ -99,6 +99,7 @@ pub async fn handle_boot(
         println!("export TMPDIR=\"{}/bank/tmp\";", vault_path.display());
         println!("export KOAD_PROMPT_CACHE_HASH=\"{}\";", cache_hash);
         println!("export KOAD_BOOT_MODE=\"dark\";");
+        println!("export CASS_GRPC_ADDR=\"{}\";", config.network.cass_grpc_addr);
 
         let agent_key = agent_name.to_lowercase();
         let home = dirs::home_dir().unwrap_or_default();
