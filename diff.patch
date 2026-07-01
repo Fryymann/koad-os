@@ -1,0 +1,485 @@
+diff --git a/.cursorrules b/.cursorrules
+new file mode 100644
+index 0000000..0a3e5c8
+--- /dev/null
++++ b/.cursorrules
+@@ -0,0 +1,38 @@
++<!-- code-review-graph MCP tools -->
++## MCP Tools: code-review-graph
++
++**IMPORTANT: This project has a knowledge graph. ALWAYS use the
++code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
++the codebase.** The graph is faster, cheaper (fewer tokens), and gives
++you structural context (callers, dependents, test coverage) that file
++scanning cannot.
++
++### When to use graph tools FIRST
++
++- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
++- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
++- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
++- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
++- **Architecture questions**: `get_architecture_overview` + `list_communities`
++
++Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
++
++### Key Tools
++
++| Tool | Use when |
++|------|----------|
++| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
++| `get_review_context` | Need source snippets for review — token-efficient |
++| `get_impact_radius` | Understanding blast radius of a change |
++| `get_affected_flows` | Finding which execution paths are impacted |
++| `query_graph` | Tracing callers, callees, imports, tests, dependencies |
++| `semantic_search_nodes` | Finding functions/classes by name or keyword |
++| `get_architecture_overview` | Understanding high-level codebase structure |
++| `refactor_tool` | Planning renames, finding dead code |
++
++### Workflow
++
++1. The graph auto-updates on file changes (via hooks).
++2. Use `detect_changes` for code review.
++3. Use `get_affected_flows` to understand impact.
++4. Use `query_graph` pattern="tests_for" to check coverage.
+diff --git a/.mcp.json b/.mcp.json
+new file mode 100644
+index 0000000..905d844
+--- /dev/null
++++ b/.mcp.json
+@@ -0,0 +1,11 @@
++{
++  "mcpServers": {
++    "code-review-graph": {
++      "command": "code-review-graph",
++      "args": [
++        "serve"
++      ],
++      "type": "stdio"
++    }
++  }
++}
+diff --git a/.opencode.json b/.opencode.json
+new file mode 100644
+index 0000000..9fa358f
+--- /dev/null
++++ b/.opencode.json
+@@ -0,0 +1,12 @@
++{
++  "mcpServers": {
++    "code-review-graph": {
++      "command": "code-review-graph",
++      "args": [
++        "serve"
++      ],
++      "type": "stdio",
++      "env": []
++    }
++  }
++}
+diff --git a/.windsurfrules b/.windsurfrules
+new file mode 100644
+index 0000000..0a3e5c8
+--- /dev/null
++++ b/.windsurfrules
+@@ -0,0 +1,38 @@
++<!-- code-review-graph MCP tools -->
++## MCP Tools: code-review-graph
++
++**IMPORTANT: This project has a knowledge graph. ALWAYS use the
++code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
++the codebase.** The graph is faster, cheaper (fewer tokens), and gives
++you structural context (callers, dependents, test coverage) that file
++scanning cannot.
++
++### When to use graph tools FIRST
++
++- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
++- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
++- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
++- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
++- **Architecture questions**: `get_architecture_overview` + `list_communities`
++
++Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
++
++### Key Tools
++
++| Tool | Use when |
++|------|----------|
++| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
++| `get_review_context` | Need source snippets for review — token-efficient |
++| `get_impact_radius` | Understanding blast radius of a change |
++| `get_affected_flows` | Finding which execution paths are impacted |
++| `query_graph` | Tracing callers, callees, imports, tests, dependencies |
++| `semantic_search_nodes` | Finding functions/classes by name or keyword |
++| `get_architecture_overview` | Understanding high-level codebase structure |
++| `refactor_tool` | Planning renames, finding dead code |
++
++### Workflow
++
++1. The graph auto-updates on file changes (via hooks).
++2. Use `detect_changes` for code review.
++3. Use `get_affected_flows` to understand impact.
++4. Use `query_graph` pattern="tests_for" to check coverage.
+diff --git a/blueprints/captain/IDENTITY.toml b/blueprints/captain/IDENTITY.toml
+index 0854701..8ef1e6b 100644
+--- a/blueprints/captain/IDENTITY.toml
++++ b/blueprints/captain/IDENTITY.toml
+@@ -13,7 +13,7 @@ focus = "system integrity, goal alignment, and proactive optimization"
+ language = "en-US"
+ 
+ [paths]
+-home = "~/.koad-os"
+-agents = "~/.koad-os/agents"
+-logs = "~/.koad-os/logs"
+-cache = "~/.koad-os/cache"
++home = "{{KOADOS_HOME}}"
++agents = "{{KOADOS_HOME}}/agents"
++logs = "{{KOADOS_HOME}}/logs"
++cache = "{{KOADOS_HOME}}/cache"
+diff --git a/crates/koad-cass/src/services/hydration.rs b/crates/koad-cass/src/services/hydration.rs
+index eb91086..bed213c 100644
+--- a/crates/koad-cass/src/services/hydration.rs
++++ b/crates/koad-cass/src/services/hydration.rs
+@@ -251,7 +251,17 @@ mod tests {
+     #[tokio::test]
+     async fn test_hydration_bundles_sections() -> anyhow::Result<()> {
+         let storage = Arc::new(MockStorage::new());
+-        let config = koad_core::config::KoadConfig::load()?;
++        let config = koad_core::config::KoadConfig::load().unwrap_or_else(|_| {
++            koad_core::config::KoadConfig::from_json(
++                r#"{
++                "home": "/tmp",
++                "system": { "version": "test" },
++                "network": { "citadel_grpc_port": 0, "citadel_grpc_addr": "", "cass_grpc_port": 0, "cass_grpc_addr": "", "redis_socket": "", "citadel_socket": "" },
++                "storage": { "db_name": "", "drain_interval_secs": 0 }
++            }"#,
++            )
++            .unwrap()
++        });
+         let hierarchy = Arc::new(HierarchyManager::new(config));
+         let codegraph = Arc::new(CodeGraph::new_with_memory()?);
+         let intelligence = Arc::new(InferenceRouter::new_default()?);
+@@ -276,7 +286,17 @@ mod tests {
+     #[tokio::test]
+     async fn test_hydration_includes_pulse_section() -> anyhow::Result<()> {
+         let storage = Arc::new(MockStorage::new());
+-        let config = koad_core::config::KoadConfig::load()?;
++        let config = koad_core::config::KoadConfig::load().unwrap_or_else(|_| {
++            koad_core::config::KoadConfig::from_json(
++                r#"{
++                "home": "/tmp",
++                "system": { "version": "test" },
++                "network": { "citadel_grpc_port": 0, "citadel_grpc_addr": "", "cass_grpc_port": 0, "cass_grpc_addr": "", "redis_socket": "", "citadel_socket": "" },
++                "storage": { "db_name": "", "drain_interval_secs": 0 }
++            }"#,
++            )
++            .unwrap()
++        });
+         let hierarchy = Arc::new(HierarchyManager::new(config));
+         let codegraph = Arc::new(CodeGraph::new_with_memory()?);
+         let intelligence = Arc::new(InferenceRouter::new_default()?);
+diff --git a/crates/koad-cass/src/storage/tiered.rs b/crates/koad-cass/src/storage/tiered.rs
+index 07baead..4f541ed 100644
+--- a/crates/koad-cass/src/storage/tiered.rs
++++ b/crates/koad-cass/src/storage/tiered.rs
+@@ -116,6 +116,7 @@ mod tests {
+     }
+ 
+     #[tokio::test]
++    #[ignore = "requires live services (redis, qdrant)"]
+     async fn test_tiered_write_and_read() -> anyhow::Result<()> {
+         let storage = make_tiered().await?;
+ 
+diff --git a/crates/koad-cli/src/bin/koad-agent.rs b/crates/koad-cli/src/bin/koad-agent.rs
+index 5be3e80..fe34c49 100644
+--- a/crates/koad-cli/src/bin/koad-agent.rs
++++ b/crates/koad-cli/src/bin/koad-agent.rs
+@@ -379,8 +379,8 @@ async fn main() -> Result<()> {
+ 
+                     // --- AI Anchor Generation ---
+                     let mut anchor_content = format!(
+-                    "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`source ~/.koad-os/bin/koad-functions.sh && agent-boot {}`\n",
+-                    timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, agent_key
++                    "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`source {}/bin/koad-functions.sh && agent-boot {}`\n",
++                    timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, config.home.display(), agent_key
+                 );
+ 
+                     // --- [AIS: Live Awareness Section] ---
+diff --git a/crates/koad-cli/src/handlers/abc.rs b/crates/koad-cli/src/handlers/abc.rs
+index beeaade..ab3d025 100644
+--- a/crates/koad-cli/src/handlers/abc.rs
++++ b/crates/koad-cli/src/handlers/abc.rs
+@@ -226,8 +226,17 @@ mod tests {
+ 
+     #[test]
+     fn test_abc_collector_new() {
+-        let config = KoadConfig::load()
+-            .unwrap_or_else(|_| KoadConfig::from_json("{}").expect("Failed to parse empty config"));
++        let config = KoadConfig::load().unwrap_or_else(|_| {
++            KoadConfig::from_json(
++                r#"{
++                "home": "/tmp",
++                "system": { "version": "test" },
++                "network": { "citadel_grpc_port": 0, "citadel_grpc_addr": "", "cass_grpc_port": 0, "cass_grpc_addr": "", "redis_socket": "", "citadel_socket": "" },
++                "storage": { "db_name": "", "drain_interval_secs": 0 }
++            }"#,
++            )
++            .expect("Failed to parse empty config")
++        });
+         let collector = AbcCollector::new(config, PathBuf::from("/tmp"), "tyr".to_string());
+         assert_eq!(collector.vault_path, PathBuf::from("/tmp"));
+         assert_eq!(collector.agent_name, "tyr");
+diff --git a/crates/koad-cli/src/handlers/agent.rs b/crates/koad-cli/src/handlers/agent.rs
+index 330f007..120cbfb 100644
+--- a/crates/koad-cli/src/handlers/agent.rs
++++ b/crates/koad-cli/src/handlers/agent.rs
+@@ -230,10 +230,7 @@ async fn handle_new_agent(request: NewAgentRequest<'_>, config: &KoadConfig) ->
+     )?;
+ 
+     let vault_path = resolve_vault_path(request.vault_override, None, &key, &home_dir, config);
+-    let vault_str = vault_path
+-        .to_string_lossy()
+-        .to_string()
+-        .replace(&home_dir.to_string_lossy().to_string(), "~");
++    let vault_str = vault_path.display().to_string();
+ 
+     // Parse access keys
+     let access_keys: Vec<String> = request
+@@ -423,11 +420,7 @@ async fn scaffold_kapv(spec: KapvScaffoldSpec<'_>, config: &KoadConfig) -> Resul
+ 
+     let koad_os_path = config.home.display().to_string();
+     let home_dir = dirs::home_dir().context("Could not determine home directory.")?;
+-    let vault_path_str = spec
+-        .vault
+-        .to_string_lossy()
+-        .to_string()
+-        .replace(&home_dir.to_string_lossy().to_string(), "~");
++    let vault_path_str = spec.vault.display().to_string();
+ 
+     // README.md
+     write_file(
+diff --git a/crates/koad-cli/src/handlers/system_init.rs b/crates/koad-cli/src/handlers/system_init.rs
+index 742c940..a73138f 100644
+--- a/crates/koad-cli/src/handlers/system_init.rs
++++ b/crates/koad-cli/src/handlers/system_init.rs
+@@ -180,10 +180,7 @@ fn provision_captain(name: &str, bio: &str, runtime: &str, config: &KoadConfig)
+     }
+ 
+     let vault_path = config.agent_dir(&key);
+-    let vault_str = vault_path
+-        .to_string_lossy()
+-        .to_string()
+-        .replace(&config.home.to_string_lossy().to_string(), "~");
++    let vault_str = vault_path.display().to_string();
+     let access_keys_toml = "access_keys = [\"GITHUB_PAT\"]"; // Default for Captain
+ 
+     let toml_content = format!(
+diff --git a/crates/koad-core/src/config.rs b/crates/koad-core/src/config.rs
+index 51b1e19..722092b 100644
+--- a/crates/koad-core/src/config.rs
++++ b/crates/koad-core/src/config.rs
+@@ -324,6 +324,7 @@ impl KoadConfig {
+ 
+         let kernel_path = home.join("config/kernel.toml");
+         let status_path = home.join("config/citadel_status.toml");
++        
+         let mut builder = Config::builder()
+             .set_default("home", home.to_string_lossy().to_string())?
+             .add_source(File::from(kernel_path).required(false))
+diff --git a/git_diff.txt b/git_diff.txt
+new file mode 100644
+index 0000000..415533c
+--- /dev/null
++++ b/git_diff.txt
+@@ -0,0 +1,190 @@
++diff --git a/.cursorrules b/.cursorrules
++new file mode 100644
++index 0000000..0a3e5c8
++--- /dev/null
+++++ b/.cursorrules
++@@ -0,0 +1,38 @@
+++<!-- code-review-graph MCP tools -->
+++## MCP Tools: code-review-graph
+++
+++**IMPORTANT: This project has a knowledge graph. ALWAYS use the
+++code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
+++the codebase.** The graph is faster, cheaper (fewer tokens), and gives
+++you structural context (callers, dependents, test coverage) that file
+++scanning cannot.
+++
+++### When to use graph tools FIRST
+++
+++- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
+++- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
+++- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
+++- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
+++- **Architecture questions**: `get_architecture_overview` + `list_communities`
+++
+++Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
+++
+++### Key Tools
+++
+++| Tool | Use when |
+++|------|----------|
+++| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
+++| `get_review_context` | Need source snippets for review — token-efficient |
+++| `get_impact_radius` | Understanding blast radius of a change |
+++| `get_affected_flows` | Finding which execution paths are impacted |
+++| `query_graph` | Tracing callers, callees, imports, tests, dependencies |
+++| `semantic_search_nodes` | Finding functions/classes by name or keyword |
+++| `get_architecture_overview` | Understanding high-level codebase structure |
+++| `refactor_tool` | Planning renames, finding dead code |
+++
+++### Workflow
+++
+++1. The graph auto-updates on file changes (via hooks).
+++2. Use `detect_changes` for code review.
+++3. Use `get_affected_flows` to understand impact.
+++4. Use `query_graph` pattern="tests_for" to check coverage.
++diff --git a/.mcp.json b/.mcp.json
++new file mode 100644
++index 0000000..905d844
++--- /dev/null
+++++ b/.mcp.json
++@@ -0,0 +1,11 @@
+++{
+++  "mcpServers": {
+++    "code-review-graph": {
+++      "command": "code-review-graph",
+++      "args": [
+++        "serve"
+++      ],
+++      "type": "stdio"
+++    }
+++  }
+++}
++diff --git a/.opencode.json b/.opencode.json
++new file mode 100644
++index 0000000..9fa358f
++--- /dev/null
+++++ b/.opencode.json
++@@ -0,0 +1,12 @@
+++{
+++  "mcpServers": {
+++    "code-review-graph": {
+++      "command": "code-review-graph",
+++      "args": [
+++        "serve"
+++      ],
+++      "type": "stdio",
+++      "env": []
+++    }
+++  }
+++}
++diff --git a/.windsurfrules b/.windsurfrules
++new file mode 100644
++index 0000000..0a3e5c8
++--- /dev/null
+++++ b/.windsurfrules
++@@ -0,0 +1,38 @@
+++<!-- code-review-graph MCP tools -->
+++## MCP Tools: code-review-graph
+++
+++**IMPORTANT: This project has a knowledge graph. ALWAYS use the
+++code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
+++the codebase.** The graph is faster, cheaper (fewer tokens), and gives
+++you structural context (callers, dependents, test coverage) that file
+++scanning cannot.
+++
+++### When to use graph tools FIRST
+++
+++- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
+++- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
+++- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
+++- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
+++- **Architecture questions**: `get_architecture_overview` + `list_communities`
+++
+++Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
+++
+++### Key Tools
+++
+++| Tool | Use when |
+++|------|----------|
+++| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
+++| `get_review_context` | Need source snippets for review — token-efficient |
+++| `get_impact_radius` | Understanding blast radius of a change |
+++| `get_affected_flows` | Finding which execution paths are impacted |
+++| `query_graph` | Tracing callers, callees, imports, tests, dependencies |
+++| `semantic_search_nodes` | Finding functions/classes by name or keyword |
+++| `get_architecture_overview` | Understanding high-level codebase structure |
+++| `refactor_tool` | Planning renames, finding dead code |
+++
+++### Workflow
+++
+++1. The graph auto-updates on file changes (via hooks).
+++2. Use `detect_changes` for code review.
+++3. Use `get_affected_flows` to understand impact.
+++4. Use `query_graph` pattern="tests_for" to check coverage.
++diff --git a/blueprints/captain/IDENTITY.toml b/blueprints/captain/IDENTITY.toml
++index 0854701..8ef1e6b 100644
++--- a/blueprints/captain/IDENTITY.toml
+++++ b/blueprints/captain/IDENTITY.toml
++@@ -13,7 +13,7 @@ focus = "system integrity, goal alignment, and proactive optimization"
++ language = "en-US"
++ 
++ [paths]
++-home = "~/.koad-os"
++-agents = "~/.koad-os/agents"
++-logs = "~/.koad-os/logs"
++-cache = "~/.koad-os/cache"
+++home = "{{KOADOS_HOME}}"
+++agents = "{{KOADOS_HOME}}/agents"
+++logs = "{{KOADOS_HOME}}/logs"
+++cache = "{{KOADOS_HOME}}/cache"
++diff --git a/crates/koad-cli/src/bin/koad-agent.rs b/crates/koad-cli/src/bin/koad-agent.rs
++index 5be3e80..fe34c49 100644
++--- a/crates/koad-cli/src/bin/koad-agent.rs
+++++ b/crates/koad-cli/src/bin/koad-agent.rs
++@@ -379,8 +379,8 @@ async fn main() -> Result<()> {
++ 
++                     // --- AI Anchor Generation ---
++                     let mut anchor_content = format!(
++-                    "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`source ~/.koad-os/bin/koad-functions.sh && agent-boot {}`\n",
++-                    timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, agent_key
+++                    "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`source {}/bin/koad-functions.sh && agent-boot {}`\n",
+++                    timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, config.home.display(), agent_key
++                 );
++ 
++                     // --- [AIS: Live Awareness Section] ---
++diff --git a/crates/koad-cli/src/handlers/abc.rs b/crates/koad-cli/src/handlers/abc.rs
++index beeaade..ab3d025 100644
++--- a/crates/koad-cli/src/handlers/abc.rs
+++++ b/crates/koad-cli/src/handlers/abc.rs
++@@ -226,8 +226,17 @@ mod tests {
++ 
++     #[test]
++     fn test_abc_collector_new() {
++-        let config = KoadConfig::load()
++-            .unwrap_or_else(|_| KoadConfig::from_json("{}").expect("Failed to parse empty config"));
+++        let config = KoadConfig::load().unwrap_or_else(|_| {
+++            KoadConfig::from_json(
+++                r#"{
+++                "home": "/tmp",
+++                "system": { "version": "test" },
+++                "network": { "citadel_grpc_port": 0, "citadel_grpc_addr": "", "cass_grpc_port": 0, "cass_grpc_addr": "", "redis_socket": "", "citadel_socket": "" },
+++                "storage": { "db_name": "", "drain_interval_secs": 0 }
+++            }"#,
+++            )
+++            .expect("Failed to parse empty config")
+++        });
++         let collector = AbcCollector::new(config, PathBuf::from("/tmp"), "tyr".to_string());
++         assert_eq!(collector.vault_path, PathBuf::from("/tmp"));
++         assert_eq!(collector.agent_name, "tyr");
++diff --git a/crates/koad-core/src/config.rs b/crates/koad-core/src/config.rs
++index 51b1e19..722092b 100644
++--- a/crates/koad-core/src/config.rs
+++++ b/crates/koad-core/src/config.rs
++@@ -324,6 +324,7 @@ impl KoadConfig {
++ 
++         let kernel_path = home.join("config/kernel.toml");
++         let status_path = home.join("config/citadel_status.toml");
+++        
++         let mut builder = Config::builder()
++             .set_default("home", home.to_string_lossy().to_string())?
++             .add_source(File::from(kernel_path).required(false))

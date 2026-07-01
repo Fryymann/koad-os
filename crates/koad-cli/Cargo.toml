@@ -14,7 +14,7 @@ tokio.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 rusqlite.workspace = true
-ratatui.workspace = true
+ratatui = "0.26"
 crossterm.workspace = true
 tonic.workspace = true
 async-trait.workspace = true
@@ -42,12 +42,14 @@ walkdir.workspace = true
 sha2.workspace = true
 fred = { workspace = true, features = ["unix-sockets", "subscriber-client", "i-scripts", "i-pubsub", "i-keys"] }
 # Internal
+koad-agent = { path = "../koad-agent" }
 koad-core = { path = "../koad-core" }
 koad-proto = { path = "../koad-proto" }
 koad-codegraph = { path = "../koad-codegraph" }
 koad-sandbox = { path = "../koad-sandbox", features = ["container"] }
 koad-board = { path = "../koad-board" }
 koad-bridge-notion = { path = "../koad-bridge-notion" }
+koad-mcp = { path = "../koad-mcp" }
 koad-intelligence = { path = "../koad-intelligence" }
 
 [[bin]]
@@ -57,6 +59,10 @@ path = "src/main.rs"
 [[bin]]
 name = "koad-agent"
 path = "src/bin/koad-agent.rs"
+
+[[bin]]
+name = "koad-mcp"
+path = "src/bin/koad-mcp.rs"
 
 [[bin]]
 name = "koad-notion-mcp"

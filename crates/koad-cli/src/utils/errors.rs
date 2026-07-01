@@ -71,8 +71,7 @@ impl From<tonic::Status> for KoadGrpcError {
 }
 
 /// Map a tonic transport connection error to a KoadGrpcError.
-pub fn map_connect_err(service: &str, addr: &str, e: tonic::transport::Error) -> KoadGrpcError {
-    let _ = e; // transport::Error doesn't expose useful structured data
+pub fn map_connect_err(service: &str, addr: &str, _e: tonic::transport::Error) -> KoadGrpcError {
     KoadGrpcError::ConnectionFailed {
         service: service.to_string(),
         addr: addr.to_string(),

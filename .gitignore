@@ -1,4 +1,5 @@
 
+.worktrees/
 !/bin/*.sh
 !agents/crews/TEMPLATE.md
 # (stable_release and side_quests remain tracked as distribution roadmaps)
@@ -46,6 +47,7 @@
 AGENTS.md
 CLAUDE.md
 GEMINI.md
+!plugin/GEMINI.md
 agents/*
 agents/.claude/
 agents/.claude/worktrees/
@@ -63,6 +65,8 @@ cache/
 config/integrations/*.toml
 config/kernel.toml
 config/redis.conf
+config/identities/*.toml
+config/identities/**/*.toml
 data/db/
 data/redis/
 debug/
@@ -70,6 +74,7 @@ logs/
 new_world/
 node_modules/
 plans/
+!docs/superpowers/plans/
 portals/
 release/
 run/

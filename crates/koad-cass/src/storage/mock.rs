@@ -123,4 +123,47 @@ impl MemoryTier for MockStorage {
             .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         Ok(episodes.clone())
     }
+
+    async fn search_semantic(
+        &self,
+        query: &str,
+        _partition: &str,
+        limit: u32,
+    ) -> Result<Vec<FactCard>> {
+        let facts = self
+            .facts
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let query_lower = query.to_lowercase();
+        let results = facts
+            .iter()
+            .filter(|f| f.content.to_lowercase().contains(&query_lower))
+            .take(limit as usize)
+            .cloned()
+            .collect();
+        Ok(results)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use koad_proto::cass::v1::{FactCard, MemoryMetadata};
+
+    #[tokio::test]
+    async fn test_mock_preserves_metadata() -> Result<()> {
+        let s = MockStorage::new();
+        let f = FactCard {
+            id: "m1".into(),
+            metadata: Some(MemoryMetadata {
+                summary: "keep me".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        s.commit_fact(f).await?;
+        let got = s.query_facts("", &[], 10).await?;
+        assert_eq!(got[0].metadata.as_ref().unwrap().summary, "keep me");
+        Ok(())
+    }
 }

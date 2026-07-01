@@ -1,6 +1,6 @@
 #![allow(dead_code, unused_imports, clippy::type_complexity)]
 
-use crate::db::KoadDB;
+use koad_core::db::KoadDB;
 use anyhow::Result;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},

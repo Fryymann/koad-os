@@ -198,6 +198,7 @@ impl StorageBridge for CitadelStorageBridge {
             collected
         };
 
+        info!("StorageBridge: Hydrating {} rows to Redis L1...", data.len());
         for (key, value) in data {
             let _: () = self
                 .redis

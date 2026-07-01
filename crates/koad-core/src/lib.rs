@@ -31,3 +31,8 @@ pub trait Component: Send + Sync {
     /// Signals the component to stop and waits for a graceful teardown.
     async fn stop(&self) -> anyhow::Result<()>;
 }
+pub mod db;
+
+pub mod auth;
+#[cfg(feature = "test-utils")]
+pub mod mocks;

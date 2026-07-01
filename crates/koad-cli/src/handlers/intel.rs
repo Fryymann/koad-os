@@ -1,5 +1,5 @@
 use crate::cli::IntelAction;
-use crate::db::KoadDB;
+use koad_core::db::KoadDB;
 use crate::utils::errors::map_connect_err;
 use crate::utils::{detect_model_tier, feature_gate};
 use anyhow::{Context, Result};
