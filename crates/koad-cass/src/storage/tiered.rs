@@ -176,4 +176,42 @@ mod tests {
 
         Ok(())
     }
+
+    /// Full pipeline: requires live Qdrant + Ollama (nomic-embed-text).
+    /// Drives QdrantTier directly to validate semantic (non-substring) recall.
+    #[tokio::test]
+    #[ignore = "requires live services (qdrant, ollama with nomic-embed-text)"]
+    async fn test_semantic_recall_paraphrase() -> anyhow::Result<()> {
+        let intelligence = Arc::new(koad_intelligence::router::InferenceRouter::new_default()?);
+        let qdrant = QdrantTier::new("http://127.0.0.1:6334", Some(intelligence)).await?;
+
+        let fact = FactCard {
+            id: "semantic-test-001".to_string(),
+            domain: "test-semantic".to_string(),
+            content: "The deployment failed because the systemd service kept running the old binary from memory".to_string(),
+            source_agent: "clyde-semantic-test".to_string(),
+            session_id: "S-SEM".to_string(),
+            confidence: 0.9,
+            tags: vec!["test".to_string()],
+            created_at: None,
+            metadata: None,
+        };
+        qdrant.commit_fact(fact).await?;
+
+        // Paraphrased query with minimal keyword overlap — substring/LIKE
+        // matching would miss it; real embeddings must rank it first.
+        let results = qdrant
+            .search_semantic(
+                "why did the service restart not pick up the new build",
+                "clyde-semantic-test",
+                3,
+            )
+            .await?;
+        assert!(
+            results.iter().any(|f| f.id == "semantic-test-001"),
+            "semantic search must recall the paraphrased fact; got: {:?}",
+            results.iter().map(|f| &f.id).collect::<Vec<_>>()
+        );
+        Ok(())
+    }
 }
