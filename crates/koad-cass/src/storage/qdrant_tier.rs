@@ -39,6 +39,16 @@ fn default_embed_model() -> String {
     std::env::var("KOADOS_EMBED_MODEL").unwrap_or_else(|_| "nomic-embed-text".to_string())
 }
 
+/// Partition canon: a fact belongs to a partition when its domain IS the
+/// partition or starts with "{partition}:". Mirrors the L2 SQLite filter
+/// (`domain = ?1 OR domain LIKE ?1 || ':%'`).
+fn domain_matches_partition(domain: &str, partition: &str) -> bool {
+    domain == partition
+        || (domain.len() > partition.len()
+            && domain.starts_with(partition)
+            && domain.as_bytes()[partition.len()] == b':')
+}
+
 pub struct QdrantTier {
     client: Option<Qdrant>,
     intelligence: Option<Arc<InferenceRouter>>,
@@ -513,18 +523,33 @@ impl MemoryTier for QdrantTier {
 
         let vector = self.get_vector(query).await?;
 
-        // Query 1: Search facts
-        let filter_facts =
-            Filter::must([Condition::matches("source_agent", partition.to_string())]);
+        // Query 1: Search facts.
+        // Partition canon is the DOMAIN prefix ("{partition}" or "{partition}:{topic}"),
+        // matching the L2 SQLite filter — NOT source_agent, which records the authoring
+        // agent (e.g. "rook" for MCP commits) and may differ from the partition.
+        // Qdrant has no prefix match on keyword payloads, so oversample and filter
+        // locally, the same idiom the episode query below uses.
+        let candidate_limit = (limit as u64 * 4).max(20);
         let result_facts = match client
             .search_points(
-                SearchPointsBuilder::new(COLLECTION, vector.clone(), limit as u64)
-                    .filter(filter_facts)
+                SearchPointsBuilder::new(COLLECTION, vector.clone(), candidate_limit)
                     .with_payload(true),
             )
             .await
         {
-            Ok(res) => res.result,
+            Ok(res) => res
+                .result
+                .into_iter()
+                .filter(|p| {
+                    if let Some(Kind::StringValue(domain)) =
+                        p.payload.get("domain").and_then(|v| v.kind.as_ref())
+                    {
+                        domain_matches_partition(domain, partition)
+                    } else {
+                        false
+                    }
+                })
+                .collect(),
             Err(e) => {
                 tracing::warn!("Qdrant: search_points on facts failed: {}", e);
                 vec![]
@@ -602,7 +627,7 @@ impl MemoryTier for QdrantTier {
 
 #[cfg(test)]
 mod tests {
-    use super::QdrantTier;
+    use super::{domain_matches_partition, QdrantTier};
     use koad_proto::cass::v1::{EpisodicMemory, FactCard, MemoryMetadata, TokenEstimate};
     use qdrant_client::qdrant::value::Kind;
 
@@ -679,5 +704,21 @@ mod tests {
             Some(Kind::StringValue(s)) => assert_eq!(s, "nomic-embed-text"),
             other => panic!("expected embedding_model string, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn partition_matches_domain_prefix_not_source_agent() {
+        // Canon: domain IS the partition or "{partition}:{topic}".
+        assert!(domain_matches_partition("clyde", "clyde"));
+        assert!(domain_matches_partition("clyde:recall-test", "clyde"));
+        assert!(domain_matches_partition(
+            "hermes_jupiter_ideans:arandir-party",
+            "hermes_jupiter_ideans"
+        ));
+        // Prefix must be a whole segment terminated by ':'.
+        assert!(!domain_matches_partition("clyde_Jupiter_ideans", "clyde"));
+        assert!(!domain_matches_partition("clyderecall", "clyde"));
+        assert!(!domain_matches_partition("hermes:topic", "clyde"));
+        assert!(!domain_matches_partition("", "clyde"));
     }
 }
