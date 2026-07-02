@@ -33,6 +33,17 @@ pub struct EnrichmentOutput {
     pub tags: Vec<String>,
 }
 
+impl EnrichmentOutput {
+    /// True if the model produced any usable annotation. A degenerate reply
+    /// like `{}` parses fine but carries zero signal — merging it would
+    /// permanently mark the memory enriched (is_enriched) with nothing to
+    /// show for it. The worker treats non-meaningful output as a parse
+    /// failure: retry, then degrade to embed-only WITHOUT the marker.
+    pub fn is_meaningful(&self) -> bool {
+        !self.summary.is_empty() || self.salience > 0.0 || !self.tags.is_empty()
+    }
+}
+
 /// Build the single-shot enrichment prompt. Output contract is strict JSON.
 pub fn build_enrichment_prompt(content: &str) -> String {
     format!(
@@ -205,5 +216,15 @@ mod tests {
     fn is_enriched_false_for_fresh_metadata() {
         assert!(!is_enriched(&Some(MemoryMetadata::default())));
         assert!(!is_enriched(&None));
+    }
+
+    #[test]
+    fn degenerate_empty_object_is_not_meaningful() {
+        let out = parse_enrichment_output("{}").unwrap();
+        assert!(!out.is_meaningful());
+        assert!(sample_output().is_meaningful());
+        // tags alone are enough signal
+        let tags_only = parse_enrichment_output(r#"{"tags": ["qdrant"]}"#).unwrap();
+        assert!(tags_only.is_meaningful());
     }
 }
