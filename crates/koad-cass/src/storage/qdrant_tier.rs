@@ -1,7 +1,8 @@
 //! L3 — Qdrant-backed semantic storage tier.
 //!
-//! Facts are stored as dense vector points derived from either content hashing
-//! or real InferenceRouter embeddings.
+//! Facts are stored as dense vector points derived from real InferenceRouter
+//! embeddings; if the embedding model is unavailable, writes fail and are
+//! retried by the enrichment worker (never fabricated vectors).
 //! Queries use payload filtering by domain for deterministic retrieval.
 //! Semantic vector similarity search is performed using SearchPoints.
 
@@ -22,7 +23,6 @@ use std::sync::Arc;
 
 const COLLECTION: &str = "fact_cards";
 const EPISODE_COLLECTION: &str = "episodic_memories";
-const VECTOR_DIM: u64 = 32;
 
 /// Serialize optional metadata to a JSON string for Qdrant payload storage.
 /// Mirrors the L2 SQLite tier so both tiers round-trip metadata identically.
@@ -35,10 +35,17 @@ fn metadata_from_json(raw: Option<String>) -> Option<MemoryMetadata> {
     raw.and_then(|s| serde_json::from_str(&s).ok())
 }
 
+fn default_embed_model() -> String {
+    std::env::var("KOADOS_EMBED_MODEL").unwrap_or_else(|_| "nomic-embed-text".to_string())
+}
+
 pub struct QdrantTier {
     client: Option<Qdrant>,
     intelligence: Option<Arc<InferenceRouter>>,
-    vector_dim: u64,
+    /// 0 = not yet detected (embedding model unreachable at boot). Detection is
+    /// retried lazily by ensure_ready() on first use.
+    vector_dim: tokio::sync::RwLock<u64>,
+    embed_model: String,
 }
 
 impl QdrantTier {
@@ -47,7 +54,8 @@ impl QdrantTier {
         Self {
             client: None,
             intelligence: None,
-            vector_dim: VECTOR_DIM,
+            vector_dim: tokio::sync::RwLock::new(0),
+            embed_model: default_embed_model(),
         }
     }
 
@@ -56,49 +64,101 @@ impl QdrantTier {
             .build()
             .context("Failed to build Qdrant client")?;
 
-        // Resolve embedding dimension by sending a dummy string if intelligence is available
-        let mut dim = VECTOR_DIM;
-        if let Some(ref intel) = intelligence {
-            match intel.embed("test").await {
-                Ok(vec) => {
-                    dim = vec.len() as u64;
-                    tracing::info!("Qdrant: Detected embedding model dimension: {}", dim);
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Qdrant: Failed to query embedding dimension from router ({}), falling back to default {}",
-                        e,
-                        dim
-                    );
-                }
+        // Connectivity probe: keeps the degraded-boot path in main.rs working
+        // (an unreachable Qdrant must make new() return Err).
+        client
+            .collection_exists(COLLECTION)
+            .await
+            .context("Qdrant unreachable")?;
+
+        let tier = Self {
+            client: Some(client),
+            intelligence,
+            vector_dim: tokio::sync::RwLock::new(0),
+            embed_model: default_embed_model(),
+        };
+
+        // Best-effort dimension detection at boot. Failure is non-fatal:
+        // the tier starts in deferred mode and ensure_ready() retries on first use.
+        if let Err(e) = tier.ensure_ready().await {
+            tracing::warn!(
+                "QdrantTier: embedding model unavailable at boot ({}). Deferred mode — no writes until it returns.",
+                e
+            );
+        }
+
+        Ok(tier)
+    }
+
+    /// Ensure the embedding dimension is known and collections exist.
+    /// Returns the dimension, or an error if the embedding model is unreachable.
+    async fn ensure_ready(&self) -> Result<u64> {
+        {
+            let d = *self.vector_dim.read().await;
+            if d > 0 {
+                return Ok(d);
+            }
+        }
+        let Some(client) = &self.client else {
+            return Err(anyhow::anyhow!("QdrantTier: offline"));
+        };
+        let Some(intel) = &self.intelligence else {
+            return Err(anyhow::anyhow!(
+                "QdrantTier: no embedding client configured"
+            ));
+        };
+
+        let mut guard = self.vector_dim.write().await;
+        if *guard > 0 {
+            return Ok(*guard);
+        }
+
+        let probe = intel
+            .embed("dimension probe")
+            .await
+            .context("embedding model unavailable")?;
+        let dim = probe.len() as u64;
+        if dim == 0 {
+            return Err(anyhow::anyhow!("embedding probe returned empty vector"));
+        }
+
+        for c in [COLLECTION, EPISODE_COLLECTION] {
+            if !client.collection_exists(c).await? {
+                client
+                    .create_collection(
+                        CreateCollectionBuilder::new(c)
+                            .vectors_config(VectorParamsBuilder::new(dim, Distance::Cosine)),
+                    )
+                    .await
+                    .with_context(|| format!("Failed to create Qdrant collection {c}"))?;
             }
         }
 
-        if !client.collection_exists(COLLECTION).await? {
+        *guard = dim;
+        tracing::info!("QdrantTier: ready (embedding dim {})", dim);
+        Ok(dim)
+    }
+
+    /// Drop and recreate both collections at the detected dimension.
+    /// Used by the backfill_embeddings migration binary only.
+    pub async fn recreate_collections(&self) -> Result<()> {
+        let dim = self.ensure_ready().await?;
+        let Some(client) = &self.client else {
+            return Err(anyhow::anyhow!("QdrantTier: offline"));
+        };
+        for c in [COLLECTION, EPISODE_COLLECTION] {
+            if client.collection_exists(c).await? {
+                client.delete_collection(c).await?;
+            }
             client
                 .create_collection(
-                    CreateCollectionBuilder::new(COLLECTION)
+                    CreateCollectionBuilder::new(c)
                         .vectors_config(VectorParamsBuilder::new(dim, Distance::Cosine)),
                 )
                 .await
-                .context("Failed to create Qdrant collection")?;
+                .with_context(|| format!("Failed to recreate Qdrant collection {c}"))?;
         }
-
-        if !client.collection_exists(EPISODE_COLLECTION).await? {
-            client
-                .create_collection(
-                    CreateCollectionBuilder::new(EPISODE_COLLECTION)
-                        .vectors_config(VectorParamsBuilder::new(dim, Distance::Cosine)),
-                )
-                .await
-                .context("Failed to create Qdrant episodic_memories collection")?;
-        }
-
-        Ok(Self {
-            client: Some(client),
-            intelligence,
-            vector_dim: dim,
-        })
+        Ok(())
     }
 
     /// Deterministic u64 point ID from fact UUID string.
@@ -108,41 +168,30 @@ impl QdrantTier {
         h.finish()
     }
 
-    /// Content fingerprint vector derived from content bytes.
-    /// Serves as a stable placeholder when no embedding model is available.
-    fn content_vector(&self, content: &str) -> Vec<f32> {
-        let mut vec = vec![0.0f32; self.vector_dim as usize];
-        for (i, &b) in content.as_bytes().iter().enumerate() {
-            vec[i % self.vector_dim as usize] += b as f32;
-        }
-        let mag = (vec.iter().map(|x| x * x).sum::<f32>()).sqrt().max(1e-6);
-        vec.iter().map(|x| x / mag).collect()
-    }
-
     /// Generate an embedding vector for the given content.
-    /// Falls back to deterministic content hash fingerprint if client is offline or error occurs.
-    async fn get_vector(&self, text: &str) -> Vec<f32> {
-        if let Some(ref intel) = self.intelligence {
-            match intel.embed(text).await {
-                Ok(vec) => {
-                    if vec.len() as u64 == self.vector_dim {
-                        return vec;
-                    }
-                    tracing::warn!(
-                        "QdrantTier: embedding dimension mismatch (expected {}, got {}). Using fallback.",
-                        self.vector_dim,
-                        vec.len()
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!("QdrantTier: failed to get embedding ({}). Using fallback.", e);
-                }
-            }
+    /// Errors propagate — no fingerprint fallback. Fabricated vectors poison
+    /// the semantic space; callers (enrichment worker) retry instead.
+    pub(crate) async fn get_vector(&self, text: &str) -> Result<Vec<f32>> {
+        let dim = self.ensure_ready().await?;
+        let intel = self
+            .intelligence
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("QdrantTier: no embedding client configured"))?;
+        let vec = intel.embed(text).await.context("embedding failed")?;
+        if vec.len() as u64 != dim {
+            return Err(anyhow::anyhow!(
+                "embedding dimension mismatch (expected {}, got {})",
+                dim,
+                vec.len()
+            ));
         }
-        self.content_vector(text)
+        Ok(vec)
     }
 
-    fn make_payload(fact: &FactCard) -> HashMap<String, qdrant_client::qdrant::Value> {
+    fn make_payload(
+        fact: &FactCard,
+        embedding_model: &str,
+    ) -> HashMap<String, qdrant_client::qdrant::Value> {
         use qdrant_client::qdrant::Value;
         let mut p = HashMap::new();
         p.insert(
@@ -195,6 +244,12 @@ impl QdrantTier {
                 },
             );
         }
+        p.insert(
+            "embedding_model".into(),
+            Value {
+                kind: Some(Kind::StringValue(embedding_model.to_string())),
+            },
+        );
         p
     }
 
@@ -227,7 +282,10 @@ impl QdrantTier {
         })
     }
 
-    fn make_episode_payload(episode: &EpisodicMemory) -> HashMap<String, qdrant_client::qdrant::Value> {
+    fn make_episode_payload(
+        episode: &EpisodicMemory,
+        embedding_model: &str,
+    ) -> HashMap<String, qdrant_client::qdrant::Value> {
         use qdrant_client::qdrant::Value;
         let mut p = HashMap::new();
         p.insert(
@@ -275,6 +333,12 @@ impl QdrantTier {
                 },
             );
         }
+        p.insert(
+            "embedding_model".into(),
+            Value {
+                kind: Some(Kind::StringValue(embedding_model.to_string())),
+            },
+        );
         p
     }
 
@@ -313,17 +377,17 @@ impl QdrantTier {
     }
 
     pub async fn commit_facts(&self, facts: Vec<FactCard>) -> Result<()> {
-        let Some(client) = &self.client else {
-            return Ok(());
-        };
         if facts.is_empty() {
             return Ok(());
         }
+        let Some(client) = &self.client else {
+            return Err(anyhow::anyhow!("QdrantTier: offline, cannot index facts"));
+        };
 
         let mut points = Vec::with_capacity(facts.len());
         for fact in facts {
-            let vector = self.get_vector(&fact.content).await;
-            let payload = Self::make_payload(&fact);
+            let vector = self.get_vector(&fact.content).await?;
+            let payload = Self::make_payload(&fact, &self.embed_model);
             points.push(PointStruct::new(Self::point_id(&fact.id), vector, payload));
         }
 
@@ -339,10 +403,10 @@ impl QdrantTier {
 impl MemoryTier for QdrantTier {
     async fn commit_fact(&self, fact: FactCard) -> Result<()> {
         let Some(client) = &self.client else {
-            return Ok(());
+            return Err(anyhow::anyhow!("QdrantTier: offline, cannot index fact"));
         };
-        let vector = self.get_vector(&fact.content).await;
-        let payload = Self::make_payload(&fact);
+        let vector = self.get_vector(&fact.content).await?;
+        let payload = Self::make_payload(&fact, &self.embed_model);
         let point = PointStruct::new(Self::point_id(&fact.id), vector, payload);
 
         client
@@ -394,10 +458,10 @@ impl MemoryTier for QdrantTier {
 
     async fn record_episode(&self, episode: EpisodicMemory) -> Result<()> {
         let Some(client) = &self.client else {
-            return Ok(());
+            return Err(anyhow::anyhow!("QdrantTier: offline, cannot index episode"));
         };
-        let vector = self.get_vector(&episode.summary).await;
-        let payload = Self::make_episode_payload(&episode);
+        let vector = self.get_vector(&episode.summary).await?;
+        let payload = Self::make_episode_payload(&episode, &self.embed_model);
         let point_id = Self::point_id(&episode.session_id);
         let point = PointStruct::new(point_id, vector, payload);
 
@@ -447,22 +511,16 @@ impl MemoryTier for QdrantTier {
             return Ok(vec![]);
         };
 
-        let vector = self.get_vector(query).await;
+        let vector = self.get_vector(query).await?;
 
         // Query 1: Search facts
-        let filter_facts = Filter::must([Condition::matches(
-            "source_agent",
-            partition.to_string(),
-        )]);
+        let filter_facts =
+            Filter::must([Condition::matches("source_agent", partition.to_string())]);
         let result_facts = match client
             .search_points(
-                SearchPointsBuilder::new(
-                    COLLECTION,
-                    vector.clone(),
-                    limit as u64,
-                )
-                .filter(filter_facts)
-                .with_payload(true),
+                SearchPointsBuilder::new(COLLECTION, vector.clone(), limit as u64)
+                    .filter(filter_facts)
+                    .with_payload(true),
             )
             .await
         {
@@ -476,12 +534,8 @@ impl MemoryTier for QdrantTier {
         // Query 2: Search episodic memories
         let result_episodes = match client
             .search_points(
-                SearchPointsBuilder::new(
-                    EPISODE_COLLECTION,
-                    vector,
-                    limit as u64,
-                )
-                .with_payload(true),
+                SearchPointsBuilder::new(EPISODE_COLLECTION, vector, limit as u64)
+                    .with_payload(true),
             )
             .await
         {
@@ -490,7 +544,9 @@ impl MemoryTier for QdrantTier {
                 res.result
                     .into_iter()
                     .filter(|p| {
-                        if let Some(Kind::StringValue(sid)) = p.payload.get("session_id").and_then(|v| v.kind.as_ref()) {
+                        if let Some(Kind::StringValue(sid)) =
+                            p.payload.get("session_id").and_then(|v| v.kind.as_ref())
+                        {
                             sid.contains(partition)
                         } else {
                             false
@@ -548,6 +604,7 @@ impl MemoryTier for QdrantTier {
 mod tests {
     use super::QdrantTier;
     use koad_proto::cass::v1::{EpisodicMemory, FactCard, MemoryMetadata, TokenEstimate};
+    use qdrant_client::qdrant::value::Kind;
 
     fn sample_metadata() -> MemoryMetadata {
         MemoryMetadata {
@@ -578,14 +635,14 @@ mod tests {
 
     #[test]
     fn fact_metadata_survives_payload_round_trip() {
-        let payload = QdrantTier::make_payload(&sample_fact(Some(sample_metadata())));
+        let payload = QdrantTier::make_payload(&sample_fact(Some(sample_metadata())), "test-model");
         let restored = QdrantTier::payload_to_fact(&payload).expect("fact restores");
         assert_eq!(restored.metadata, Some(sample_metadata()));
     }
 
     #[test]
     fn fact_without_metadata_round_trips_as_none() {
-        let payload = QdrantTier::make_payload(&sample_fact(None));
+        let payload = QdrantTier::make_payload(&sample_fact(None), "test-model");
         let restored = QdrantTier::payload_to_fact(&payload).expect("fact restores");
         assert_eq!(restored.metadata, None);
     }
@@ -601,8 +658,26 @@ mod tests {
             task_ids: vec!["t1".to_string()],
             metadata: Some(sample_metadata()),
         };
-        let payload = QdrantTier::make_episode_payload(&ep);
+        let payload = QdrantTier::make_episode_payload(&ep, "test-model");
         let restored = QdrantTier::payload_to_episode(&payload).expect("episode restores");
         assert_eq!(restored.metadata, Some(sample_metadata()));
+    }
+
+    #[tokio::test]
+    async fn offline_tier_get_vector_errors() {
+        let tier = QdrantTier::new_offline();
+        let res = tier.get_vector("hello world").await;
+        assert!(res.is_err(), "offline tier must not fabricate vectors");
+    }
+
+    #[test]
+    fn payload_carries_embedding_model() {
+        let fact = sample_fact(None); // existing test helper
+        let payload = QdrantTier::make_payload(&fact, "nomic-embed-text");
+        let model = payload.get("embedding_model").and_then(|v| v.kind.as_ref());
+        match model {
+            Some(Kind::StringValue(s)) => assert_eq!(s, "nomic-embed-text"),
+            other => panic!("expected embedding_model string, got {:?}", other),
+        }
     }
 }
