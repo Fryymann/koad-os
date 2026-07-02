@@ -42,3 +42,45 @@ async fn test_router_selects_and_summarizes() -> Result<()> {
 
     Ok(())
 }
+
+struct DimMockClient {
+    dim: usize,
+}
+
+#[async_trait]
+impl InferenceClient for DimMockClient {
+    async fn chat(&self, _prompt: &str) -> Result<String> {
+        Ok("chat".to_string())
+    }
+    async fn summarize(&self, _text: &str) -> Result<String> {
+        Ok("summary".to_string())
+    }
+    async fn score_significance(&self, _text: &str) -> Result<f32> {
+        Ok(0.5)
+    }
+    async fn embed(&self, _text: &str) -> Result<Vec<f32>> {
+        Ok(vec![0.5f32; self.dim])
+    }
+}
+
+#[tokio::test]
+async fn test_embedding_task_routes_to_embed_client() -> Result<()> {
+    let chat_client = Arc::new(DimMockClient { dim: 4 });
+    let embed_client = Arc::new(DimMockClient { dim: 8 });
+
+    let router = InferenceRouter::new(chat_client).with_embed_client(embed_client);
+
+    // embed() must use the dedicated embed client (dim 8), not the chat client (dim 4)
+    let vec = router.embed("hello").await?;
+    assert_eq!(vec.len(), 8);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_embed_defaults_to_local_client_without_embed_client() -> Result<()> {
+    let chat_client = Arc::new(DimMockClient { dim: 4 });
+    let router = InferenceRouter::new(chat_client);
+    let vec = router.embed("hello").await?;
+    assert_eq!(vec.len(), 4);
+    Ok(())
+}

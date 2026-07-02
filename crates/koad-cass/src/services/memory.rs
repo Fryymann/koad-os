@@ -40,7 +40,9 @@ pub fn default_metadata(
         md.token_estimates.push(tokens);
     }
 
-    let pb = md.prompt_budget.get_or_insert_with(PromptBudgetHints::default);
+    let pb = md
+        .prompt_budget
+        .get_or_insert_with(PromptBudgetHints::default);
     if pb.priority.is_empty() {
         pb.priority = "normal".into();
     }
@@ -67,10 +69,16 @@ pub fn default_metadata(
         rt.recency_weight = 1.0;
     }
     if rt.volatility.is_empty() {
-        rt.volatility = if stable { "stable".into() } else { "mutable".into() };
+        rt.volatility = if stable {
+            "stable".into()
+        } else {
+            "mutable".into()
+        };
     }
 
-    let pv = md.provenance.get_or_insert_with(ProvenanceMetadata::default);
+    let pv = md
+        .provenance
+        .get_or_insert_with(ProvenanceMetadata::default);
     if pv.content_hash.is_empty() {
         let mut h = Sha256::new();
         h.update(content.as_bytes());
@@ -93,8 +101,14 @@ pub fn default_metadata_json(
     confidence: f32,
     source_agent: &str,
 ) -> String {
-    serde_json::to_string(&default_metadata(content, domain, confidence, source_agent, None))
-        .unwrap_or_default()
+    serde_json::to_string(&default_metadata(
+        content,
+        domain,
+        confidence,
+        source_agent,
+        None,
+    ))
+    .unwrap_or_default()
 }
 
 pub struct CassMemoryService {

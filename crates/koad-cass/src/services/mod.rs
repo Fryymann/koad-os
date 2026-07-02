@@ -1,3 +1,5 @@
+pub mod enrichment;
+pub mod enrichment_worker;
 pub mod eow;
 pub mod hydration;
 pub mod memory;

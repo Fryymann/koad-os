@@ -1,6 +1,6 @@
 //! Tiered Memory Orchestrator — L1 (Redis) → L2 (SQLite) → L3 (Qdrant).
 //!
-//! Write path: L1 + L2 synchronously, L3 fire-and-forget.
+//! Write path: L1 + L2 synchronously; L3 via async enrichment queue.
 //! Read path (query_facts): L1 first; fall through to L2 on cache miss.
 //! Read path (episodes, agent facts): L2 only (authoritative durable store).
 
@@ -9,7 +9,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use koad_proto::cass::v1::{EpisodicMemory, FactCard};
 use std::sync::Arc;
-use tracing::{error, warn};
+use tracing::warn;
 
 pub struct TieredStorage {
     l1: Arc<RedisTier>,
@@ -31,16 +31,23 @@ impl MemoryTier for TieredStorage {
             warn!(error = %e, "TieredStorage: L1 write failed, continuing");
         }
 
-        // L2: durable write (authoritative)
-        self.l2.commit_fact(fact.clone()).await?;
+        // Capture identifiers needed for the enrichment enqueue before L2 takes ownership.
+        let fact_id = fact.id.clone();
+        let source_agent = fact.source_agent.clone();
 
-        // L3: semantic index — fire-and-forget
-        let l3 = self.l3.clone();
-        tokio::spawn(async move {
-            if let Err(e) = l3.commit_fact(fact).await {
-                error!(error = %e, "TieredStorage: L3 write failed");
-            }
-        });
+        // L2: durable write (authoritative)
+        self.l2.commit_fact(fact).await?;
+
+        // L3 indexing is async: the enrichment worker embeds + upserts Qdrant.
+        // Enqueue failure is non-fatal — the memory is safe in L2 and the
+        // backfill_embeddings binary can re-enqueue.
+        if let Err(e) = self
+            .l1
+            .enqueue_enrichment("fact", &fact_id, &source_agent)
+            .await
+        {
+            warn!(error = %e, "TieredStorage: enrichment enqueue failed (memory safe in L2)");
+        }
 
         Ok(())
     }
@@ -74,12 +81,13 @@ impl MemoryTier for TieredStorage {
     async fn record_episode(&self, episode: EpisodicMemory) -> Result<()> {
         self.l2.record_episode(episode.clone()).await?;
 
-        let l3 = self.l3.clone();
-        tokio::spawn(async move {
-            if let Err(e) = l3.record_episode(episode).await {
-                tracing::error!(error = %e, "TieredStorage: L3 record_episode failed");
-            }
-        });
+        if let Err(e) = self
+            .l1
+            .enqueue_enrichment("episode", &episode.session_id, &episode.session_id)
+            .await
+        {
+            warn!(error = %e, "TieredStorage: enrichment enqueue failed (memory safe in L2)");
+        }
 
         Ok(())
     }
@@ -104,7 +112,9 @@ impl MemoryTier for TieredStorage {
         // Try L3 (Qdrant vector search) first
         match self.l3.search_semantic(query, partition, limit).await {
             Ok(facts) if !facts.is_empty() => return Ok(facts),
-            Err(e) => tracing::warn!(error = %e, "TieredStorage: L3 semantic search failed, falling through to L2 text match"),
+            Err(e) => {
+                tracing::warn!(error = %e, "TieredStorage: L3 semantic search failed, falling through to L2 text match")
+            }
             Ok(_) => {}
         }
         self.l2.search_semantic(query, partition, limit).await
@@ -158,14 +168,50 @@ mod tests {
 
         // Write through all tiers
         storage.commit_fact(fact.clone()).await?;
-        // Small delay for L3 fire-and-forget
-        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
 
         // Read back (should hit L1 Redis cache)
         let results = storage.query_facts("test-tiered", &[], 5).await?;
         assert!(!results.is_empty(), "Expected fact from L1/L2");
         assert_eq!(results[0].content, fact.content);
 
+        Ok(())
+    }
+
+    /// Full pipeline: requires live Qdrant + Ollama (nomic-embed-text).
+    /// Drives QdrantTier directly to validate semantic (non-substring) recall.
+    #[tokio::test]
+    #[ignore = "requires live services (qdrant, ollama with nomic-embed-text)"]
+    async fn test_semantic_recall_paraphrase() -> anyhow::Result<()> {
+        let intelligence = Arc::new(koad_intelligence::router::InferenceRouter::new_default()?);
+        let qdrant = QdrantTier::new("http://127.0.0.1:6334", Some(intelligence)).await?;
+
+        let fact = FactCard {
+            id: "semantic-test-001".to_string(),
+            domain: "test-semantic".to_string(),
+            content: "The deployment failed because the systemd service kept running the old binary from memory".to_string(),
+            source_agent: "clyde-semantic-test".to_string(),
+            session_id: "S-SEM".to_string(),
+            confidence: 0.9,
+            tags: vec!["test".to_string()],
+            created_at: None,
+            metadata: None,
+        };
+        qdrant.commit_fact(fact).await?;
+
+        // Paraphrased query with minimal keyword overlap — substring/LIKE
+        // matching would miss it; real embeddings must rank it first.
+        let results = qdrant
+            .search_semantic(
+                "why did the service restart not pick up the new build",
+                "clyde-semantic-test",
+                3,
+            )
+            .await?;
+        assert!(
+            results.iter().any(|f| f.id == "semantic-test-001"),
+            "semantic search must recall the paraphrased fact; got: {:?}",
+            results.iter().map(|f| &f.id).collect::<Vec<_>>()
+        );
         Ok(())
     }
 }
