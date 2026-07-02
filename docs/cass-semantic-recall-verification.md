@@ -62,9 +62,17 @@ whenever `AGENT_NAME != AGENT_PARTITION`. This is exactly how the sentinel test 
 episode-query idiom. Deployed and re-verified live: a fresh MCP-committed sentinel was
 recalled at rank 1 by a zero-keyword-overlap paraphrase under its own writing partition, and
 production partitions (`clyde_Jupiter_ideans`, `hermes_jupiter_ideans`) regression-tested
-clean. Note: legacy-domain cards (e.g. `session:clyde:2026-05-09`) predating the
-domain-equals-partition convention are outside any current partition prefix on both tiers —
-consistent behavior, but a candidate for a one-off domain migration.
+clean. Legacy-domain migration **completed 2026-07-02**: the only legacy shape
+(`session:clyde:2026-05-09`, 10 facts) was renamed to
+`clyde_Jupiter_ideans:session-2026-05-09` in L2 (backup:
+`cass.db.pre-domain-migration-20260702`), re-enqueued through the enrichment worker for
+Qdrant payload refresh (marker present → no LLM re-run), and verified recalled at rank 1
+under the production partition. Zero legacy domains remain in either tier.
+
+Residual gap (episodes): `search_semantic` matches episodes by
+`session_id.contains(partition)`; most session ids (e.g. `20260606_140451_01834a`) contain
+no partition string, so episode recall under production partitions is effectively empty.
+Episode partition keying needs its own design pass.
 
 ### 🟡 Minor — tag quality from granite3.3:2b
 
