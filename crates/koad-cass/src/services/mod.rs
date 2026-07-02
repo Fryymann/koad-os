@@ -1,3 +1,4 @@
+pub mod enrichment;
 pub mod eow;
 pub mod hydration;
 pub mod memory;
