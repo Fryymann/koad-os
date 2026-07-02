@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use koad_bridge_notion::NotionClient;
+use koad_cass::services::enrichment_worker::EnrichmentWorker;
 use koad_cass::services::eow::EndOfWatchPipeline;
 use koad_cass::services::hydration::CassHydrationService;
 use koad_cass::services::memory::CassMemoryService;
@@ -62,11 +63,18 @@ async fn main() -> Result<()> {
             Arc::new(QdrantTier::new_offline())
         }
         Err(_) => {
-            tracing::warn!("Qdrant L3: TIMEOUT ({}) — starting in degraded mode (L1+L2 only)", qdrant_url);
+            tracing::warn!(
+                "Qdrant L3: TIMEOUT ({}) — starting in degraded mode (L1+L2 only)",
+                qdrant_url
+            );
             Arc::new(QdrantTier::new_offline())
         }
     };
-    let storage = Arc::new(TieredStorage::new(Arc::clone(&redis_tier), sqlite, qdrant));
+    let storage = Arc::new(TieredStorage::new(
+        Arc::clone(&redis_tier),
+        Arc::clone(&sqlite),
+        Arc::clone(&qdrant),
+    ));
     let hierarchy = Arc::new(HierarchyManager::new(config.clone()));
     let signal_corps = Arc::new(SignalCorps::new(redis.clone(), "koad:stream:", 1000));
     let codegraph = Arc::new(CodeGraph::new(&config.home.join("data/db/codegraph.db"))?);
@@ -107,8 +115,19 @@ async fn main() -> Result<()> {
         eow_pipeline.start_listener().await;
     });
 
-    let grpc_port = std::env::var("CASS_GRPC_PORT")
-        .unwrap_or_else(|_| "50052".to_string());
+    // Async enrichment worker: LLM metadata + embeddings for committed memories.
+    let enrichment_worker = EnrichmentWorker::new(
+        redis.pool.clone(),
+        Arc::clone(&redis_tier),
+        Arc::clone(&sqlite),
+        Arc::clone(&qdrant),
+        Arc::clone(&intelligence),
+    );
+    tokio::spawn(async move {
+        enrichment_worker.run().await;
+    });
+
+    let grpc_port = std::env::var("CASS_GRPC_PORT").unwrap_or_else(|_| "50052".to_string());
     let addr = format!("0.0.0.0:{}", grpc_port).parse()?;
     info!("CASS: gRPC server listening on {}", addr);
 
