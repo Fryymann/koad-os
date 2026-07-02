@@ -8,8 +8,8 @@
 use crate::storage::{MemoryTier, PulseTier};
 use koad_codegraph::CodeGraph;
 use koad_core::hierarchy::HierarchyManager;
-use koad_core::utils::tokens::count_tokens;
 use koad_core::intelligence::IntelligenceRouter;
+use koad_core::utils::tokens::count_tokens;
 #[cfg(test)]
 use koad_intelligence::router::InferenceRouter;
 use koad_proto::cass::v1::hydration_service_server::HydrationService;
@@ -84,13 +84,18 @@ impl HydrationService for CassHydrationService {
         let mut source_files = Vec::new();
 
         // 0. Identity Anchor (New)
-        if let Some(id_config) = self.hierarchy.config().identities.get(&agent.to_lowercase()) {
+        if let Some(id_config) = self
+            .hierarchy
+            .config()
+            .identities
+            .get(&agent.to_lowercase())
+        {
             let mut identity_section = "## ⚓ Identity Anchor\n".to_string();
             identity_section.push_str(&format!("- **Name:** {}\n", id_config.name));
             identity_section.push_str(&format!("- **Role:** {}\n", id_config.role));
             identity_section.push_str(&format!("- **Rank:** {}\n", id_config.rank));
             identity_section.push_str(&format!("- **Bio:** {}\n", id_config.bio));
-            
+
             if let Some(pref) = &id_config.preferences {
                 if !pref.principles.is_empty() {
                     identity_section.push_str("\n### Core Principles\n");
@@ -135,7 +140,8 @@ impl HydrationService for CassHydrationService {
             }
 
             // Use precomputed episodic summaries directly to avoid on-the-fly LLM synthesis
-            let mut summary_block = "## Ⅰ. Recent Episode Summaries (Distilled History)\n".to_string();
+            let mut summary_block =
+                "## Ⅰ. Recent Episode Summaries (Distilled History)\n".to_string();
             for ep in &episodes {
                 summary_block.push_str(&format!("- Session {}: {}\n", ep.session_id, ep.summary));
             }
@@ -241,39 +247,34 @@ impl HydrationService for CassHydrationService {
             });
 
             // Pack a slice of facts into a section under the shared running budget.
-            let mut emit_section =
-                |header: &str,
-                 facts_slice: &[koad_proto::cass::v1::FactCard],
-                 tokens_used: &mut usize| {
-                    let mut body = String::new();
-                    let header_tokens = count(header) as usize;
-                    for fact in facts_slice {
-                        if let Some(line) = render_line(fact) {
-                            let line_tokens = count(&line) as usize;
-                            // Account for the trailing "\n" appended by the final
-                            // `format!("{header}{body}\n")` so per-line and section
-                            // accounting agree within 1 token and never over-include.
-                            if *tokens_used
-                                + header_tokens
-                                + (count(&body) as usize)
-                                + line_tokens
-                                + 1
-                                >= budget
-                            {
-                                continue;
-                            }
-                            body.push_str(&line);
+            let mut emit_section = |header: &str,
+                                    facts_slice: &[koad_proto::cass::v1::FactCard],
+                                    tokens_used: &mut usize| {
+                let mut body = String::new();
+                let header_tokens = count(header) as usize;
+                for fact in facts_slice {
+                    if let Some(line) = render_line(fact) {
+                        let line_tokens = count(&line) as usize;
+                        // Account for the trailing "\n" appended by the final
+                        // `format!("{header}{body}\n")` so per-line and section
+                        // accounting agree within 1 token and never over-include.
+                        if *tokens_used + header_tokens + (count(&body) as usize) + line_tokens + 1
+                            >= budget
+                        {
+                            continue;
                         }
+                        body.push_str(&line);
                     }
-                    if !body.is_empty() {
-                        let section = format!("{header}{body}\n");
-                        let section_tokens = count(&section) as usize;
-                        if *tokens_used + section_tokens < budget {
-                            packet.push_str(&section);
-                            *tokens_used += section_tokens;
-                        }
+                }
+                if !body.is_empty() {
+                    let section = format!("{header}{body}\n");
+                    let section_tokens = count(&section) as usize;
+                    if *tokens_used + section_tokens < budget {
+                        packet.push_str(&section);
+                        *tokens_used += section_tokens;
                     }
-                };
+                }
+            };
 
             // Ⅱ-A first (cache-stable prefix region), then Ⅱ-B. When no fact is
             // cache_stable (e.g. legacy un-backfilled DBs), Ⅱ-A is omitted and
@@ -298,7 +299,10 @@ impl HydrationService for CassHydrationService {
                         // Check if message is for this agent or 'all'
                         if filename.contains(&agent.to_lowercase()) || filename.contains("all") {
                             if let Ok(content) = fs::read_to_string(&path) {
-                                inbox_section.push_str(&format!("### Message: {}\n{}\n\n", filename, content));
+                                inbox_section.push_str(&format!(
+                                    "### Message: {}\n{}\n\n",
+                                    filename, content
+                                ));
                                 found_messages = true;
                             }
                         }
@@ -343,7 +347,8 @@ impl HydrationService for CassHydrationService {
                 } else {
                     display_path.into_owned()
                 };
-                hierarchy_section.push_str(&format!("### Level: {:?}\nPath: {}\n\n", level, sanitized));
+                hierarchy_section
+                    .push_str(&format!("### Level: {:?}\nPath: {}\n\n", level, sanitized));
                 source_files.push(layer.to_string_lossy().to_string());
             }
 
@@ -416,7 +421,6 @@ impl HydrationService for CassHydrationService {
         }))
     }
 }
-
 
 #[cfg(test)]
 mod tests {
