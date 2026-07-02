@@ -1229,7 +1229,10 @@ impl EnrichmentWorker {
                 .await
             {
                 Ok(raw) => match parse_enrichment_output(&raw) {
-                    Ok(out) => return Some(out),
+                    Ok(out) if out.is_meaningful() => return Some(out),
+                    Ok(_) => {
+                        warn!(attempt = attempt + 1, "EnrichmentWorker: degenerate (empty) LLM output");
+                    }
                     Err(e) => {
                         warn!(error = %e, attempt = attempt + 1, "EnrichmentWorker: unparseable LLM output");
                     }
