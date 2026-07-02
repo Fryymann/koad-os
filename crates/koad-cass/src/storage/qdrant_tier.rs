@@ -178,6 +178,21 @@ impl QdrantTier {
         h.finish()
     }
 
+    /// Merge scored search results: apply the `min_score` similarity threshold
+    /// (<= 0.0 means unset — keep everything), sort descending by score, and
+    /// truncate to `limit`.
+    fn merge_scored(mut scored: Vec<(f32, FactCard)>, limit: u32, min_score: f32) -> Vec<FactCard> {
+        if min_score > 0.0 {
+            scored.retain(|(score, _)| *score >= min_score);
+        }
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        scored
+            .into_iter()
+            .take(limit as usize)
+            .map(|(_, fact)| fact)
+            .collect()
+    }
+
     /// Generate an embedding vector for the given content.
     /// Errors propagate — no fingerprint fallback. Fabricated vectors poison
     /// the semantic space; callers (enrichment worker) retry instead.
@@ -516,6 +531,7 @@ impl MemoryTier for QdrantTier {
         query: &str,
         partition: &str,
         limit: u32,
+        min_score: f32,
     ) -> Result<Vec<FactCard>> {
         let Some(client) = &self.client else {
             return Ok(vec![]);
@@ -611,17 +627,7 @@ impl MemoryTier for QdrantTier {
             }
         }
 
-        // Sort descending by score
-        scored_facts.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-
-        // Truncate to limit
-        let merged = scored_facts
-            .into_iter()
-            .take(limit as usize)
-            .map(|(_, fact)| fact)
-            .collect();
-
-        Ok(merged)
+        Ok(Self::merge_scored(scored_facts, limit, min_score))
     }
 }
 
@@ -693,6 +699,41 @@ mod tests {
         let tier = QdrantTier::new_offline();
         let res = tier.get_vector("hello world").await;
         assert!(res.is_err(), "offline tier must not fabricate vectors");
+    }
+
+    fn scored(id: &str, score: f32) -> (f32, FactCard) {
+        let mut fact = sample_fact(None);
+        fact.id = id.to_string();
+        (score, fact)
+    }
+
+    #[test]
+    fn merge_scored_drops_results_below_min_score() {
+        let input = vec![scored("low", 0.2), scored("high", 0.9), scored("mid", 0.5)];
+        let out = QdrantTier::merge_scored(input, 10, 0.4);
+        let ids: Vec<&str> = out.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["high", "mid"],
+            "below-threshold results must be dropped"
+        );
+    }
+
+    #[test]
+    fn merge_scored_zero_min_score_keeps_everything() {
+        // min_score <= 0.0 means "unset" (proto default) — even negative-similarity
+        // results survive, preserving pre-threshold behavior.
+        let input = vec![scored("neg", -0.1), scored("pos", 0.8)];
+        let out = QdrantTier::merge_scored(input, 10, 0.0);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn merge_scored_applies_threshold_before_limit() {
+        let input = vec![scored("a", 0.9), scored("b", 0.1), scored("c", 0.7)];
+        let out = QdrantTier::merge_scored(input, 2, 0.5);
+        let ids: Vec<&str> = out.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "c"], "limit fills from passing results only");
     }
 
     #[test]

@@ -41,7 +41,13 @@ impl RedisTier {
         ];
         let _: String = self
             .pool
-            .xadd(ENRICHMENT_STREAM, false, ("MAXLEN", "~", 100_000), "*", fields)
+            .xadd(
+                ENRICHMENT_STREAM,
+                false,
+                ("MAXLEN", "~", 100_000),
+                "*",
+                fields,
+            )
             .await?;
         Ok(())
     }
@@ -176,6 +182,7 @@ impl MemoryTier for RedisTier {
         _query: &str,
         _partition: &str,
         _limit: u32,
+        _min_score: f32,
     ) -> Result<Vec<FactCard>> {
         // Redis has no full-text search capability.
         Ok(vec![])

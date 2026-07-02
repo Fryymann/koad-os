@@ -108,16 +108,23 @@ impl MemoryTier for TieredStorage {
         query: &str,
         partition: &str,
         limit: u32,
+        min_score: f32,
     ) -> Result<Vec<FactCard>> {
         // Try L3 (Qdrant vector search) first
-        match self.l3.search_semantic(query, partition, limit).await {
+        match self
+            .l3
+            .search_semantic(query, partition, limit, min_score)
+            .await
+        {
             Ok(facts) if !facts.is_empty() => return Ok(facts),
             Err(e) => {
                 tracing::warn!(error = %e, "TieredStorage: L3 semantic search failed, falling through to L2 text match")
             }
             Ok(_) => {}
         }
-        self.l2.search_semantic(query, partition, limit).await
+        self.l2
+            .search_semantic(query, partition, limit, min_score)
+            .await
     }
 }
 
@@ -205,6 +212,7 @@ mod tests {
                 "why did the service restart not pick up the new build",
                 "clyde-semantic-test",
                 3,
+                0.0,
             )
             .await?;
         assert!(

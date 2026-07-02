@@ -45,6 +45,7 @@ pub trait MemoryTier: Send + Sync {
         query: &str,
         partition: &str,
         limit: u32,
+        min_score: f32,
     ) -> Result<Vec<FactCard>>;
 }
 

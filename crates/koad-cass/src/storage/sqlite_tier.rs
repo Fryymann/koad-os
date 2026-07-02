@@ -303,6 +303,8 @@ impl MemoryTier for SqliteTier {
         query: &str,
         partition: &str,
         limit: u32,
+        // LIKE matching has no similarity scores to threshold against.
+        _min_score: f32,
     ) -> Result<Vec<FactCard>> {
         let conn = self.conn.lock().await;
         let pattern = format!("%{}%", query);
@@ -469,7 +471,7 @@ mod tests {
             .await?;
 
         let results = storage
-            .search_semantic("Hermes recall", partition, 10)
+            .search_semantic("Hermes recall", partition, 10, 0.0)
             .await?;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "semantic-001");

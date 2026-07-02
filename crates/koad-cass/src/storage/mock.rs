@@ -129,6 +129,7 @@ impl MemoryTier for MockStorage {
         query: &str,
         _partition: &str,
         limit: u32,
+        _min_score: f32,
     ) -> Result<Vec<FactCard>> {
         let facts = self
             .facts

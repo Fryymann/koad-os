@@ -210,7 +210,7 @@ impl MemoryService for CassMemoryService {
         let req = request.into_inner();
         let facts = self
             .storage
-            .search_semantic(&req.query, &req.partition, req.limit)
+            .search_semantic(&req.query, &req.partition, req.limit, req.min_score)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
