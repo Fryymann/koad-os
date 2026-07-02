@@ -111,7 +111,7 @@ impl McpToolHandler for CommitTool {
         let domain = format!("{}:{}", self.partition, topic);
 
         let session_id = std::env::var("KOAD_SESSION_ID")
-            .unwrap_or_else(|_| format!("rook-{}", Utc::now().format("%Y%m%d")));
+            .unwrap_or_else(|_| format!("{}-{}", self.agent_name, Utc::now().format("%Y%m%d")));
 
         let fact = FactCard {
             id: id.clone(),

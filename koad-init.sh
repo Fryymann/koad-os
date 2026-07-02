@@ -221,14 +221,6 @@ for bin in koad koad-agent koad-cass koad-citadel koad-os-mcp; do
     fi
 done
 
-# 6b. Docker Rook Assets
-CURRENT_STEP="Docker Rook Deploy"
-section "Docker Rook Assets"
-ROOK_DEST="$KOAD_HOME/docker/rook"
-mkdir -p "$ROOK_DEST"
-cp -r docker/rook/. "$ROOK_DEST/"
-ok "docker/rook/ deployed to $ROOK_DEST"
-
 # 7. Database Migrations / Setup
 CURRENT_STEP="Database & State"
 section "Database & State"
@@ -282,14 +274,14 @@ if [[ "$SETUP_CLAUDE_AGENT" = true ]]; then
 
     echo ""
     echo -e "${BOLD}To start your Claude Desktop memory agent:${RESET}"
-    echo -e "  ${CYAN}AGENT_NAME=\"$CLAUDE_AGENT_NAME\" $KOAD_HOME/docker/rook/rook-up.sh${RESET}"
+    echo -e "  ${CYAN}AGENT_NAME=\"$CLAUDE_AGENT_NAME\" AGENT_PARTITION=\"${CLAUDE_AGENT_NAME}_$(hostname)_$(whoami)\" $KOAD_HOME/bin/koad-os-mcp${RESET}"
     echo ""
     echo -e "Then add this to your ${BOLD}claude_desktop_config.json${RESET}:"
     echo -e "  ${CYAN}\"mcpServers\": { \"$CLAUDE_AGENT_NAME\": { \"transport\": \"http\", \"url\": \"http://localhost:9742/mcp\" } }${RESET}"
     echo ""
     ok "Claude Desktop agent '$CLAUDE_AGENT_NAME' configured."
 else
-    info "Skipping Claude Desktop agent setup. Run '$KOAD_HOME/docker/rook/rook-up.sh' later to enable."
+    info "Skipping Claude Desktop agent setup. Re-run koad-init.sh later to enable."
 fi
 
 CURRENT_STEP="Finalizing"

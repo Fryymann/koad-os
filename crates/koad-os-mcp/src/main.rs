@@ -28,16 +28,20 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let cass_url = std::env::var("CASS_URL").unwrap_or_else(|_| "http://localhost:50052".to_string());
-    let partition = std::env::var("AGENT_PARTITION").unwrap_or_else(|_| "rook_local_default".to_string());
+    // Identity is deployment-specific and MUST be explicit: a silent default
+    // here once misattributed memories to a partition no agent searched.
+    let partition = std::env::var("AGENT_PARTITION")
+        .map_err(|_| anyhow::anyhow!("AGENT_PARTITION is required (e.g. clyde_Jupiter_ideans)"))?;
+    let agent_name = std::env::var("AGENT_NAME")
+        .map_err(|_| anyhow::anyhow!("AGENT_NAME is required (e.g. clyde)"))?;
     let mcp_mode = std::env::var("MCP_MODE").unwrap_or_else(|_| "read_only".to_string());
     let transport = std::env::var("MCP_TRANSPORT").unwrap_or_else(|_| "http".to_string());
-    let agent_name = std::env::var("AGENT_NAME").unwrap_or_else(|_| "rook".to_string());
     let port: u16 = std::env::var("MCP_PORT")
         .unwrap_or_else(|_| "9742".to_string())
         .parse()
         .unwrap_or(9742);
 
-    tracing::info!(partition = %partition, mode = %mcp_mode, transport = %transport, "Rook MCP starting");
+    tracing::info!(agent = %agent_name, partition = %partition, mode = %mcp_mode, transport = %transport, "KoadOS MCP bridge starting");
 
     let mut server = McpServer::new(&agent_name, "0.1.0");
     server.register_tool(RecallTool::new(cass_url.clone(), partition.clone()));

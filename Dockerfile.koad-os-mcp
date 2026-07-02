@@ -23,18 +23,17 @@ RUN apt-get update && apt-get install -y \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m rook && mkdir -p /app && chown -R rook:rook /app
-USER rook
+RUN useradd -m koad && mkdir -p /app && chown -R koad:koad /app
+USER koad
 WORKDIR /app
 
-COPY --from=builder --chown=rook:rook /usr/src/koad-os/target/release/koad-os-mcp /app/koad-os-mcp
+COPY --from=builder --chown=koad:koad /usr/src/koad-os/target/release/koad-os-mcp /app/koad-os-mcp
 
 ENV CASS_URL="http://cass:50052"
 ENV QDRANT_URL="http://qdrant:6334"
 ENV MCP_MODE="read_only"
 ENV MCP_TRANSPORT="http"
 ENV MCP_PORT="9742"
-ENV AGENT_PARTITION="rook_default"
 ENV RUST_LOG="info"
 
 EXPOSE 9742

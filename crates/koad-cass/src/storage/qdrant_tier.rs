@@ -526,7 +526,7 @@ impl MemoryTier for QdrantTier {
         // Query 1: Search facts.
         // Partition canon is the DOMAIN prefix ("{partition}" or "{partition}:{topic}"),
         // matching the L2 SQLite filter — NOT source_agent, which records the authoring
-        // agent (e.g. "rook" for MCP commits) and may differ from the partition.
+        // agent (the MCP bridge's AGENT_NAME) and may differ from the partition.
         // Qdrant has no prefix match on keyword payloads, so oversample and filter
         // locally, the same idiom the episode query below uses.
         let candidate_limit = (limit as u64 * 4).max(20);

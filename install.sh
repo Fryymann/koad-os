@@ -183,13 +183,6 @@ run_update() {
             ok "  ✓ Updated skills"
         fi
         
-        # 6. Copy docker rook assets
-        if [[ -d "docker/rook" ]]; then
-            mkdir -p "$p/docker/rook"
-            cp -r docker/rook/. "$p/docker/rook/"
-            ok "  ✓ Updated docker/rook assets"
-        fi
-        
         # 7. Restart systemd services if they were active
         if [[ "$restart_cass" = true ]]; then
             info "Restarting koad-cass.service..."
@@ -297,7 +290,7 @@ run_install() {
     # 2. Directory Setup
     CURRENT_STEP="Directory Setup"
     section "Directory Setup"
-    for dir in "$BIN_DIR" "$LOG_DIR" "$KOAD_HOME/cache" "$KOAD_HOME/data/db" "$KOAD_HOME/data/redis" "$KOAD_HOME/run" "$KOAD_HOME/config" "$KOAD_HOME/config/identities" "$KOAD_HOME/skills" "$KOAD_HOME/docker/rook"; do
+    for dir in "$BIN_DIR" "$LOG_DIR" "$KOAD_HOME/cache" "$KOAD_HOME/data/db" "$KOAD_HOME/data/redis" "$KOAD_HOME/run" "$KOAD_HOME/config" "$KOAD_HOME/config/identities" "$KOAD_HOME/skills"; do
         mkdir -p "$dir"
         ok "$dir created"
     done
@@ -345,11 +338,6 @@ run_install() {
         ok "Skills deployed to $KOAD_HOME/skills"
     fi
     
-    # Deploy docker/rook assets
-    if [[ -d "docker/rook" ]]; then
-        cp -r docker/rook/. "$KOAD_HOME/docker/rook/"
-        ok "Docker/Rook assets deployed to $KOAD_HOME/docker/rook"
-    fi
     
     # Copy scripts
     if [[ -d "scripts" ]]; then

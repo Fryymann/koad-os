@@ -6,12 +6,12 @@ RUN apt-get update && apt-get install -y \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m rook && mkdir -p /app && chown -R rook:rook /app
-USER rook
+RUN useradd -m koad && mkdir -p /app && chown -R koad:koad /app
+USER koad
 WORKDIR /app
 
 # Binaries are expected to be in the build context (../bin/)
-COPY --chown=rook:rook bin/koad-os-mcp /app/koad-os-mcp
+COPY --chown=koad:koad bin/koad-os-mcp /app/koad-os-mcp
 
 ENV CASS_URL="http://cass:50052"
 ENV QDRANT_URL="http://qdrant:6333"

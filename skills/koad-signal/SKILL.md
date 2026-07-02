@@ -13,12 +13,12 @@ Asynchronous agent-to-agent messaging (A2A-S). Use for cross-agent coordination 
 ```bash
 koad signal send <target> --message "<content>"
 koad signal send clyde --message "CASS migration complete. Ready for Phase 4."
-koad signal send tyr --message "Rook stack is live on skylinks." --priority high
+koad signal send tyr --message "CASS stack is live on skylinks." --priority high
 ```
 
 Priorities: `low` | `standard` (default) | `high` | `critical`
 
-Target is the agent name (lowercase): `clyde`, `tyr`, `rook`, etc.
+Target is the agent name (lowercase): `clyde`, `tyr`, `hermes`, etc.
 
 ### Check incoming signals
 ```bash

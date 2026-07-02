@@ -432,9 +432,9 @@ mod tests {
         storage
             .commit_fact(fact(
                 "other-001",
-                "rook_jupiter_ideans",
+                "otheragent_jupiter_ideans",
                 "general",
-                "Rook fact should not leak into Hermes partition recall",
+                "Other-agent fact should not leak into Hermes partition recall",
             ))
             .await?;
 
@@ -462,7 +462,7 @@ mod tests {
         storage
             .commit_fact(fact(
                 "semantic-other-001",
-                "rook_jupiter_ideans",
+                "otheragent_jupiter_ideans",
                 "recall",
                 "CASS semantic search should not return this other recall memory",
             ))

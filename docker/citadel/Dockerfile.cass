@@ -13,7 +13,7 @@ WORKDIR /app
 
 # Binaries are expected to be in the build context (../bin/)
 COPY --chown=koad:koad bin/koad-cass /app/koad-cass
-COPY --chown=koad:koad docker/rook/kernel.toml /home/koad/.koad-os/config/kernel.toml
+COPY --chown=koad:koad docker/citadel/kernel.toml /home/koad/.koad-os/config/kernel.toml
 
 ENV KOADOS_URL_REDIS="redis://redis:6379"
 ENV KOADOS_URL_QDRANT="http://qdrant:6333"
