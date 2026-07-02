@@ -502,13 +502,19 @@ Add inside `impl RedisTier` (after `new`):
         ];
         let _: String = self
             .pool
-            .xadd(ENRICHMENT_STREAM, false, None, "*", fields)
+            .xadd(ENRICHMENT_STREAM, false, ("MAXLEN", "~", 100_000), "*", fields)
             .await?;
         Ok(())
     }
 ```
 
-fred note: if `None` for the cap argument fails inference, use `None::<fred::types::XCap>`; if `"*"` fails for the id argument, use `fred::types::XID::Auto`.
+Cap rationale (review finding): XACK removes entries from the consumer group's
+PEL but never from the stream itself — an uncapped stream grows forever even
+with a healthy worker. Approximate MAXLEN (`"~"`) bounds it cheaply; under
+extreme backlog trimming can evict un-acked entries, which are recoverable via
+`backfill_embeddings --enqueue` (L2 authoritative).
+
+fred note: if the cap tuple fails inference, follow compiler hints toward `fred::types::XCap`; if `"*"` fails for the id argument, use `fred::types::XID::Auto`.
 
 Run: `cargo check -p koad-cass`
 Expected: clean.
@@ -1616,6 +1622,9 @@ Sequenced; do not reorder. Requires a real terminal for sudo (known install.sh g
 6. Run migration: `$KOAD_HOME/bin/backfill_embeddings --db $KOAD_HOME/data/db/cass.db` (dry-run) then `--apply --enqueue`.
 7. Run ignored integration test or spot-check `memory.search_semantic` via MCP with a paraphrased query.
 8. Watch worker logs: `journalctl -u koad-cass -f | grep EnrichmentWorker`.
+9. Ops note: if Redis is down during a commit window, facts land in L2 but are
+   never enqueued — after any Redis outage, run `backfill_embeddings --enqueue`
+   to close the gap.
 
 ## Self-review notes (spec coverage)
 

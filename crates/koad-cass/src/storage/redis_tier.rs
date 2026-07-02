@@ -7,9 +7,13 @@ use crate::storage::{MemoryTier, PulseTier};
 use anyhow::Result;
 use async_trait::async_trait;
 use fred::clients::RedisPool;
-use fred::interfaces::{KeysInterface, SetsInterface};
+use fred::interfaces::{KeysInterface, SetsInterface, StreamsInterface};
 use koad_proto::cass::v1::{EpisodicMemory, FactCard, Pulse};
 use tracing::warn;
+
+/// Redis stream fed by TieredStorage at commit time, consumed by the
+/// enrichment worker (consumer group `cass-enrichers`).
+pub const ENRICHMENT_STREAM: &str = "cass:enrichment";
 
 pub struct RedisTier {
     pub(crate) pool: RedisPool,
@@ -18,6 +22,28 @@ pub struct RedisTier {
 impl RedisTier {
     pub fn new(pool: RedisPool) -> Self {
         Self { pool }
+    }
+
+    /// Enqueue a memory for async enrichment (LLM metadata + embedding).
+    /// `kind` is "fact" or "episode"; `id` is the fact id or episode session_id.
+    /// The `partition` field is reserved for observability/future routing —
+    /// the worker reloads the record from L2 by id.
+    ///
+    /// XACK never removes stream entries, so the stream is capped with an
+    /// approximate MAXLEN. Under extreme backlog trimming can evict un-acked
+    /// entries; L2 stays authoritative and `backfill_embeddings --enqueue`
+    /// recovers them.
+    pub async fn enqueue_enrichment(&self, kind: &str, id: &str, partition: &str) -> Result<()> {
+        let fields = vec![
+            ("kind", kind.to_string()),
+            ("id", id.to_string()),
+            ("partition", partition.to_string()),
+        ];
+        let _: String = self
+            .pool
+            .xadd(ENRICHMENT_STREAM, false, ("MAXLEN", "~", 100_000), "*", fields)
+            .await?;
+        Ok(())
     }
 
     fn fact_key(id: &str) -> String {
