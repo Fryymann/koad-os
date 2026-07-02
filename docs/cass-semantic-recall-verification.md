@@ -56,9 +56,15 @@ committed through MCP under partition X is invisible to semantic search under pa
 whenever `AGENT_NAME != AGENT_PARTITION`. This is exactly how the sentinel test initially
 "missed" — the memory was embedded and enriched correctly but filtered out.
 
-Fix is small (align QdrantTier's fact filter to domain-prefix semantics, or make commit set
-`source_agent = partition`) but needs a Dood decision on the canonical key. Payloads already
-carry both fields, so no re-embedding required. Tracked as task #10.
+**FIXED 2026-07-02** (commit `c648f8b`, Dood decision: domain prefix is canon).
+`QdrantTier::search_semantic` now oversamples and filters facts locally by
+`domain == partition || domain starts_with "{partition}:"`, mirroring the L2 filter and the
+episode-query idiom. Deployed and re-verified live: a fresh MCP-committed sentinel was
+recalled at rank 1 by a zero-keyword-overlap paraphrase under its own writing partition, and
+production partitions (`clyde_Jupiter_ideans`, `hermes_jupiter_ideans`) regression-tested
+clean. Note: legacy-domain cards (e.g. `session:clyde:2026-05-09`) predating the
+domain-equals-partition convention are outside any current partition prefix on both tiers —
+consistent behavior, but a candidate for a one-off domain migration.
 
 ### 🟡 Minor — tag quality from granite3.3:2b
 
