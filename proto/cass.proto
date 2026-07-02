@@ -123,7 +123,7 @@ message SemanticQuery {
   string query = 1;     // free-text query string
   string partition = 2; // agent partition key (e.g. "rook_hostname_user")
   uint32 limit = 3;
-  float min_score = 4;  // cosine similarity threshold; <= 0.0 means unset. Applied by the L3 Qdrant tier; the L2 LIKE fallback has no scores and ignores it.
+  float min_score = 4;  // cosine similarity threshold; <= 0.0 means unset. When L3 candidates exist the threshold verdict is final; the L2 LIKE fallback runs only on L3 outage or an empty partition and has no scores.
 }
 
 message FactResponse {

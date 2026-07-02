@@ -181,7 +181,11 @@ impl QdrantTier {
     /// Merge scored search results: apply the `min_score` similarity threshold
     /// (<= 0.0 means unset — keep everything), sort descending by score, and
     /// truncate to `limit`.
-    fn merge_scored(mut scored: Vec<(f32, FactCard)>, limit: u32, min_score: f32) -> Vec<FactCard> {
+    pub(crate) fn merge_scored(
+        mut scored: Vec<(f32, FactCard)>,
+        limit: u32,
+        min_score: f32,
+    ) -> Vec<FactCard> {
         if min_score > 0.0 {
             scored.retain(|(score, _)| *score >= min_score);
         }
@@ -533,6 +537,23 @@ impl MemoryTier for QdrantTier {
         limit: u32,
         min_score: f32,
     ) -> Result<Vec<FactCard>> {
+        let scored = self.search_semantic_scored(query, partition, limit).await?;
+        Ok(Self::merge_scored(scored, limit, min_score))
+    }
+}
+
+impl QdrantTier {
+    /// Raw scored semantic candidates for `partition` (facts + episodes),
+    /// pre-threshold and pre-truncation. An empty result means the partition
+    /// has no candidates in Qdrant (or the tier is offline) — TieredStorage
+    /// uses that to decide whether the L2 lexical fallback is warranted.
+    /// Embedding failures propagate as errors.
+    pub(crate) async fn search_semantic_scored(
+        &self,
+        query: &str,
+        partition: &str,
+        limit: u32,
+    ) -> Result<Vec<(f32, FactCard)>> {
         let Some(client) = &self.client else {
             return Ok(vec![]);
         };
@@ -627,7 +648,7 @@ impl MemoryTier for QdrantTier {
             }
         }
 
-        Ok(Self::merge_scored(scored_facts, limit, min_score))
+        Ok(scored_facts)
     }
 }
 

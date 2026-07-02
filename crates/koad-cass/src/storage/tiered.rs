@@ -17,6 +17,25 @@ pub struct TieredStorage {
     l3: Arc<QdrantTier>,
 }
 
+/// Decide the semantic-search outcome from L3's scored candidates.
+///
+/// `Some(hits)` — candidates existed in the partition, so the vector tier's
+/// threshold verdict is final. A `Some(vec![])` means everything scored below
+/// `min_score`: precision is honored and there is NO fall-through to the
+/// unscored L2 text match.
+/// `None` — zero candidates (empty partition, or L3 offline reporting an
+/// empty scored set): fall through to the L2 lexical safety net.
+fn l3_semantic_verdict(
+    scored: Vec<(f32, FactCard)>,
+    limit: u32,
+    min_score: f32,
+) -> Option<Vec<FactCard>> {
+    if scored.is_empty() {
+        return None;
+    }
+    Some(QdrantTier::merge_scored(scored, limit, min_score))
+}
+
 impl TieredStorage {
     pub fn new(l1: Arc<RedisTier>, l2: Arc<SqliteTier>, l3: Arc<QdrantTier>) -> Self {
         Self { l1, l2, l3 }
@@ -110,17 +129,23 @@ impl MemoryTier for TieredStorage {
         limit: u32,
         min_score: f32,
     ) -> Result<Vec<FactCard>> {
-        // Try L3 (Qdrant vector search) first
+        // L3 (Qdrant vector search) first. When it produces candidates, its
+        // threshold verdict is final — see l3_semantic_verdict. Only an L3
+        // error (embedding model down, Qdrant RPC failure) or an empty
+        // candidate set reaches the L2 text-match fallback.
         match self
             .l3
-            .search_semantic(query, partition, limit, min_score)
+            .search_semantic_scored(query, partition, limit)
             .await
         {
-            Ok(facts) if !facts.is_empty() => return Ok(facts),
-            Err(e) => {
-                tracing::warn!(error = %e, "TieredStorage: L3 semantic search failed, falling through to L2 text match")
+            Ok(scored) => {
+                if let Some(hits) = l3_semantic_verdict(scored, limit, min_score) {
+                    return Ok(hits);
+                }
             }
-            Ok(_) => {}
+            Err(e) => {
+                warn!(error = %e, "TieredStorage: L3 semantic search failed, falling through to L2 text match")
+            }
         }
         self.l2
             .search_semantic(query, partition, limit, min_score)
@@ -134,6 +159,53 @@ mod tests {
     use crate::storage::{QdrantTier, RedisTier, SqliteTier};
     use koad_proto::cass::v1::FactCard;
     use std::sync::Arc;
+
+    fn scored_fact(id: &str, score: f32) -> (f32, FactCard) {
+        (
+            score,
+            FactCard {
+                id: id.to_string(),
+                domain: "test".to_string(),
+                content: "c".to_string(),
+                source_agent: "clyde".to_string(),
+                session_id: "s".to_string(),
+                confidence: 0.9,
+                tags: vec![],
+                created_at: None,
+                metadata: None,
+            },
+        )
+    }
+
+    #[test]
+    fn l3_verdict_zero_candidates_falls_through_to_l2() {
+        assert!(
+            l3_semantic_verdict(vec![], 5, 0.5).is_none(),
+            "empty partition must keep the L2 lexical safety net"
+        );
+    }
+
+    #[test]
+    fn l3_verdict_threshold_empty_is_final_without_l2_fallback() {
+        let verdict = l3_semantic_verdict(vec![scored_fact("low", 0.3)], 5, 0.5);
+        assert_eq!(
+            verdict,
+            Some(vec![]),
+            "candidates existed and failed the threshold — precision verdict is final"
+        );
+    }
+
+    #[test]
+    fn l3_verdict_passing_candidates_returned_filtered() {
+        let verdict = l3_semantic_verdict(
+            vec![scored_fact("low", 0.3), scored_fact("hi", 0.9)],
+            5,
+            0.5,
+        )
+        .expect("candidates existed");
+        let ids: Vec<&str> = verdict.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids, vec!["hi"]);
+    }
 
     async fn make_tiered() -> anyhow::Result<TieredStorage> {
         let sqlite = Arc::new(SqliteTier::new(":memory:")?);
