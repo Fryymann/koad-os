@@ -41,48 +41,25 @@ impl SqliteTier {
             )",
             [],
         )?;
+        // Idempotent metadata migrations (ignore "duplicate column" on existing DBs).
+        let _ = conn.execute("ALTER TABLE fact_cards ADD COLUMN metadata_json TEXT", []);
+        let _ = conn.execute(
+            "ALTER TABLE episodic_memories ADD COLUMN metadata_json TEXT",
+            [],
+        );
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
     }
-}
 
-#[async_trait]
-impl MemoryTier for SqliteTier {
-    async fn commit_fact(&self, fact: FactCard) -> Result<()> {
-        let conn = self.conn.lock().await;
-        let tags = fact.tags.join(",");
-        let created_at = Utc::now().to_rfc3339();
-        conn.execute(
-            "INSERT OR REPLACE INTO fact_cards
-             (id, source_agent, session_id, domain, content, confidence, tags, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                fact.id,
-                fact.source_agent,
-                fact.session_id,
-                fact.domain,
-                fact.content,
-                fact.confidence,
-                tags,
-                created_at
-            ],
-        )?;
-        Ok(())
-    }
-
-    async fn query_facts(
-        &self,
-        domain: &str,
-        _tags: &[String],
-        limit: u32,
-    ) -> Result<Vec<FactCard>> {
+    /// Load a single fact by primary key. Used by the enrichment worker.
+    pub async fn get_fact_by_id(&self, id: &str) -> Result<Option<FactCard>> {
         let conn = self.conn.lock().await;
         let mut stmt = conn.prepare(
-            "SELECT id, source_agent, session_id, domain, content, confidence, tags
-             FROM fact_cards WHERE domain = ?1 ORDER BY confidence DESC LIMIT ?2",
+            "SELECT id, source_agent, session_id, domain, content, confidence, tags, metadata_json
+             FROM fact_cards WHERE id = ?1",
         )?;
-        let rows = stmt.query_map(params![domain, limit], |row| {
+        let mut rows = stmt.query_map(params![id], |row| {
             Ok(FactCard {
                 id: row.get(0)?,
                 source_agent: row.get(1)?,
@@ -96,6 +73,137 @@ impl MemoryTier for SqliteTier {
                     .map(|s| s.to_string())
                     .collect(),
                 created_at: None,
+                metadata: metadata_from_json(row.get::<_, Option<String>>(7)?),
+            })
+        })?;
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Load a single episode by session_id. Used by the enrichment worker.
+    pub async fn get_episode_by_session(&self, session_id: &str) -> Result<Option<EpisodicMemory>> {
+        let conn = self.conn.lock().await;
+        let mut stmt = conn.prepare(
+            "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json
+             FROM episodic_memories WHERE session_id = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![session_id], |row| {
+            Ok(EpisodicMemory {
+                session_id: row.get(0)?,
+                project_path: row.get(1)?,
+                summary: row.get(2)?,
+                turn_count: row.get(3)?,
+                timestamp: None,
+                task_ids: row
+                    .get::<_, String>(5)?
+                    .split(',')
+                    .map(|s| s.to_string())
+                    .collect(),
+                metadata: metadata_from_json(row.get::<_, Option<String>>(6)?),
+            })
+        })?;
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Persist enriched metadata for a fact. Content and other columns untouched.
+    pub async fn update_fact_metadata(
+        &self,
+        id: &str,
+        md: &koad_proto::cass::v1::MemoryMetadata,
+    ) -> Result<()> {
+        let conn = self.conn.lock().await;
+        let json = serde_json::to_string(md)?;
+        conn.execute(
+            "UPDATE fact_cards SET metadata_json = ?1 WHERE id = ?2",
+            params![json, id],
+        )?;
+        Ok(())
+    }
+
+    /// Persist enriched metadata for an episode.
+    pub async fn update_episode_metadata(
+        &self,
+        session_id: &str,
+        md: &koad_proto::cass::v1::MemoryMetadata,
+    ) -> Result<()> {
+        let conn = self.conn.lock().await;
+        let json = serde_json::to_string(md)?;
+        conn.execute(
+            "UPDATE episodic_memories SET metadata_json = ?1 WHERE session_id = ?2",
+            params![json, session_id],
+        )?;
+        Ok(())
+    }
+}
+
+fn metadata_to_json(md: &Option<koad_proto::cass::v1::MemoryMetadata>) -> Option<String> {
+    md.as_ref().and_then(|m| serde_json::to_string(m).ok())
+}
+
+fn metadata_from_json(raw: Option<String>) -> Option<koad_proto::cass::v1::MemoryMetadata> {
+    raw.and_then(|s| serde_json::from_str(&s).ok())
+}
+
+#[async_trait]
+impl MemoryTier for SqliteTier {
+    async fn commit_fact(&self, fact: FactCard) -> Result<()> {
+        let conn = self.conn.lock().await;
+        let tags = fact.tags.join(",");
+        let created_at = Utc::now().to_rfc3339();
+        let metadata_json = metadata_to_json(&fact.metadata);
+        conn.execute(
+            "INSERT OR REPLACE INTO fact_cards
+             (id, source_agent, session_id, domain, content, confidence, tags, created_at, metadata_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                fact.id,
+                fact.source_agent,
+                fact.session_id,
+                fact.domain,
+                fact.content,
+                fact.confidence,
+                tags,
+                created_at,
+                metadata_json
+            ],
+        )?;
+        Ok(())
+    }
+
+    async fn query_facts(
+        &self,
+        domain: &str,
+        _tags: &[String],
+        limit: u32,
+    ) -> Result<Vec<FactCard>> {
+        let conn = self.conn.lock().await;
+        let domain_prefix = format!("{}:%", domain);
+        let mut stmt = conn.prepare(
+            "SELECT id, source_agent, session_id, domain, content, confidence, tags, metadata_json
+             FROM fact_cards
+             WHERE domain = ?1 OR domain LIKE ?2
+             ORDER BY confidence DESC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![domain, domain_prefix, limit], |row| {
+            Ok(FactCard {
+                id: row.get(0)?,
+                source_agent: row.get(1)?,
+                session_id: row.get(2)?,
+                domain: row.get(3)?,
+                content: row.get(4)?,
+                confidence: row.get(5)?,
+                tags: row
+                    .get::<_, String>(6)?
+                    .split(',')
+                    .map(|s| s.to_string())
+                    .collect(),
+                created_at: None,
+                metadata: metadata_from_json(row.get::<_, Option<String>>(7)?),
             })
         })?;
         let mut facts = Vec::new();
@@ -115,7 +223,7 @@ impl MemoryTier for SqliteTier {
         let mut facts = Vec::new();
         if let Some(tid) = task_id.filter(|t| !t.is_empty()) {
             let mut stmt = conn.prepare(
-                "SELECT id, source_agent, session_id, domain, content, confidence, tags
+                "SELECT id, source_agent, session_id, domain, content, confidence, tags, metadata_json
                  FROM fact_cards WHERE source_agent = ?1 AND task_ids LIKE '%' || ?2 || '%'
                  ORDER BY confidence DESC LIMIT ?3",
             )?;
@@ -133,6 +241,7 @@ impl MemoryTier for SqliteTier {
                         .map(|s| s.to_string())
                         .collect(),
                     created_at: None,
+                    metadata: metadata_from_json(row.get::<_, Option<String>>(7)?),
                 })
             })?;
             for row in rows {
@@ -140,7 +249,7 @@ impl MemoryTier for SqliteTier {
             }
         } else {
             let mut stmt = conn.prepare(
-                "SELECT id, source_agent, session_id, domain, content, confidence, tags
+                "SELECT id, source_agent, session_id, domain, content, confidence, tags, metadata_json
                  FROM fact_cards WHERE source_agent = ?1 ORDER BY confidence DESC LIMIT ?2",
             )?;
             let rows = stmt.query_map(params![agent_name, limit], |row| {
@@ -157,6 +266,7 @@ impl MemoryTier for SqliteTier {
                         .map(|s| s.to_string())
                         .collect(),
                     created_at: None,
+                    metadata: metadata_from_json(row.get::<_, Option<String>>(7)?),
                 })
             })?;
             for row in rows {
@@ -170,20 +280,63 @@ impl MemoryTier for SqliteTier {
         let conn = self.conn.lock().await;
         let task_ids = episode.task_ids.join(",");
         let timestamp = Utc::now().to_rfc3339();
+        let metadata_json = metadata_to_json(&episode.metadata);
         conn.execute(
             "INSERT OR REPLACE INTO episodic_memories
-             (session_id, project_path, summary, turn_count, timestamp, task_ids)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             (session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 episode.session_id,
                 episode.project_path,
                 episode.summary,
                 episode.turn_count,
                 timestamp,
-                task_ids
+                task_ids,
+                metadata_json
             ],
         )?;
         Ok(())
+    }
+
+    async fn search_semantic(
+        &self,
+        query: &str,
+        partition: &str,
+        limit: u32,
+        // LIKE matching has no similarity scores to threshold against.
+        _min_score: f32,
+    ) -> Result<Vec<FactCard>> {
+        let conn = self.conn.lock().await;
+        let pattern = format!("%{}%", query);
+        let domain_prefix = format!("{}:%", partition);
+        let mut stmt = conn.prepare(
+            "SELECT id, source_agent, session_id, domain, content, confidence, tags, metadata_json
+             FROM fact_cards
+             WHERE content LIKE ?1 AND (domain = ?2 OR domain LIKE ?3)
+             ORDER BY confidence DESC LIMIT ?4",
+        )?;
+        let rows = stmt.query_map(params![pattern, partition, domain_prefix, limit], |row| {
+            Ok(FactCard {
+                id: row.get(0)?,
+                source_agent: row.get(1)?,
+                session_id: row.get(2)?,
+                domain: row.get(3)?,
+                content: row.get(4)?,
+                confidence: row.get(5)?,
+                tags: row
+                    .get::<_, String>(6)?
+                    .split(',')
+                    .map(|s| s.to_string())
+                    .collect(),
+                created_at: None,
+                metadata: metadata_from_json(row.get::<_, Option<String>>(7)?),
+            })
+        })?;
+        let mut facts = Vec::new();
+        for row in rows {
+            facts.push(row?);
+        }
+        Ok(facts)
     }
 
     async fn query_recent_episodes(
@@ -196,7 +349,7 @@ impl MemoryTier for SqliteTier {
         let mut episodes = Vec::new();
         if let Some(tid) = task_id.filter(|t| !t.is_empty()) {
             let mut stmt = conn.prepare(
-                "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids
+                "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json
                  FROM episodic_memories WHERE task_ids LIKE '%' || ?1 || '%'
                  ORDER BY timestamp DESC LIMIT ?2",
             )?;
@@ -212,6 +365,7 @@ impl MemoryTier for SqliteTier {
                         .split(',')
                         .map(|s| s.to_string())
                         .collect(),
+                    metadata: metadata_from_json(row.get::<_, Option<String>>(6)?),
                 })
             })?;
             for row in rows {
@@ -219,7 +373,7 @@ impl MemoryTier for SqliteTier {
             }
         } else {
             let mut stmt = conn.prepare(
-                "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids
+                "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json
                  FROM episodic_memories ORDER BY timestamp DESC LIMIT ?1",
             )?;
             let rows = stmt.query_map(params![limit], |row| {
@@ -234,6 +388,7 @@ impl MemoryTier for SqliteTier {
                         .split(',')
                         .map(|s| s.to_string())
                         .collect(),
+                    metadata: metadata_from_json(row.get::<_, Option<String>>(6)?),
                 })
             })?;
             for row in rows {
@@ -247,7 +402,82 @@ impl MemoryTier for SqliteTier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use koad_proto::cass::v1::EpisodicMemory;
+    use koad_proto::cass::v1::{EpisodicMemory, FactCard};
+
+    fn fact(id: &str, partition: &str, topic: &str, content: &str) -> FactCard {
+        FactCard {
+            id: id.to_string(),
+            source_agent: "hermes".to_string(),
+            session_id: format!("{partition}-session"),
+            domain: format!("{partition}:{topic}"),
+            content: content.to_string(),
+            confidence: 1.0,
+            tags: vec![partition.to_string(), topic.to_string()],
+            created_at: None,
+            metadata: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_query_facts_by_partition_returns_topic_domains() -> Result<()> {
+        let storage = SqliteTier::new(":memory:")?;
+        let partition = "hermes_jupiter_ideans";
+
+        storage
+            .commit_fact(fact(
+                "roundtrip-001",
+                partition,
+                "general",
+                "Hermes CASS round trip should recall partition-topic facts",
+            ))
+            .await?;
+        storage
+            .commit_fact(fact(
+                "other-001",
+                "otheragent_jupiter_ideans",
+                "general",
+                "Other-agent fact should not leak into Hermes partition recall",
+            ))
+            .await?;
+
+        let results = storage.query_facts(partition, &[], 10).await?;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "roundtrip-001");
+        assert_eq!(results[0].domain, "hermes_jupiter_ideans:general");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_search_semantic_filters_by_partition_domain_not_source_agent() -> Result<()> {
+        let storage = SqliteTier::new(":memory:")?;
+        let partition = "hermes_jupiter_ideans";
+
+        storage
+            .commit_fact(fact(
+                "semantic-001",
+                partition,
+                "recall",
+                "CASS semantic search should find this Hermes recall memory",
+            ))
+            .await?;
+        storage
+            .commit_fact(fact(
+                "semantic-other-001",
+                "otheragent_jupiter_ideans",
+                "recall",
+                "CASS semantic search should not return this other recall memory",
+            ))
+            .await?;
+
+        let results = storage
+            .search_semantic("Hermes recall", partition, 10, 0.0)
+            .await?;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "semantic-001");
+
+        Ok(())
+    }
 
     #[tokio::test]
     async fn test_sqlite_tier_filters_by_task() -> Result<()> {
@@ -261,6 +491,7 @@ mod tests {
                 turn_count: 5,
                 timestamp: None,
                 task_ids: vec!["task-a".to_string()],
+                metadata: None,
             })
             .await?;
 
@@ -272,6 +503,7 @@ mod tests {
                 turn_count: 5,
                 timestamp: None,
                 task_ids: vec!["task-b".to_string()],
+                metadata: None,
             })
             .await?;
 
@@ -284,6 +516,124 @@ mod tests {
         let all = storage.query_recent_episodes("tyr", 10, None).await?;
         assert_eq!(all.len(), 2);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_fact_metadata_round_trips() -> Result<()> {
+        use koad_proto::cass::v1::{MemoryMetadata, PromptBudgetHints};
+        let storage = SqliteTier::new(":memory:")?;
+        let mut f = fact(
+            "meta-001",
+            "hermes_jupiter_ideans",
+            "general",
+            "card with metadata",
+        );
+        f.metadata = Some(MemoryMetadata {
+            prompt_budget: Some(PromptBudgetHints {
+                priority: "high".into(),
+                injection_mode: "summary".into(),
+                cache_stable: true,
+                ..Default::default()
+            }),
+            summary: "short form".into(),
+            ..Default::default()
+        });
+        storage.commit_fact(f).await?;
+        let got = storage
+            .query_facts("hermes_jupiter_ideans", &[], 10)
+            .await?;
+        assert_eq!(got.len(), 1);
+        let md = got[0].metadata.as_ref().expect("metadata present");
+        assert_eq!(md.summary, "short form");
+        assert_eq!(md.prompt_budget.as_ref().unwrap().priority, "high");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_episode_metadata_round_trips() -> Result<()> {
+        use koad_proto::cass::v1::{EpisodicMemory, MemoryMetadata, TokenEstimate};
+        let storage = SqliteTier::new(":memory:")?;
+        storage
+            .record_episode(EpisodicMemory {
+                session_id: "S-meta".into(),
+                project_path: "/x".into(),
+                summary: "episode summary".into(),
+                turn_count: 1,
+                timestamp: None,
+                task_ids: vec![],
+                metadata: Some(MemoryMetadata {
+                    token_estimates: vec![TokenEstimate {
+                        tokens: 3,
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+            })
+            .await?;
+        let got = storage.query_recent_episodes("any", 10, None).await?;
+        assert_eq!(got.len(), 1);
+        assert_eq!(
+            got[0].metadata.as_ref().unwrap().token_estimates[0].tokens,
+            3
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_legacy_rows_without_metadata_query_ok() -> Result<()> {
+        let storage = SqliteTier::new(":memory:")?;
+        storage
+            .commit_fact(fact(
+                "legacy-001",
+                "hermes_jupiter_ideans",
+                "general",
+                "no metadata",
+            ))
+            .await?;
+        let got = storage
+            .query_facts("hermes_jupiter_ideans", &[], 10)
+            .await?;
+        assert_eq!(got.len(), 1);
+        assert!(got[0].metadata.is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn get_and_update_fact_by_id() -> Result<()> {
+        let tier = SqliteTier::new(":memory:")?;
+        let fact = FactCard {
+            id: "acc-test-001".to_string(),
+            source_agent: "clyde".to_string(),
+            session_id: "S-ACC".to_string(),
+            domain: "test:accessors".to_string(),
+            content: "accessor round trip".to_string(),
+            confidence: 0.8,
+            tags: vec!["t1".to_string()],
+            created_at: None,
+            metadata: None,
+        };
+        tier.commit_fact(fact.clone()).await?;
+
+        let loaded = tier
+            .get_fact_by_id("acc-test-001")
+            .await?
+            .expect("fact exists");
+        assert_eq!(loaded.content, "accessor round trip");
+        assert!(tier.get_fact_by_id("no-such-id").await?.is_none());
+
+        let mut md = koad_proto::cass::v1::MemoryMetadata::default();
+        md.summary = "enriched summary".to_string();
+        tier.update_fact_metadata("acc-test-001", &md).await?;
+
+        let reloaded = tier
+            .get_fact_by_id("acc-test-001")
+            .await?
+            .expect("fact exists");
+        assert_eq!(
+            reloaded.metadata.expect("metadata").summary,
+            "enriched summary"
+        );
         Ok(())
     }
 }

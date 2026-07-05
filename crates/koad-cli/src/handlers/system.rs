@@ -1,5 +1,5 @@
 use crate::cli::{ConfigAction, SystemAction};
-use crate::db::KoadDB;
+use koad_core::db::KoadDB;
 use crate::utils::errors::map_connect_err;
 use crate::utils::{get_gdrive_token_for_path, get_gh_pat_for_path};
 use anyhow::{Context, Result};
@@ -385,6 +385,17 @@ pub async fn handle_system_action(
             println!("  [OK] Persona state captured.");
 
             if full {
+                // 2.5. Synchronize Session Histories
+                println!(">>> [2.5/4] Aligning Histories (Session Synchronization)...");
+                if let Err(e) = sync_session_histories(&home, &config.network.cass_grpc_addr).await {
+                    warn!(
+                        "  [FAIL] Session synchronization failed: {}. Continuing with backup.",
+                        e
+                    );
+                } else {
+                    println!("  [OK] Personal bay session logs synchronized to CASS.");
+                }
+
                 // 3. Database Backup
                 println!(">>> [3/4] Fortifying Memory (Database Backup)...");
                 let backup_dir = home.join("backups");
@@ -794,6 +805,9 @@ pub async fn handle_system_action(
         SystemAction::Start => {
             start_citadel_services(config)?;
         }
+        SystemAction::Status { json, full } => {
+            crate::handlers::status::handle_status_command(json, full, false, config, db).await?;
+        }
         SystemAction::Restart => {
             stop_citadel_processes();
             std::thread::sleep(Duration::from_millis(800));
@@ -853,6 +867,7 @@ pub async fn handle_system_action(
 fn stop_citadel_processes() {
     let _ = Command::new("pkill").arg("koad-citadel").status();
     let _ = Command::new("pkill").arg("koad-cass").status();
+    let _ = Command::new("pkill").arg("koad-os-mcp").status();
 }
 
 /// Start koad-citadel and koad-cass.
@@ -860,6 +875,9 @@ fn stop_citadel_processes() {
 /// Tries systemctl first (when units are installed). Falls back to spawning
 /// the binaries directly from the koad-os bin/ directory with log file output.
 fn start_citadel_services(config: &KoadConfig) -> Result<()> {
+    println!("Pre-flight cleanup: Terminating existing Citadel processes...");
+    stop_citadel_processes();
+
     let log_dir = config.home.join("logs");
     let _ = std::fs::create_dir_all(&log_dir);
 
@@ -878,11 +896,11 @@ fn start_citadel_services(config: &KoadConfig) -> Result<()> {
             .args(["start", "koad-citadel.service"])
             .status()?;
         if status.success() {
-            println!("\x1b[32m[OK]\x1b[0m Citadel and CASS started via systemctl.");
+            println!("\x1b[32m[OK]\x1b[0m Citadel, CASS, and MCP started via systemctl.");
+            return Ok(());
         } else {
-            anyhow::bail!("systemctl start koad-citadel.service failed.");
+            warn!("systemctl start koad-citadel.service failed (likely auth required). Falling back to manual spawn.");
         }
-        return Ok(());
     }
 
     // Fallback: spawn binaries directly.
@@ -922,14 +940,27 @@ fn start_citadel_services(config: &KoadConfig) -> Result<()> {
         .spawn()
         .context("Failed to spawn koad-cass")?;
 
-    println!("\x1b[32m[2/2]\x1b[0m koad-cass started.");
+    println!("\x1b[32m[2/3]\x1b[0m koad-cass started.");
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Start MCP Bridge.
+    Command::new(bin_dir.join("koad-os-mcp"))
+        .env("KOADOS_HOME", &config.home)
+        .env("KOAD_HOME", &config.home)
+        .env_remove("RUST_LOG")
+        .stdout(open_log("mcp", "out")?)
+        .stderr(open_log("mcp", "error")?)
+        .spawn()
+        .context("Failed to spawn koad-os-mcp")?;
+
+    println!("\x1b[32m[3/3]\x1b[0m koad-os-mcp started.");
 
     // Source .env for KOADOS_PAT_NOTION_MAIN etc. if present — best-effort.
     // (The spawned processes inherit this shell's env; actual secret resolution
     //  happens inside each binary via KoadConfig::resolve_secret.)
     drop(env_file); // not parsed here; binaries handle it internally.
 
-    println!("\x1b[32m[OK]\x1b[0m Citadel and CASS online.");
+    println!("\x1b[32m[OK]\x1b[0m Citadel, CASS, and MCP online.");
     Ok(())
 }
 
@@ -1082,6 +1113,7 @@ pub async fn handle_context_action(
                     seconds: Local::now().timestamp(),
                     nanos: Local::now().timestamp_subsec_nanos() as i32,
                 }),
+                metadata: None,
             };
 
             let res = cass.commit_fact(req).await?.into_inner();
@@ -1215,6 +1247,7 @@ pub async fn handle_context_action(
                             seconds: Local::now().timestamp(),
                             nanos: Local::now().timestamp_subsec_nanos() as i32,
                         }),
+                        metadata: None,
                     };
 
                     if cass.commit_fact(req).await.is_ok() {
@@ -1460,6 +1493,104 @@ fn handle_scrub(home: &std::path::Path, dry_run: bool, force: bool) -> Result<()
         actions.len()
     );
     println!("Run `koad system init` to re-initialize the environment.");
+    Ok(())
+}
+
+async fn sync_session_histories(home: &std::path::Path, cass_url: &str) -> Result<()> {
+    let bays_dir = home.join("agents/bays");
+    if !bays_dir.exists() {
+        return Ok(());
+    }
+
+    let mut client = match MemoryServiceClient::connect(cass_url.to_string()).await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("Session Sync: Cannot connect to CASS at {}: {}", cass_url, e);
+            return Ok(());
+        }
+    };
+
+    let entries = std::fs::read_dir(&bays_dir)?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            let db_path = path.join("state.db");
+            if db_path.exists() {
+                let agent_name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                tracing::debug!("Session Sync: Processing agent bay '{}'", agent_name);
+
+                if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                    let mut stmt = match conn.prepare(
+                        "SELECT session_id, start_time, end_time, eow_path, final_state FROM session_history"
+                    ) {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+
+                    let rows = stmt.query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, Option<i64>>(2)?,
+                            row.get::<_, Option<String>>(3)?,
+                            row.get::<_, String>(4)?,
+                        ))
+                    });
+
+                    if let Ok(rows) = rows {
+                        for row in rows {
+                            if let Ok((session_id, start_time, end_time, eow_path, final_state)) = row {
+                                let mut summary = String::new();
+                                if let Some(ref path_str) = eow_path {
+                                    if let Ok(content) = std::fs::read_to_string(path_str) {
+                                        summary = content;
+                                    }
+                                }
+
+                                if summary.is_empty() {
+                                    let start_str = chrono::DateTime::from_timestamp(start_time, 0)
+                                        .map(|t| t.to_rfc3339())
+                                        .unwrap_or_else(|| start_time.to_string());
+                                    let end_str = end_time
+                                        .and_then(|t| chrono::DateTime::from_timestamp(t, 0))
+                                        .map(|t| t.to_rfc3339())
+                                        .unwrap_or_default();
+                                    summary = format!(
+                                        "Session {} completed by agent {} (Start: {}, End: {}). Final status: {}.",
+                                        session_id, agent_name, start_str, end_str, final_state
+                                    );
+                                }
+
+                                let episode = koad_proto::cass::v1::EpisodicMemory {
+                                    session_id: session_id.clone(),
+                                    project_path: home.to_string_lossy().into_owned(),
+                                    summary,
+                                    turn_count: 0,
+                                    timestamp: Some(prost_types::Timestamp {
+                                        seconds: end_time.unwrap_or(start_time),
+                                        nanos: 0,
+                                    }),
+                                    task_ids: vec![],
+                                    metadata: None,
+                                };
+
+                                if let Err(e) = client
+                                    .record_episode(crate::utils::authenticated_request(episode))
+                                    .await
+                                {
+                                    tracing::warn!("Session Sync: Failed to sync session {}: {}", session_id, e);
+                                } else {
+                                    tracing::debug!("Session Sync: Synced session {} successfully", session_id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 

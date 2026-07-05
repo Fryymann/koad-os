@@ -6,7 +6,8 @@ use fred::prelude::*;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::Duration;
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
+use tracing::info;
 
 /// A managed Redis client that coordinates connection pooling and optional process lifecycle.
 ///
@@ -31,22 +32,33 @@ impl RedisClient {
 
         // 1. Check for TCP URL override (Standard for Docker/Production)
         if let Ok(redis_url) = std::env::var("KOADOS_URL_REDIS").or_else(|_| std::env::var("REDIS_URL")) {
+            info!("Starting Redis health check (URL Override)");
             let config = RedisConfig::from_url(&redis_url)?;
+            info!("Initializing Redis pool (8 connections)");
             let pool = Builder::from_config(config.clone())
                 .with_connection_config(|c| {
                     c.connection_timeout = Duration::from_secs(5);
                 })
                 .build_pool(8)?;
 
+            info!("Initializing Redis subscriber");
             let subscriber = Builder::from_config(config)
                 .with_connection_config(|c| {
                     c.connection_timeout = Duration::from_secs(5);
                 })
                 .build()?;
 
-            pool.init().await?;
-            subscriber.init().await?;
+            timeout(Duration::from_secs(5), pool.init()).await
+                .map_err(|_| anyhow::anyhow!("Redis pool initialization timed out after 5s"))??;
+            timeout(Duration::from_secs(5), subscriber.init()).await
+                .map_err(|_| anyhow::anyhow!("Redis subscriber initialization timed out after 5s"))??;
 
+            timeout(Duration::from_secs(5), pool.wait_for_connect()).await
+                .map_err(|_| anyhow::anyhow!("Redis pool connection readiness timed out after 5s"))??;
+            timeout(Duration::from_secs(5), subscriber.wait_for_connect()).await
+                .map_err(|_| anyhow::anyhow!("Redis subscriber connection readiness timed out after 5s"))??;
+
+            info!("Redis client ready (URL Override)");
             return Ok(Self {
                 pool,
                 subscriber,
@@ -127,12 +139,14 @@ impl RedisClient {
         }
 
         // 2. Connect via UDS
+        info!("Starting Redis health check (UDS)");
         let config = RedisConfig {
             server: ServerConfig::Unix { path: socket_path },
             ..Default::default()
         };
 
         // Primary Connection Pool (8 connections)
+        info!("Initializing Redis pool (8 connections)");
         let pool = Builder::from_config(config.clone())
             .with_connection_config(|c| {
                 c.connection_timeout = Duration::from_secs(5);
@@ -140,15 +154,24 @@ impl RedisClient {
             .build_pool(8)?;
 
         // Subscriber client for PubSub
+        info!("Initializing Redis subscriber");
         let subscriber = Builder::from_config(config)
             .with_connection_config(|c| {
                 c.connection_timeout = Duration::from_secs(5);
             })
             .build()?;
 
-        pool.init().await?;
-        subscriber.init().await?;
+        timeout(Duration::from_secs(5), pool.init()).await
+            .map_err(|_| anyhow::anyhow!("Redis pool initialization timed out after 5s"))??;
+        timeout(Duration::from_secs(5), subscriber.init()).await
+            .map_err(|_| anyhow::anyhow!("Redis subscriber initialization timed out after 5s"))??;
 
+        timeout(Duration::from_secs(5), pool.wait_for_connect()).await
+            .map_err(|_| anyhow::anyhow!("Redis pool connection readiness timed out after 5s"))??;
+        timeout(Duration::from_secs(5), subscriber.wait_for_connect()).await
+            .map_err(|_| anyhow::anyhow!("Redis subscriber connection readiness timed out after 5s"))??;
+
+        info!("Redis client ready");
         Ok(Self {
             pool,
             subscriber,

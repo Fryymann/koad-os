@@ -7,9 +7,13 @@ use crate::storage::{MemoryTier, PulseTier};
 use anyhow::Result;
 use async_trait::async_trait;
 use fred::clients::RedisPool;
-use fred::interfaces::{KeysInterface, SetsInterface};
+use fred::interfaces::{KeysInterface, SetsInterface, StreamsInterface};
 use koad_proto::cass::v1::{EpisodicMemory, FactCard, Pulse};
 use tracing::warn;
+
+/// Redis stream fed by TieredStorage at commit time, consumed by the
+/// enrichment worker (consumer group `cass-enrichers`).
+pub const ENRICHMENT_STREAM: &str = "cass:enrichment";
 
 pub struct RedisTier {
     pub(crate) pool: RedisPool,
@@ -18,6 +22,34 @@ pub struct RedisTier {
 impl RedisTier {
     pub fn new(pool: RedisPool) -> Self {
         Self { pool }
+    }
+
+    /// Enqueue a memory for async enrichment (LLM metadata + embedding).
+    /// `kind` is "fact" or "episode"; `id` is the fact id or episode session_id.
+    /// The `partition` field is reserved for observability/future routing —
+    /// the worker reloads the record from L2 by id.
+    ///
+    /// XACK never removes stream entries, so the stream is capped with an
+    /// approximate MAXLEN. Under extreme backlog trimming can evict un-acked
+    /// entries; L2 stays authoritative and `backfill_embeddings --enqueue`
+    /// recovers them.
+    pub async fn enqueue_enrichment(&self, kind: &str, id: &str, partition: &str) -> Result<()> {
+        let fields = vec![
+            ("kind", kind.to_string()),
+            ("id", id.to_string()),
+            ("partition", partition.to_string()),
+        ];
+        let _: String = self
+            .pool
+            .xadd(
+                ENRICHMENT_STREAM,
+                false,
+                ("MAXLEN", "~", 100_000),
+                "*",
+                fields,
+            )
+            .await?;
+        Ok(())
     }
 
     fn fact_key(id: &str) -> String {
@@ -37,6 +69,7 @@ impl RedisTier {
             "session_id": fact.session_id,
             "confidence": fact.confidence,
             "tags": fact.tags.join(","),
+            "metadata": fact.metadata, // Option<MemoryMetadata> serializes to null when None
         })
         .to_string()
     }
@@ -56,6 +89,7 @@ impl RedisTier {
                 .map(|s| s.to_string())
                 .collect(),
             created_at: None,
+            metadata: serde_json::from_value(v["metadata"].clone()).ok().flatten(),
         })
     }
 }
@@ -140,6 +174,17 @@ impl MemoryTier for RedisTier {
         _limit: u32,
         _task_id: Option<&str>,
     ) -> Result<Vec<EpisodicMemory>> {
+        Ok(vec![])
+    }
+
+    async fn search_semantic(
+        &self,
+        _query: &str,
+        _partition: &str,
+        _limit: u32,
+        _min_score: f32,
+    ) -> Result<Vec<FactCard>> {
+        // Redis has no full-text search capability.
         Ok(vec![])
     }
 }
@@ -276,5 +321,33 @@ mod tests {
             .await?;
 
         Ok(())
+    }
+
+    #[test]
+    fn test_redis_fact_serialize_roundtrip_preserves_metadata() {
+        use koad_proto::cass::v1::{FactCard, MemoryMetadata};
+        let mut f = FactCard::default();
+        f.id = "r1".into();
+        f.domain = "test".into();
+        f.metadata = Some(MemoryMetadata {
+            summary: "keep me".into(),
+            ..Default::default()
+        });
+
+        let json = RedisTier::fact_to_json(&f);
+        assert!(json.contains("keep me"));
+
+        let parsed = RedisTier::json_to_fact(&json).expect("parse should succeed");
+        let meta = parsed.metadata.expect("metadata should survive round-trip");
+        assert_eq!(meta.summary, "keep me");
+        assert_eq!(parsed.id, "r1");
+    }
+
+    #[test]
+    fn test_redis_fact_legacy_entry_without_metadata_parses_to_none() {
+        // Legacy cache entries lack the "metadata" key; they must yield None, not error.
+        let legacy = r#"{"id":"old1","domain":"d","content":"c","source_agent":"a","session_id":"s","confidence":0.5,"tags":""}"#;
+        let parsed = RedisTier::json_to_fact(legacy).expect("legacy parse should succeed");
+        assert!(parsed.metadata.is_none());
     }
 }

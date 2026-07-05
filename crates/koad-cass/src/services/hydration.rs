@@ -9,9 +9,9 @@ use crate::storage::{MemoryTier, PulseTier};
 use koad_codegraph::CodeGraph;
 use koad_core::hierarchy::HierarchyManager;
 use koad_core::utils::tokens::count_tokens;
-use koad_intelligence::router::InferenceRouter;
 use koad_proto::cass::v1::hydration_service_server::HydrationService;
 use koad_proto::cass::v1::{HydrationRequest, HydrationResponse};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
@@ -22,7 +22,6 @@ pub struct CassHydrationService {
     storage: Arc<dyn MemoryTier>,
     hierarchy: Arc<HierarchyManager>,
     codegraph: Arc<CodeGraph>,
-    intelligence: Arc<InferenceRouter>,
     pulse_store: Option<Arc<dyn PulseTier>>,
 }
 
@@ -32,13 +31,11 @@ impl CassHydrationService {
         storage: Arc<dyn MemoryTier>,
         hierarchy: Arc<HierarchyManager>,
         codegraph: Arc<CodeGraph>,
-        intelligence: Arc<InferenceRouter>,
     ) -> Self {
         Self {
             storage,
             hierarchy,
             codegraph,
-            intelligence,
             pulse_store: None,
         }
     }
@@ -55,7 +52,7 @@ impl HydrationService for CassHydrationService {
     /// Bundles context for an agent based on their workspace level and token budget.
     ///
     /// # Errors
-    /// Returns a `tonic::Status` if storage queries or intelligence distillation fail.
+    /// Returns a `tonic::Status` if storage queries fail.
     async fn hydrate(
         &self,
         request: Request<HydrationRequest>,
@@ -73,14 +70,55 @@ impl HydrationService for CassHydrationService {
         info!(agent = %agent, path = %req.project_root, budget = %budget, task = ?task_id, "TCH: Hydration requested");
 
         let mut packet = format!(
-            "# Temporal Context Hydration: {}
-Date: {}
-
-",
+            "# Temporal Context Hydration: {}\nDate: {}\n\n",
             agent,
             chrono::Utc::now().format("%Y-%m-%d")
         );
+        let mut tokens_used = count_tokens(&packet);
         let mut source_files = Vec::new();
+
+        // 0. Identity Anchor (New)
+        if let Some(id_config) = self
+            .hierarchy
+            .config()
+            .identities
+            .get(&agent.to_lowercase())
+        {
+            let mut identity_section = "## ⚓ Identity Anchor\n".to_string();
+            identity_section.push_str(&format!("- **Name:** {}\n", id_config.name));
+            identity_section.push_str(&format!("- **Role:** {}\n", id_config.role));
+            identity_section.push_str(&format!("- **Rank:** {}\n", id_config.rank));
+            identity_section.push_str(&format!("- **Bio:** {}\n", id_config.bio));
+
+            if let Some(pref) = &id_config.preferences {
+                if !pref.principles.is_empty() {
+                    identity_section.push_str("\n### Core Principles\n");
+                    for p in &pref.principles {
+                        identity_section.push_str(&format!("- {}\n", p));
+                    }
+                }
+            }
+            identity_section.push_str("\n");
+
+            let section_tokens = count_tokens(&identity_section);
+            if tokens_used + section_tokens < budget {
+                packet.push_str(&identity_section);
+                tokens_used += section_tokens;
+            }
+        }
+
+        // 0.1 Project Brief (New)
+        let brief_path = current_path.join("agents/CITADEL.md");
+        if brief_path.exists() {
+            if let Ok(content) = fs::read_to_string(&brief_path) {
+                let brief_section = format!("## 📋 Project Brief\n{}\n\n", content);
+                let section_tokens = count_tokens(&brief_section);
+                if tokens_used + section_tokens < budget {
+                    packet.push_str(&brief_section);
+                    tokens_used += section_tokens;
+                }
+            }
+        }
 
         // 1. Agent History Distillation (Upgrade 2 + 3)
         let episodes = self
@@ -95,29 +133,19 @@ Date: {}
                 raw_history.push_str(&format!("Session {}: {}\n", ep.session_id, ep.summary));
             }
 
-            // Distill history into a State of the Union paragraph
-            let prompt = format!(
-                "Synthesize the following recent agent session reports into a single, high-density paragraph \
-                 describing the current 'State of the Union' for the project. Focus on completed work, \
-                 active blockers, and next steps. Reports:\n\n{}", 
-                raw_history
-            );
+            // Use precomputed episodic summaries directly to avoid on-the-fly LLM synthesis
+            let mut summary_block =
+                "## Ⅰ. Recent Episode Summaries (Distilled History)\n".to_string();
+            for ep in &episodes {
+                summary_block.push_str(&format!("- Session {}: {}\n", ep.session_id, ep.summary));
+            }
+            summary_block.push_str("\n");
+            let ep_section = summary_block;
 
-            let distilled = self
-                .intelligence
-                .summarize(&prompt)
-                .await
-                .unwrap_or_else(|_| {
-                    "History distillation failed. Review raw episodes.".to_string()
-                });
-
-            let ep_section = format!(
-                "## Ⅰ. State of the Union (Distilled History)\n{}\n\n",
-                distilled
-            );
-
-            if count_tokens(&packet) + count_tokens(&ep_section) < budget {
+            let section_tokens = count_tokens(&ep_section);
+            if tokens_used + section_tokens < budget {
                 packet.push_str(&ep_section);
+                tokens_used += section_tokens;
             }
         }
 
@@ -129,16 +157,158 @@ Date: {}
             .map_err(|e| Status::internal(e.to_string()))?;
 
         if !facts.is_empty() {
-            let mut fact_section = "## Ⅱ. Active Fact Cards\n".to_string();
-            for fact in facts {
-                fact_section.push_str(&format!(
-                    "- [{}] (Conf: {:.2}): {}\n",
-                    fact.domain, fact.confidence, fact.content
-                ));
+            use crate::token_budget::{count, packing_score};
+
+            fn priority_rank(f: &koad_proto::cass::v1::FactCard) -> u8 {
+                match f
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.prompt_budget.as_ref())
+                    .map(|p| p.priority.as_str())
+                {
+                    Some("critical") => 0,
+                    Some("high") => 1,
+                    Some("normal") | None => 2,
+                    Some("low") => 3,
+                    Some("archive") => 4,
+                    Some(_) => 2,
+                }
             }
 
-            if count_tokens(&packet) + count_tokens(&fact_section) < budget {
-                packet.push_str(&fact_section);
+            fn is_stable(f: &koad_proto::cass::v1::FactCard) -> bool {
+                f.metadata
+                    .as_ref()
+                    .and_then(|m| m.prompt_budget.as_ref())
+                    .map(|p| p.cache_stable)
+                    .unwrap_or(false)
+            }
+
+            // Per-fact line renderer. Returns None for facts that must be skipped
+            // (injection_mode == "never_auto"). Reused for both subsections.
+            let render_line = |fact: &koad_proto::cass::v1::FactCard| -> Option<String> {
+                let mode = fact
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.prompt_budget.as_ref())
+                    .map(|p| p.injection_mode.as_str())
+                    .unwrap_or("verbatim");
+                if mode == "never_auto" {
+                    return None;
+                }
+                let text = match mode {
+                    "title_only" => format!("- [{}] (Conf: {:.2})\n", fact.domain, fact.confidence),
+                    "summary" => {
+                        let s = fact
+                            .metadata
+                            .as_ref()
+                            .map(|m| m.summary.as_str())
+                            .filter(|s| !s.is_empty());
+                        format!(
+                            "- [{}] (Conf: {:.2}): {}\n",
+                            fact.domain,
+                            fact.confidence,
+                            s.unwrap_or(&fact.content)
+                        )
+                    }
+                    _ => format!(
+                        "- [{}] (Conf: {:.2}): {}\n",
+                        fact.domain, fact.confidence, fact.content
+                    ),
+                };
+                Some(text)
+            };
+
+            let mut ranked = facts;
+            ranked.sort_by(|a, b| {
+                priority_rank(a).cmp(&priority_rank(b)).then(
+                    packing_score(b)
+                        .partial_cmp(&packing_score(a))
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                )
+            });
+
+            // Partition into cache-stable (deterministic prefix) and volatile facts.
+            // Volatile retains the Task-7 ranking order already applied to `ranked`.
+            let (mut stable, volatile): (
+                Vec<koad_proto::cass::v1::FactCard>,
+                Vec<koad_proto::cass::v1::FactCard>,
+            ) = ranked.into_iter().partition(is_stable);
+            stable.sort_by(|a, b| {
+                a.domain
+                    .cmp(&b.domain)
+                    .then(priority_rank(a).cmp(&priority_rank(b)))
+                    .then(a.id.cmp(&b.id))
+            });
+
+            // Pack a slice of facts into a section under the shared running budget.
+            let mut emit_section = |header: &str,
+                                    facts_slice: &[koad_proto::cass::v1::FactCard],
+                                    tokens_used: &mut usize| {
+                let mut body = String::new();
+                let header_tokens = count(header) as usize;
+                for fact in facts_slice {
+                    if let Some(line) = render_line(fact) {
+                        let line_tokens = count(&line) as usize;
+                        // Account for the trailing "\n" appended by the final
+                        // `format!("{header}{body}\n")` so per-line and section
+                        // accounting agree within 1 token and never over-include.
+                        if *tokens_used + header_tokens + (count(&body) as usize) + line_tokens + 1
+                            >= budget
+                        {
+                            continue;
+                        }
+                        body.push_str(&line);
+                    }
+                }
+                if !body.is_empty() {
+                    let section = format!("{header}{body}\n");
+                    let section_tokens = count(&section) as usize;
+                    if *tokens_used + section_tokens < budget {
+                        packet.push_str(&section);
+                        *tokens_used += section_tokens;
+                    }
+                }
+            };
+
+            // Ⅱ-A first (cache-stable prefix region), then Ⅱ-B. When no fact is
+            // cache_stable (e.g. legacy un-backfilled DBs), Ⅱ-A is omitted and
+            // everything renders under Ⅱ-B, preserving single-section behavior.
+            // Ⅱ-B keeps the literal "Active Fact Cards" substring for back-compat.
+            if !stable.is_empty() {
+                emit_section("## Ⅱ-A. Stable Fact Cards\n", &stable, &mut tokens_used);
+            }
+            emit_section("## Ⅱ. Active Fact Cards\n", &volatile, &mut tokens_used);
+        }
+
+        // 2.5 Pending Inbox (New)
+        let inbox_dir = current_path.join("agents/inbox");
+        if inbox_dir.is_dir() {
+            if let Ok(entries) = fs::read_dir(inbox_dir) {
+                let mut inbox_section = "## 📨 Pending Inbox\n".to_string();
+                let mut found_messages = false;
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                        let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                        // Check if message is for this agent or 'all'
+                        if filename.contains(&agent.to_lowercase()) || filename.contains("all") {
+                            if let Ok(content) = fs::read_to_string(&path) {
+                                inbox_section.push_str(&format!(
+                                    "### Message: {}\n{}\n\n",
+                                    filename, content
+                                ));
+                                found_messages = true;
+                            }
+                        }
+                    }
+                }
+                if found_messages {
+                    let section_tokens = count_tokens(&inbox_section);
+                    if tokens_used + section_tokens < budget {
+                        packet.push_str(&inbox_section);
+                        tokens_used += section_tokens;
+                    }
+                }
             }
         }
 
@@ -162,7 +332,7 @@ Date: {}
 
         if !layers.is_empty() {
             let home_dir = std::env::var("HOME").unwrap_or_default();
-            packet.push_str("## Ⅲ. Workspace Hierarchy\n");
+            let mut hierarchy_section = "## Ⅲ. Workspace Hierarchy\n".to_string();
             for layer in layers.iter().rev() {
                 let level = self.hierarchy.resolve_level(layer);
                 let display_path = layer.to_string_lossy();
@@ -171,49 +341,52 @@ Date: {}
                 } else {
                     display_path.into_owned()
                 };
-                let layer_info = format!("### Level: {:?}\nPath: {}\n\n", level, sanitized);
-                if count_tokens(&packet) + count_tokens(&layer_info) < budget {
-                    packet.push_str(&layer_info);
-                    source_files.push(layer.to_string_lossy().to_string());
-                } else {
-                    break;
-                }
+                hierarchy_section
+                    .push_str(&format!("### Level: {:?}\nPath: {}\n\n", level, sanitized));
+                source_files.push(layer.to_string_lossy().to_string());
+            }
+
+            let section_tokens = count_tokens(&hierarchy_section);
+            if tokens_used + section_tokens < budget {
+                packet.push_str(&hierarchy_section);
+                tokens_used += section_tokens;
             }
         }
 
         // 4. Ghost API Summaries (Upgrade 1)
-        let mut api_section = "## Ⅳ. Crate API Maps (Ghost Summaries)\n".to_string();
-        api_section.push_str("The following public items are available in your current workspace members. Use these to find symbols without reading files.\n");
+        let mut api_header = "## Ⅳ. Crate API Maps (Ghost Summaries)\n".to_string();
+        api_header.push_str("The following public items are available in your current workspace members. Use these to find symbols without reading files.\n");
 
-        // We'll summarize the current crate and core
-        let crate_list = vec![
-            current_path.to_string_lossy().to_string(),
-            current_path
-                .join("crates/koad-core")
-                .to_string_lossy()
-                .to_string(),
-        ];
+        let header_tokens = count_tokens(&api_header);
+        if tokens_used + header_tokens < budget {
+            packet.push_str(&api_header);
+            tokens_used += header_tokens;
 
-        for c_path in crate_list {
-            if let Ok(summary) = self.codegraph.get_crate_summary(&c_path) {
-                if !summary.is_empty() {
-                    let c_name = Path::new(&c_path)
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("unknown");
-                    let block = format!("\n### Crate: {}\n{}\n", c_name, summary);
-                    if count_tokens(&packet) + count_tokens(&api_section) + count_tokens(&block)
-                        < budget
-                    {
-                        api_section.push_str(&block);
+            // We'll summarize the current crate and core
+            let crate_list = vec![
+                current_path.to_string_lossy().to_string(),
+                current_path
+                    .join("crates/koad-core")
+                    .to_string_lossy()
+                    .to_string(),
+            ];
+
+            for c_path in crate_list {
+                if let Ok(summary) = self.codegraph.get_crate_summary(&c_path) {
+                    if !summary.is_empty() {
+                        let c_name = Path::new(&c_path)
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown");
+                        let block = format!("\n### Crate: {}\n{}\n", c_name, summary);
+                        let block_tokens = count_tokens(&block);
+                        if tokens_used + block_tokens < budget {
+                            packet.push_str(&block);
+                            tokens_used += block_tokens;
+                        }
                     }
                 }
             }
-        }
-
-        if api_section.len() > 150 {
-            // Only add if we actually found something
-            packet.push_str(&api_section);
         }
 
         // 5. Global Pulses
@@ -226,17 +399,18 @@ Date: {}
                         pulse_section
                             .push_str(&format!("- [{}] {}: {}\n", p.role, p.author, p.message));
                     }
-                    if count_tokens(&packet) + count_tokens(&pulse_section) < budget {
+                    let section_tokens = count_tokens(&pulse_section);
+                    if tokens_used + section_tokens < budget {
                         packet.push_str(&pulse_section);
+                        tokens_used += section_tokens;
                     }
                 }
             }
         }
 
-        let tokens = count_tokens(&packet);
         Ok(Response::new(HydrationResponse {
             markdown_packet: packet,
-            estimated_tokens: tokens as u32,
+            estimated_tokens: tokens_used as u32,
             source_files,
         }))
     }
@@ -264,9 +438,7 @@ mod tests {
         });
         let hierarchy = Arc::new(HierarchyManager::new(config));
         let codegraph = Arc::new(CodeGraph::new_with_memory()?);
-        let intelligence = Arc::new(InferenceRouter::new_default()?);
-
-        let service = CassHydrationService::new(storage, hierarchy, codegraph, intelligence);
+        let service = CassHydrationService::new(storage, hierarchy, codegraph);
 
         let request = Request::new(HydrationRequest {
             agent_name: "test-agent".to_string(),
@@ -299,8 +471,6 @@ mod tests {
         });
         let hierarchy = Arc::new(HierarchyManager::new(config));
         let codegraph = Arc::new(CodeGraph::new_with_memory()?);
-        let intelligence = Arc::new(InferenceRouter::new_default()?);
-
         let pulse_store = Arc::new(MockPulseStore::new());
         pulse_store
             .seed(Pulse {
@@ -313,7 +483,7 @@ mod tests {
             })
             .await;
 
-        let service = CassHydrationService::new(storage, hierarchy, codegraph, intelligence)
+        let service = CassHydrationService::new(storage, hierarchy, codegraph)
             .with_pulse_store(pulse_store);
 
         let request = Request::new(HydrationRequest {
@@ -335,6 +505,160 @@ mod tests {
             packet.contains("Test pulse active"),
             "TCH packet missing pulse message"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_hydration_prefers_concise_high_value_under_budget() -> anyhow::Result<()> {
+        use koad_proto::cass::v1::FactCard;
+        let storage = Arc::new(MockStorage::new());
+        storage
+            .commit_fact(FactCard {
+                id: "concise".into(),
+                source_agent: "test-agent".into(),
+                domain: "p:identity".into(),
+                content: "Key fact alpha.".into(),
+                confidence: 1.0,
+                ..Default::default()
+            })
+            .await?;
+        storage
+            .commit_fact(FactCard {
+                id: "verbose".into(),
+                source_agent: "test-agent".into(),
+                domain: "p:trivia".into(),
+                content: format!("{} zulu", "filler ".repeat(400)),
+                confidence: 0.3,
+                ..Default::default()
+            })
+            .await?;
+
+        let config = koad_core::config::KoadConfig::load().unwrap_or_else(|_| {
+            koad_core::config::KoadConfig::from_json(
+                r#"{
+                "home": "/tmp",
+                "system": { "version": "test" },
+                "network": { "citadel_grpc_port": 0, "citadel_grpc_addr": "", "cass_grpc_port": 0, "cass_grpc_addr": "", "redis_socket": "", "citadel_socket": "" },
+                "storage": { "db_name": "", "drain_interval_secs": 0 }
+            }"#,
+            )
+            .unwrap()
+        });
+        let hierarchy = Arc::new(HierarchyManager::new(config));
+        let codegraph = Arc::new(CodeGraph::new_with_memory()?);
+        let service = CassHydrationService::new(storage, hierarchy, codegraph);
+
+        // Budget large enough for the TCH header + fact header + the concise fact,
+        // but far too small for the ~400-token verbose fact.
+        let request = Request::new(HydrationRequest {
+            agent_name: "test-agent".to_string(),
+            project_root: "/tmp".to_string(),
+            level: 0,
+            token_budget: 60,
+            task_id: "".to_string(),
+        });
+
+        let response = service.hydrate(request).await?;
+        let packet = response.into_inner().markdown_packet;
+
+        assert!(
+            packet.contains("Key fact alpha."),
+            "concise high-value fact should be packed under budget"
+        );
+        assert!(
+            !packet.contains("filler filler"),
+            "verbose low-value fact should be dropped under budget"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_hydration_splits_stable_and_volatile() -> anyhow::Result<()> {
+        use koad_proto::cass::v1::{FactCard, MemoryMetadata, PromptBudgetHints};
+        let storage = Arc::new(MockStorage::new());
+        let stable_md = Some(MemoryMetadata {
+            prompt_budget: Some(PromptBudgetHints {
+                cache_stable: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        storage
+            .commit_fact(FactCard {
+                id: "s1".into(),
+                source_agent: "test-agent".into(),
+                domain: "p:identity".into(),
+                content: "Stable identity fact.".into(),
+                confidence: 1.0,
+                metadata: stable_md,
+                ..Default::default()
+            })
+            .await?;
+        storage
+            .commit_fact(FactCard {
+                id: "v1".into(),
+                source_agent: "test-agent".into(),
+                domain: "p:trivia".into(),
+                content: "Volatile trivia fact.".into(),
+                confidence: 1.0,
+                ..Default::default()
+            })
+            .await?;
+
+        let config = koad_core::config::KoadConfig::load().unwrap_or_else(|_| {
+            koad_core::config::KoadConfig::from_json(
+                r#"{
+                "home": "/tmp",
+                "system": { "version": "test" },
+                "network": { "citadel_grpc_port": 0, "citadel_grpc_addr": "", "cass_grpc_port": 0, "cass_grpc_addr": "", "redis_socket": "", "citadel_socket": "" },
+                "storage": { "db_name": "", "drain_interval_secs": 0 }
+            }"#,
+            )
+            .unwrap()
+        });
+        let hierarchy = Arc::new(HierarchyManager::new(config));
+        let codegraph = Arc::new(CodeGraph::new_with_memory()?);
+        let service = CassHydrationService::new(storage, hierarchy, codegraph);
+
+        let make_request = || {
+            Request::new(HydrationRequest {
+                agent_name: "test-agent".to_string(),
+                project_root: "/tmp".to_string(),
+                level: 0,
+                token_budget: 10000,
+                task_id: "".to_string(),
+            })
+        };
+
+        let packet1 = service
+            .hydrate(make_request())
+            .await?
+            .into_inner()
+            .markdown_packet;
+        let packet2 = service
+            .hydrate(make_request())
+            .await?
+            .into_inner()
+            .markdown_packet;
+
+        // Assert both subsection headers present:
+        assert!(packet1.contains("Ⅱ-A. Stable Fact Cards"));
+        assert!(packet1.contains("Stable identity fact."));
+        assert!(packet1.contains("Volatile trivia fact."));
+        // Stable section appears before volatile content:
+        let a_idx = packet1.find("Stable identity fact.").unwrap();
+        let b_idx = packet1.find("Volatile trivia fact.").unwrap();
+        assert!(a_idx < b_idx, "stable must precede volatile");
+        // Determinism: stable subsection identical across runs.
+        let extract_stable = |p: &str| {
+            let start = p.find("## Ⅱ-A.").unwrap();
+            p[start..]
+                .lines()
+                .take_while(|l| !l.starts_with("## Ⅱ."))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        assert_eq!(extract_stable(&packet1), extract_stable(&packet2));
         Ok(())
     }
 }

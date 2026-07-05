@@ -18,7 +18,7 @@ pub async fn handle_import(
     labels: Vec<String>,
     dry_run: bool,
     config: &KoadConfig,
-    db: &crate::db::KoadDB,
+    db: &koad_core::db::KoadDB,
 ) -> Result<()> {
     println!(
         ">>> [IMPORT] Energizing Ingestion Pipeline: {}...",
@@ -100,6 +100,7 @@ pub async fn handle_import(
                             seconds: Utc::now().timestamp(),
                             nanos: Utc::now().timestamp_subsec_nanos() as i32,
                         }),
+                        metadata: None,
                     };
                     let response = c.commit_fact(request).await?.into_inner();
                     if !response.success {

@@ -49,6 +49,10 @@ pub enum Commands {
         /// Use when a prior session is orphaned and cannot be cleanly logged out.
         #[arg(long)]
         force: bool,
+
+        /// Output only bare `export KEY=VAL` lines suitable for `eval`. Skips MOTD.
+        #[arg(long)]
+        export_env: bool,
     },
 
     /// Core system management, orchestration, and recovery.
@@ -212,6 +216,13 @@ pub enum Commands {
         #[command(subcommand)]
         action: DeployAction,
     },
+
+    /// Alias for `koad system save` — Sovereign Save Protocol (Total State Checkpoint).
+    Saveup {
+        /// Create a full durable backup (Database + Git commit).
+        #[arg(short, long)]
+        full: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -345,6 +356,12 @@ pub enum AgentAction {
     /// Verify an agent's KAPV vault structure and auto-heal missing directories.
     Verify {
         /// Agent name to verify.
+        agent: String,
+    },
+
+    /// Prep the current interactive shell as a body for the named KoadOS agent.
+    Prep {
+        /// Agent name to prepare.
         agent: String,
     },
 }
@@ -572,6 +589,17 @@ pub enum SystemAction {
 
     /// Start the Citadel kernel and all dependent services (CASS).
     Start,
+
+    /// Display real-time system telemetry and Citadel integrity.
+    Status {
+        /// Output telemetry data as JSON.
+        #[arg(short, long)]
+        json: bool,
+
+        /// Perform an exhaustive diagnostic sweep (Ghost detection, Resource allocation).
+        #[arg(short, long)]
+        full: bool,
+    },
 
     /// Restart the Citadel kernel and all dependent services.
     Restart,

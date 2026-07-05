@@ -1,53 +1,174 @@
 //! L3 — Qdrant-backed semantic storage tier.
 //!
-//! Facts are stored as 32-dim vector points derived from content hashing.
+//! Facts are stored as dense vector points derived from real InferenceRouter
+//! embeddings; if the embedding model is unavailable, writes fail and are
+//! retried by the enrichment worker (never fabricated vectors).
 //! Queries use payload filtering by domain for deterministic retrieval.
-//! Semantic vector similarity search is available as a future upgrade path.
+//! Semantic vector similarity search is performed using SearchPoints.
 
 use crate::storage::MemoryTier;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use koad_proto::cass::v1::{EpisodicMemory, FactCard};
+use koad_intelligence::router::InferenceRouter;
+use koad_proto::cass::v1::{EpisodicMemory, FactCard, MemoryMetadata};
 use qdrant_client::qdrant::{
     value::Kind, Condition, CreateCollectionBuilder, Distance, Filter, PointStruct,
-    ScrollPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
+    ScrollPointsBuilder, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
 };
 use qdrant_client::Qdrant;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 const COLLECTION: &str = "fact_cards";
-const VECTOR_DIM: u64 = 32;
+const EPISODE_COLLECTION: &str = "episodic_memories";
+
+/// Serialize optional metadata to a JSON string for Qdrant payload storage.
+/// Mirrors the L2 SQLite tier so both tiers round-trip metadata identically.
+fn metadata_to_json(md: &Option<MemoryMetadata>) -> Option<String> {
+    md.as_ref().and_then(|m| serde_json::to_string(m).ok())
+}
+
+/// Deserialize metadata from a Qdrant payload JSON string. Absent/invalid → None.
+fn metadata_from_json(raw: Option<String>) -> Option<MemoryMetadata> {
+    raw.and_then(|s| serde_json::from_str(&s).ok())
+}
+
+fn default_embed_model() -> String {
+    std::env::var("KOADOS_EMBED_MODEL").unwrap_or_else(|_| "nomic-embed-text".to_string())
+}
+
+/// Partition canon: a fact belongs to a partition when its domain IS the
+/// partition or starts with "{partition}:". Mirrors the L2 SQLite filter
+/// (`domain = ?1 OR domain LIKE ?1 || ':%'`).
+fn domain_matches_partition(domain: &str, partition: &str) -> bool {
+    domain == partition
+        || (domain.len() > partition.len()
+            && domain.starts_with(partition)
+            && domain.as_bytes()[partition.len()] == b':')
+}
 
 pub struct QdrantTier {
     client: Option<Qdrant>,
+    intelligence: Option<Arc<InferenceRouter>>,
+    /// 0 = not yet detected (embedding model unreachable at boot). Detection is
+    /// retried lazily by ensure_ready() on first use.
+    vector_dim: tokio::sync::RwLock<u64>,
+    embed_model: String,
 }
 
 impl QdrantTier {
     /// Create a no-op offline tier for degraded-mode boot (Qdrant unreachable).
     pub fn new_offline() -> Self {
-        Self { client: None }
+        Self {
+            client: None,
+            intelligence: None,
+            vector_dim: tokio::sync::RwLock::new(0),
+            embed_model: default_embed_model(),
+        }
     }
 
-    pub async fn new(url: &str) -> Result<Self> {
+    pub async fn new(url: &str, intelligence: Option<Arc<InferenceRouter>>) -> Result<Self> {
         let client = Qdrant::from_url(url)
             .build()
             .context("Failed to build Qdrant client")?;
 
-        if !client.collection_exists(COLLECTION).await? {
-            client
-                .create_collection(
-                    CreateCollectionBuilder::new(COLLECTION)
-                        .vectors_config(VectorParamsBuilder::new(VECTOR_DIM, Distance::Cosine)),
-                )
-                .await
-                .context("Failed to create Qdrant collection")?;
+        // Connectivity probe: keeps the degraded-boot path in main.rs working
+        // (an unreachable Qdrant must make new() return Err).
+        client
+            .collection_exists(COLLECTION)
+            .await
+            .context("Qdrant unreachable")?;
+
+        let tier = Self {
+            client: Some(client),
+            intelligence,
+            vector_dim: tokio::sync::RwLock::new(0),
+            embed_model: default_embed_model(),
+        };
+
+        // Best-effort dimension detection at boot. Failure is non-fatal:
+        // the tier starts in deferred mode and ensure_ready() retries on first use.
+        if let Err(e) = tier.ensure_ready().await {
+            tracing::warn!(
+                "QdrantTier: embedding model unavailable at boot ({}). Deferred mode — no writes until it returns.",
+                e
+            );
         }
 
-        Ok(Self {
-            client: Some(client),
-        })
+        Ok(tier)
+    }
+
+    /// Ensure the embedding dimension is known and collections exist.
+    /// Returns the dimension, or an error if the embedding model is unreachable.
+    async fn ensure_ready(&self) -> Result<u64> {
+        {
+            let d = *self.vector_dim.read().await;
+            if d > 0 {
+                return Ok(d);
+            }
+        }
+        let Some(client) = &self.client else {
+            return Err(anyhow::anyhow!("QdrantTier: offline"));
+        };
+        let Some(intel) = &self.intelligence else {
+            return Err(anyhow::anyhow!(
+                "QdrantTier: no embedding client configured"
+            ));
+        };
+
+        let mut guard = self.vector_dim.write().await;
+        if *guard > 0 {
+            return Ok(*guard);
+        }
+
+        let probe = intel
+            .embed("dimension probe")
+            .await
+            .context("embedding model unavailable")?;
+        let dim = probe.len() as u64;
+        if dim == 0 {
+            return Err(anyhow::anyhow!("embedding probe returned empty vector"));
+        }
+
+        for c in [COLLECTION, EPISODE_COLLECTION] {
+            if !client.collection_exists(c).await? {
+                client
+                    .create_collection(
+                        CreateCollectionBuilder::new(c)
+                            .vectors_config(VectorParamsBuilder::new(dim, Distance::Cosine)),
+                    )
+                    .await
+                    .with_context(|| format!("Failed to create Qdrant collection {c}"))?;
+            }
+        }
+
+        *guard = dim;
+        tracing::info!("QdrantTier: ready (embedding dim {})", dim);
+        Ok(dim)
+    }
+
+    /// Drop and recreate both collections at the detected dimension.
+    /// Used by the backfill_embeddings migration binary only.
+    pub async fn recreate_collections(&self) -> Result<()> {
+        let dim = self.ensure_ready().await?;
+        let Some(client) = &self.client else {
+            return Err(anyhow::anyhow!("QdrantTier: offline"));
+        };
+        for c in [COLLECTION, EPISODE_COLLECTION] {
+            if client.collection_exists(c).await? {
+                client.delete_collection(c).await?;
+            }
+            client
+                .create_collection(
+                    CreateCollectionBuilder::new(c)
+                        .vectors_config(VectorParamsBuilder::new(dim, Distance::Cosine)),
+                )
+                .await
+                .with_context(|| format!("Failed to recreate Qdrant collection {c}"))?;
+        }
+        Ok(())
     }
 
     /// Deterministic u64 point ID from fact UUID string.
@@ -57,19 +178,49 @@ impl QdrantTier {
         h.finish()
     }
 
-    /// 32-dim content fingerprint vector derived from content bytes.
-    /// Not a real semantic embedding — serves as a stable placeholder
-    /// until an embedding model is wired into InferenceRouter.
-    fn content_vector(content: &str) -> Vec<f32> {
-        let mut vec = vec![0.0f32; VECTOR_DIM as usize];
-        for (i, &b) in content.as_bytes().iter().enumerate() {
-            vec[i % VECTOR_DIM as usize] += b as f32;
+    /// Merge scored search results: apply the `min_score` similarity threshold
+    /// (<= 0.0 means unset — keep everything), sort descending by score, and
+    /// truncate to `limit`.
+    pub(crate) fn merge_scored(
+        mut scored: Vec<(f32, FactCard)>,
+        limit: u32,
+        min_score: f32,
+    ) -> Vec<FactCard> {
+        if min_score > 0.0 {
+            scored.retain(|(score, _)| *score >= min_score);
         }
-        let mag = (vec.iter().map(|x| x * x).sum::<f32>()).sqrt().max(1e-6);
-        vec.iter().map(|x| x / mag).collect()
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        scored
+            .into_iter()
+            .take(limit as usize)
+            .map(|(_, fact)| fact)
+            .collect()
     }
 
-    fn make_payload(fact: &FactCard) -> HashMap<String, qdrant_client::qdrant::Value> {
+    /// Generate an embedding vector for the given content.
+    /// Errors propagate — no fingerprint fallback. Fabricated vectors poison
+    /// the semantic space; callers (enrichment worker) retry instead.
+    pub(crate) async fn get_vector(&self, text: &str) -> Result<Vec<f32>> {
+        let dim = self.ensure_ready().await?;
+        let intel = self
+            .intelligence
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("QdrantTier: no embedding client configured"))?;
+        let vec = intel.embed(text).await.context("embedding failed")?;
+        if vec.len() as u64 != dim {
+            return Err(anyhow::anyhow!(
+                "embedding dimension mismatch (expected {}, got {})",
+                dim,
+                vec.len()
+            ));
+        }
+        Ok(vec)
+    }
+
+    fn make_payload(
+        fact: &FactCard,
+        embedding_model: &str,
+    ) -> HashMap<String, qdrant_client::qdrant::Value> {
         use qdrant_client::qdrant::Value;
         let mut p = HashMap::new();
         p.insert(
@@ -114,6 +265,20 @@ impl QdrantTier {
                 kind: Some(Kind::StringValue(fact.tags.join(","))),
             },
         );
+        if let Some(json) = metadata_to_json(&fact.metadata) {
+            p.insert(
+                "metadata_json".into(),
+                Value {
+                    kind: Some(Kind::StringValue(json)),
+                },
+            );
+        }
+        p.insert(
+            "embedding_model".into(),
+            Value {
+                kind: Some(Kind::StringValue(embedding_model.to_string())),
+            },
+        );
         p
     }
 
@@ -142,7 +307,124 @@ impl QdrantTier {
             confidence: get_f64("confidence")? as f32,
             tags: get_str("tags")?.split(',').map(|s| s.to_string()).collect(),
             created_at: None,
+            metadata: metadata_from_json(get_str("metadata_json")),
         })
+    }
+
+    fn make_episode_payload(
+        episode: &EpisodicMemory,
+        embedding_model: &str,
+    ) -> HashMap<String, qdrant_client::qdrant::Value> {
+        use qdrant_client::qdrant::Value;
+        let mut p = HashMap::new();
+        p.insert(
+            "session_id".into(),
+            Value {
+                kind: Some(Kind::StringValue(episode.session_id.clone())),
+            },
+        );
+        p.insert(
+            "project_path".into(),
+            Value {
+                kind: Some(Kind::StringValue(episode.project_path.clone())),
+            },
+        );
+        p.insert(
+            "summary".into(),
+            Value {
+                kind: Some(Kind::StringValue(episode.summary.clone())),
+            },
+        );
+        p.insert(
+            "turn_count".into(),
+            Value {
+                kind: Some(Kind::IntegerValue(episode.turn_count as i64)),
+            },
+        );
+        p.insert(
+            "task_ids".into(),
+            Value {
+                kind: Some(Kind::StringValue(episode.task_ids.join(","))),
+            },
+        );
+        let seconds = episode.timestamp.as_ref().map(|t| t.seconds).unwrap_or(0);
+        p.insert(
+            "timestamp".into(),
+            Value {
+                kind: Some(Kind::IntegerValue(seconds)),
+            },
+        );
+        if let Some(json) = metadata_to_json(&episode.metadata) {
+            p.insert(
+                "metadata_json".into(),
+                Value {
+                    kind: Some(Kind::StringValue(json)),
+                },
+            );
+        }
+        p.insert(
+            "embedding_model".into(),
+            Value {
+                kind: Some(Kind::StringValue(embedding_model.to_string())),
+            },
+        );
+        p
+    }
+
+    fn payload_to_episode(
+        payload: &HashMap<String, qdrant_client::qdrant::Value>,
+    ) -> Option<EpisodicMemory> {
+        let get_str = |key: &str| -> Option<String> {
+            match payload.get(key)?.kind.as_ref()? {
+                Kind::StringValue(s) => Some(s.clone()),
+                _ => None,
+            }
+        };
+        let get_i64 = |key: &str| -> Option<i64> {
+            match payload.get(key)?.kind.as_ref()? {
+                Kind::IntegerValue(i) => Some(*i),
+                _ => None,
+            }
+        };
+
+        Some(EpisodicMemory {
+            session_id: get_str("session_id")?,
+            project_path: get_str("project_path")?,
+            summary: get_str("summary")?,
+            turn_count: get_i64("turn_count")? as u32,
+            task_ids: get_str("task_ids")?
+                .split(',')
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect(),
+            timestamp: Some(prost_types::Timestamp {
+                seconds: get_i64("timestamp").unwrap_or(0),
+                nanos: 0,
+            }),
+            metadata: metadata_from_json(get_str("metadata_json")),
+        })
+    }
+
+    pub async fn commit_facts(&self, facts: Vec<FactCard>) -> Result<()> {
+        if facts.is_empty() {
+            return Ok(());
+        }
+        let Some(client) = &self.client else {
+            return Err(anyhow::anyhow!("QdrantTier: offline, cannot index facts"));
+        };
+
+        let mut points = Vec::with_capacity(facts.len());
+        for fact in facts {
+            let vector = self.get_vector(&fact.content).await?;
+            let payload = Self::make_payload(&fact, &self.embed_model);
+            points.push(PointStruct::new(Self::point_id(&fact.id), vector, payload));
+        }
+
+        client
+            .upsert_points(UpsertPointsBuilder::new(COLLECTION, points))
+            .await
+            .context("QdrantTier: batch upsert failed")?;
+        Ok(())
     }
 }
 
@@ -150,10 +432,10 @@ impl QdrantTier {
 impl MemoryTier for QdrantTier {
     async fn commit_fact(&self, fact: FactCard) -> Result<()> {
         let Some(client) = &self.client else {
-            return Ok(());
+            return Err(anyhow::anyhow!("QdrantTier: offline, cannot index fact"));
         };
-        let vector = Self::content_vector(&fact.content);
-        let payload = Self::make_payload(&fact);
+        let vector = self.get_vector(&fact.content).await?;
+        let payload = Self::make_payload(&fact, &self.embed_model);
         let point = PointStruct::new(Self::point_id(&fact.id), vector, payload);
 
         client
@@ -203,17 +485,302 @@ impl MemoryTier for QdrantTier {
         Ok(vec![])
     }
 
-    async fn record_episode(&self, _episode: EpisodicMemory) -> Result<()> {
-        // Episodes are structural records — persisted in SQLite (L2) only.
+    async fn record_episode(&self, episode: EpisodicMemory) -> Result<()> {
+        let Some(client) = &self.client else {
+            return Err(anyhow::anyhow!("QdrantTier: offline, cannot index episode"));
+        };
+        let vector = self.get_vector(&episode.summary).await?;
+        let payload = Self::make_episode_payload(&episode, &self.embed_model);
+        let point_id = Self::point_id(&episode.session_id);
+        let point = PointStruct::new(point_id, vector, payload);
+
+        client
+            .upsert_points(UpsertPointsBuilder::new(EPISODE_COLLECTION, vec![point]))
+            .await
+            .context("QdrantTier: record_episode failed")?;
         Ok(())
     }
 
     async fn query_recent_episodes(
         &self,
-        _agent_name: &str,
-        _limit: u32,
+        agent_name: &str,
+        limit: u32,
         _task_id: Option<&str>,
     ) -> Result<Vec<EpisodicMemory>> {
-        Ok(vec![])
+        let Some(client) = &self.client else {
+            return Ok(vec![]);
+        };
+
+        let result = client
+            .scroll(
+                ScrollPointsBuilder::new(EPISODE_COLLECTION)
+                    .limit(limit)
+                    .with_payload(true),
+            )
+            .await
+            .context("QdrantTier: query_recent_episodes scroll failed")?;
+
+        let episodes = result
+            .result
+            .iter()
+            .filter_map(|p| Self::payload_to_episode(&p.payload))
+            .filter(|ep| ep.session_id.contains(agent_name))
+            .collect();
+
+        Ok(episodes)
+    }
+
+    async fn search_semantic(
+        &self,
+        query: &str,
+        partition: &str,
+        limit: u32,
+        min_score: f32,
+    ) -> Result<Vec<FactCard>> {
+        let scored = self.search_semantic_scored(query, partition, limit).await?;
+        Ok(Self::merge_scored(scored, limit, min_score))
+    }
+}
+
+impl QdrantTier {
+    /// Raw scored semantic candidates for `partition` (facts + episodes),
+    /// pre-threshold and pre-truncation. An empty result means the partition
+    /// has no candidates in Qdrant (or the tier is offline) — TieredStorage
+    /// uses that to decide whether the L2 lexical fallback is warranted.
+    /// Embedding failures propagate as errors.
+    pub(crate) async fn search_semantic_scored(
+        &self,
+        query: &str,
+        partition: &str,
+        limit: u32,
+    ) -> Result<Vec<(f32, FactCard)>> {
+        let Some(client) = &self.client else {
+            return Ok(vec![]);
+        };
+
+        let vector = self.get_vector(query).await?;
+
+        // Query 1: Search facts.
+        // Partition canon is the DOMAIN prefix ("{partition}" or "{partition}:{topic}"),
+        // matching the L2 SQLite filter — NOT source_agent, which records the authoring
+        // agent (the MCP bridge's AGENT_NAME) and may differ from the partition.
+        // Qdrant has no prefix match on keyword payloads, so oversample and filter
+        // locally, the same idiom the episode query below uses.
+        let candidate_limit = (limit as u64 * 4).max(20);
+        let result_facts = match client
+            .search_points(
+                SearchPointsBuilder::new(COLLECTION, vector.clone(), candidate_limit)
+                    .with_payload(true),
+            )
+            .await
+        {
+            Ok(res) => res
+                .result
+                .into_iter()
+                .filter(|p| {
+                    if let Some(Kind::StringValue(domain)) =
+                        p.payload.get("domain").and_then(|v| v.kind.as_ref())
+                    {
+                        domain_matches_partition(domain, partition)
+                    } else {
+                        false
+                    }
+                })
+                .collect(),
+            Err(e) => {
+                tracing::warn!("Qdrant: search_points on facts failed: {}", e);
+                vec![]
+            }
+        };
+
+        // Query 2: Search episodic memories
+        let result_episodes = match client
+            .search_points(
+                SearchPointsBuilder::new(EPISODE_COLLECTION, vector, limit as u64)
+                    .with_payload(true),
+            )
+            .await
+        {
+            Ok(res) => {
+                // Filter locally by agent partition since EpisodicMemory does not store partition natively
+                res.result
+                    .into_iter()
+                    .filter(|p| {
+                        if let Some(Kind::StringValue(sid)) =
+                            p.payload.get("session_id").and_then(|v| v.kind.as_ref())
+                        {
+                            sid.contains(partition)
+                        } else {
+                            false
+                        }
+                    })
+                    .collect()
+            }
+            Err(e) => {
+                tracing::warn!("Qdrant: search_points on episodes failed: {}", e);
+                vec![]
+            }
+        };
+
+        // Map and merge
+        let mut scored_facts: Vec<(f32, FactCard)> = Vec::new();
+
+        for p in result_facts {
+            if let Some(fact) = Self::payload_to_fact(&p.payload) {
+                scored_facts.push((p.score, fact));
+            }
+        }
+
+        for p in result_episodes {
+            if let Some(ep) = Self::payload_to_episode(&p.payload) {
+                let fact = FactCard {
+                    id: ep.session_id.clone(),
+                    source_agent: partition.to_string(),
+                    session_id: ep.session_id.clone(),
+                    domain: "session".to_string(),
+                    content: format!("## Session Summary: {}\n\n{}", ep.session_id, ep.summary),
+                    confidence: 1.0,
+                    tags: vec!["session_summary".to_string()],
+                    created_at: ep.timestamp,
+                    metadata: None,
+                };
+                scored_facts.push((p.score, fact));
+            }
+        }
+
+        Ok(scored_facts)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{domain_matches_partition, QdrantTier};
+    use koad_proto::cass::v1::{EpisodicMemory, FactCard, MemoryMetadata, TokenEstimate};
+    use qdrant_client::qdrant::value::Kind;
+
+    fn sample_metadata() -> MemoryMetadata {
+        MemoryMetadata {
+            summary: "round-trip probe".to_string(),
+            token_estimates: vec![TokenEstimate {
+                tokenizer: "cl100k_base".to_string(),
+                tokens: 42,
+                method: "library".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn sample_fact(metadata: Option<MemoryMetadata>) -> FactCard {
+        FactCard {
+            id: "f1".to_string(),
+            source_agent: "clyde".to_string(),
+            session_id: "s1".to_string(),
+            domain: "test".to_string(),
+            content: "hello".to_string(),
+            confidence: 0.9,
+            tags: vec!["a".to_string(), "b".to_string()],
+            created_at: None,
+            metadata,
+        }
+    }
+
+    #[test]
+    fn fact_metadata_survives_payload_round_trip() {
+        let payload = QdrantTier::make_payload(&sample_fact(Some(sample_metadata())), "test-model");
+        let restored = QdrantTier::payload_to_fact(&payload).expect("fact restores");
+        assert_eq!(restored.metadata, Some(sample_metadata()));
+    }
+
+    #[test]
+    fn fact_without_metadata_round_trips_as_none() {
+        let payload = QdrantTier::make_payload(&sample_fact(None), "test-model");
+        let restored = QdrantTier::payload_to_fact(&payload).expect("fact restores");
+        assert_eq!(restored.metadata, None);
+    }
+
+    #[test]
+    fn episode_metadata_survives_payload_round_trip() {
+        let ep = EpisodicMemory {
+            session_id: "s1".to_string(),
+            project_path: "/tmp".to_string(),
+            summary: "did things".to_string(),
+            turn_count: 3,
+            timestamp: None,
+            task_ids: vec!["t1".to_string()],
+            metadata: Some(sample_metadata()),
+        };
+        let payload = QdrantTier::make_episode_payload(&ep, "test-model");
+        let restored = QdrantTier::payload_to_episode(&payload).expect("episode restores");
+        assert_eq!(restored.metadata, Some(sample_metadata()));
+    }
+
+    #[tokio::test]
+    async fn offline_tier_get_vector_errors() {
+        let tier = QdrantTier::new_offline();
+        let res = tier.get_vector("hello world").await;
+        assert!(res.is_err(), "offline tier must not fabricate vectors");
+    }
+
+    fn scored(id: &str, score: f32) -> (f32, FactCard) {
+        let mut fact = sample_fact(None);
+        fact.id = id.to_string();
+        (score, fact)
+    }
+
+    #[test]
+    fn merge_scored_drops_results_below_min_score() {
+        let input = vec![scored("low", 0.2), scored("high", 0.9), scored("mid", 0.5)];
+        let out = QdrantTier::merge_scored(input, 10, 0.4);
+        let ids: Vec<&str> = out.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["high", "mid"],
+            "below-threshold results must be dropped"
+        );
+    }
+
+    #[test]
+    fn merge_scored_zero_min_score_keeps_everything() {
+        // min_score <= 0.0 means "unset" (proto default) — even negative-similarity
+        // results survive, preserving pre-threshold behavior.
+        let input = vec![scored("neg", -0.1), scored("pos", 0.8)];
+        let out = QdrantTier::merge_scored(input, 10, 0.0);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn merge_scored_applies_threshold_before_limit() {
+        let input = vec![scored("a", 0.9), scored("b", 0.1), scored("c", 0.7)];
+        let out = QdrantTier::merge_scored(input, 2, 0.5);
+        let ids: Vec<&str> = out.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "c"], "limit fills from passing results only");
+    }
+
+    #[test]
+    fn payload_carries_embedding_model() {
+        let fact = sample_fact(None); // existing test helper
+        let payload = QdrantTier::make_payload(&fact, "nomic-embed-text");
+        let model = payload.get("embedding_model").and_then(|v| v.kind.as_ref());
+        match model {
+            Some(Kind::StringValue(s)) => assert_eq!(s, "nomic-embed-text"),
+            other => panic!("expected embedding_model string, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn partition_matches_domain_prefix_not_source_agent() {
+        // Canon: domain IS the partition or "{partition}:{topic}".
+        assert!(domain_matches_partition("clyde", "clyde"));
+        assert!(domain_matches_partition("clyde:recall-test", "clyde"));
+        assert!(domain_matches_partition(
+            "hermes_jupiter_ideans:arandir-party",
+            "hermes_jupiter_ideans"
+        ));
+        // Prefix must be a whole segment terminated by ':'.
+        assert!(!domain_matches_partition("clyde_Jupiter_ideans", "clyde"));
+        assert!(!domain_matches_partition("clyderecall", "clyde"));
+        assert!(!domain_matches_partition("hermes:topic", "clyde"));
+        assert!(!domain_matches_partition("", "clyde"));
     }
 }

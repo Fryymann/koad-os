@@ -40,6 +40,13 @@ pub trait MemoryTier: Send + Sync {
         limit: u32,
         task_id: Option<&str>,
     ) -> Result<Vec<EpisodicMemory>>;
+    async fn search_semantic(
+        &self,
+        query: &str,
+        partition: &str,
+        limit: u32,
+        min_score: f32,
+    ) -> Result<Vec<FactCard>>;
 }
 
 /// Trait for pulse storage — implemented by RedisTier only (L1 hot signals).

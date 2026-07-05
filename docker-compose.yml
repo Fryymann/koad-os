@@ -30,7 +30,7 @@ services:
       - citadel-redis
       - qdrant
     ports:
-      - "50051:50051"
+      - "50052:50052"
     environment:
       - KOADOS_URL_REDIS=redis://citadel-redis:6379
       - KOADOS_URL_QDRANT=http://qdrant:6333

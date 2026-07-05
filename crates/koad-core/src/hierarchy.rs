@@ -18,6 +18,10 @@ impl HierarchyManager {
         Self { config }
     }
 
+    pub fn config(&self) -> &KoadConfig {
+        &self.config
+    }
+
     /// Resolves an absolute path to its corresponding [`WorkspaceLevel`].
     pub fn resolve_level(&self, path: &Path) -> WorkspaceLevel {
         let home = &self.config.home;
@@ -53,7 +57,11 @@ impl HierarchyManager {
             return level;
         }
 
-        WorkspaceLevel::LevelSystem
+        // Unrecognized paths default to LevelCitadel.
+        // LevelSystem is reserved for paths explicitly registered as system-level projects.
+        // An empty path (e.g. from koad-agent boot with no explicit project_root) and
+        // unregistered paths both fall here — Citadel-level access is the safe default.
+        WorkspaceLevel::LevelCitadel
     }
 
     /// Validates if an agent has permission to operate at a specific [`WorkspaceLevel`].
