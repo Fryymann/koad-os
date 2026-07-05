@@ -294,4 +294,58 @@ mod tests {
         );
         Ok(())
     }
+
+    /// Episode partition keying: exact-partition recall + cross-partition isolation.
+    /// Requires live Qdrant + Ollama (nomic-embed-text), like the paraphrase test above.
+    #[tokio::test]
+    #[ignore = "requires live services (qdrant, ollama with nomic-embed-text)"]
+    async fn test_episode_recall_by_partition() -> anyhow::Result<()> {
+        let intelligence = Arc::new(koad_intelligence::router::InferenceRouter::new_default()?);
+        let qdrant = QdrantTier::new("http://127.0.0.1:6334", Some(intelligence)).await?;
+
+        let episode = EpisodicMemory {
+            session_id: "SID-eptest-0001".into(),
+            project_path: "/tmp/eptest".into(),
+            summary: "Investigated Redis stream lag in the enrichment worker and fixed the consumer group offset".into(),
+            turn_count: 3,
+            timestamp: Some(prost_types::Timestamp {
+                seconds: chrono::Utc::now().timestamp(),
+                nanos: 0,
+            }),
+            task_ids: vec![],
+            metadata: None,
+            partition: "eptest_TestHost_tester".into(),
+        };
+        qdrant.record_episode(episode).await?;
+
+        // Paraphrased query, correct partition: must recall.
+        let hits = qdrant
+            .search_semantic(
+                "why was the queue consumer falling behind",
+                "eptest_TestHost_tester",
+                3,
+                0.0,
+            )
+            .await?;
+        assert!(
+            hits.iter().any(|f| f.session_id == "SID-eptest-0001"),
+            "episode must be recalled under its own partition; got: {:?}",
+            hits.iter().map(|f| &f.id).collect::<Vec<_>>()
+        );
+
+        // Same query, different partition: must NOT leak.
+        let misses = qdrant
+            .search_semantic(
+                "why was the queue consumer falling behind",
+                "other_Host_user",
+                3,
+                0.0,
+            )
+            .await?;
+        assert!(
+            !misses.iter().any(|f| f.session_id == "SID-eptest-0001"),
+            "episode must not leak across partitions"
+        );
+        Ok(())
+    }
 }
