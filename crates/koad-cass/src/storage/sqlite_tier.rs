@@ -37,7 +37,8 @@ impl SqliteTier {
                 summary TEXT NOT NULL,
                 turn_count INTEGER NOT NULL,
                 timestamp TEXT NOT NULL,
-                task_ids TEXT NOT NULL
+                task_ids TEXT NOT NULL,
+                partition TEXT NOT NULL DEFAULT ''
             )",
             [],
         )?;
@@ -45,6 +46,10 @@ impl SqliteTier {
         let _ = conn.execute("ALTER TABLE fact_cards ADD COLUMN metadata_json TEXT", []);
         let _ = conn.execute(
             "ALTER TABLE episodic_memories ADD COLUMN metadata_json TEXT",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE episodic_memories ADD COLUMN partition TEXT NOT NULL DEFAULT ''",
             [],
         );
         Ok(Self {
@@ -86,7 +91,7 @@ impl SqliteTier {
     pub async fn get_episode_by_session(&self, session_id: &str) -> Result<Option<EpisodicMemory>> {
         let conn = self.conn.lock().await;
         let mut stmt = conn.prepare(
-            "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json
+            "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json, partition
              FROM episodic_memories WHERE session_id = ?1",
         )?;
         let mut rows = stmt.query_map(params![session_id], |row| {
@@ -102,7 +107,7 @@ impl SqliteTier {
                     .map(|s| s.to_string())
                     .collect(),
                 metadata: metadata_from_json(row.get::<_, Option<String>>(6)?),
-                partition: String::new(),
+                partition: row.get(7)?,
             })
         })?;
         match rows.next() {
@@ -284,8 +289,8 @@ impl MemoryTier for SqliteTier {
         let metadata_json = metadata_to_json(&episode.metadata);
         conn.execute(
             "INSERT OR REPLACE INTO episodic_memories
-             (session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             (session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json, partition)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 episode.session_id,
                 episode.project_path,
@@ -293,7 +298,8 @@ impl MemoryTier for SqliteTier {
                 episode.turn_count,
                 timestamp,
                 task_ids,
-                metadata_json
+                metadata_json,
+                episode.partition
             ],
         )?;
         Ok(())
@@ -350,7 +356,7 @@ impl MemoryTier for SqliteTier {
         let mut episodes = Vec::new();
         if let Some(tid) = task_id.filter(|t| !t.is_empty()) {
             let mut stmt = conn.prepare(
-                "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json
+                "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json, partition
                  FROM episodic_memories WHERE task_ids LIKE '%' || ?1 || '%'
                  ORDER BY timestamp DESC LIMIT ?2",
             )?;
@@ -367,7 +373,7 @@ impl MemoryTier for SqliteTier {
                         .map(|s| s.to_string())
                         .collect(),
                     metadata: metadata_from_json(row.get::<_, Option<String>>(6)?),
-                    partition: String::new(),
+                    partition: row.get(7)?,
                 })
             })?;
             for row in rows {
@@ -375,7 +381,7 @@ impl MemoryTier for SqliteTier {
             }
         } else {
             let mut stmt = conn.prepare(
-                "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json
+                "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json, partition
                  FROM episodic_memories ORDER BY timestamp DESC LIMIT ?1",
             )?;
             let rows = stmt.query_map(params![limit], |row| {
@@ -391,7 +397,7 @@ impl MemoryTier for SqliteTier {
                         .map(|s| s.to_string())
                         .collect(),
                     metadata: metadata_from_json(row.get::<_, Option<String>>(6)?),
-                    partition: String::new(),
+                    partition: row.get(7)?,
                 })
             })?;
             for row in rows {
@@ -495,7 +501,7 @@ mod tests {
                 timestamp: None,
                 task_ids: vec!["task-a".to_string()],
                 metadata: None,
-                partition: String::new(),
+                partition: "tyr_jupiter_ideans".to_string(),
             })
             .await?;
 
@@ -508,7 +514,7 @@ mod tests {
                 timestamp: None,
                 task_ids: vec!["task-b".to_string()],
                 metadata: None,
-                partition: String::new(),
+                partition: "tyr_jupiter_ideans".to_string(),
             })
             .await?;
 
@@ -562,7 +568,7 @@ mod tests {
         storage
             .record_episode(EpisodicMemory {
                 session_id: "S-meta".into(),
-                partition: String::new(),
+                partition: "hermes_jupiter_ideans".into(),
                 project_path: "/x".into(),
                 summary: "episode summary".into(),
                 turn_count: 1,
@@ -640,6 +646,28 @@ mod tests {
             reloaded.metadata.expect("metadata").summary,
             "enriched summary"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn episode_partition_roundtrip() -> Result<()> {
+        let tier = SqliteTier::new(":memory:")?;
+        let episode = EpisodicMemory {
+            session_id: "SID-eptest-0001".into(),
+            project_path: "/tmp/eptest".into(),
+            summary: "test".into(),
+            turn_count: 1,
+            timestamp: None,
+            task_ids: vec![],
+            metadata: None,
+            partition: "eptest_Host_user".into(),
+        };
+        tier.record_episode(episode).await?;
+        let loaded = tier
+            .get_episode_by_session("SID-eptest-0001")
+            .await?
+            .expect("episode exists");
+        assert_eq!(loaded.partition, "eptest_Host_user");
         Ok(())
     }
 }

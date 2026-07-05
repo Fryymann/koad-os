@@ -144,7 +144,7 @@ fn load_facts(conn: &Connection) -> Result<Vec<FactCard>> {
 
 fn load_episodes(conn: &Connection) -> Result<Vec<EpisodicMemory>> {
     let mut stmt = conn.prepare(
-        "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json
+        "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json, partition
          FROM episodic_memories",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -162,7 +162,7 @@ fn load_episodes(conn: &Connection) -> Result<Vec<EpisodicMemory>> {
             metadata: row
                 .get::<_, Option<String>>(6)?
                 .and_then(|s| serde_json::from_str(&s).ok()),
-            partition: String::new(),
+            partition: row.get(7)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)

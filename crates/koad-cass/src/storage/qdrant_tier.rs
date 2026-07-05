@@ -347,6 +347,12 @@ impl QdrantTier {
                 kind: Some(Kind::StringValue(episode.task_ids.join(","))),
             },
         );
+        p.insert(
+            "partition".into(),
+            Value {
+                kind: Some(Kind::StringValue(episode.partition.clone())),
+            },
+        );
         let seconds = episode.timestamp.as_ref().map(|t| t.seconds).unwrap_or(0);
         p.insert(
             "timestamp".into(),
