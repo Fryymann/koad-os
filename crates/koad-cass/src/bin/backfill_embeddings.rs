@@ -162,6 +162,7 @@ fn load_episodes(conn: &Connection) -> Result<Vec<EpisodicMemory>> {
             metadata: row
                 .get::<_, Option<String>>(6)?
                 .and_then(|s| serde_json::from_str(&s).ok()),
+            partition: String::new(),
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)

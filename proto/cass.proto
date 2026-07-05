@@ -110,6 +110,7 @@ message EpisodicMemory {
   google.protobuf.Timestamp timestamp = 5;
   repeated string task_ids = 6;
   MemoryMetadata metadata = 7;
+  string partition = 8; // partition key canon: "{agent}_{host}_{user}"; "" = legacy/unbackfilled
 }
 
 message FactQuery {

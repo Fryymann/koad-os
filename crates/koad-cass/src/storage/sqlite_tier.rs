@@ -102,6 +102,7 @@ impl SqliteTier {
                     .map(|s| s.to_string())
                     .collect(),
                 metadata: metadata_from_json(row.get::<_, Option<String>>(6)?),
+                partition: String::new(),
             })
         })?;
         match rows.next() {
@@ -366,6 +367,7 @@ impl MemoryTier for SqliteTier {
                         .map(|s| s.to_string())
                         .collect(),
                     metadata: metadata_from_json(row.get::<_, Option<String>>(6)?),
+                    partition: String::new(),
                 })
             })?;
             for row in rows {
@@ -389,6 +391,7 @@ impl MemoryTier for SqliteTier {
                         .map(|s| s.to_string())
                         .collect(),
                     metadata: metadata_from_json(row.get::<_, Option<String>>(6)?),
+                    partition: String::new(),
                 })
             })?;
             for row in rows {
@@ -492,6 +495,7 @@ mod tests {
                 timestamp: None,
                 task_ids: vec!["task-a".to_string()],
                 metadata: None,
+                partition: String::new(),
             })
             .await?;
 
@@ -504,6 +508,7 @@ mod tests {
                 timestamp: None,
                 task_ids: vec!["task-b".to_string()],
                 metadata: None,
+                partition: String::new(),
             })
             .await?;
 
@@ -557,6 +562,7 @@ mod tests {
         storage
             .record_episode(EpisodicMemory {
                 session_id: "S-meta".into(),
+                partition: String::new(),
                 project_path: "/x".into(),
                 summary: "episode summary".into(),
                 turn_count: 1,

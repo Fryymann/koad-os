@@ -125,6 +125,7 @@ async fn main() -> Result<()> {
             }),
             task_ids: vec![],
             metadata: None,
+            partition: String::new(),
         };
 
         match client.record_episode(episode).await {

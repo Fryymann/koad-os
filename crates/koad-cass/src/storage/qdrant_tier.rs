@@ -402,6 +402,7 @@ impl QdrantTier {
                 nanos: 0,
             }),
             metadata: metadata_from_json(get_str("metadata_json")),
+            partition: get_str("partition").unwrap_or_default(),
         })
     }
 
@@ -709,6 +710,7 @@ mod tests {
             timestamp: None,
             task_ids: vec!["t1".to_string()],
             metadata: Some(sample_metadata()),
+            partition: String::new(),
         };
         let payload = QdrantTier::make_episode_payload(&ep, "test-model");
         let restored = QdrantTier::payload_to_episode(&payload).expect("episode restores");

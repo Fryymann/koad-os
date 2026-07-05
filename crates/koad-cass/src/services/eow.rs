@@ -95,6 +95,7 @@ impl EndOfWatchPipeline {
             }),
             task_ids: vec![],
             metadata: None,
+            partition: String::new(),
         };
 
         if let Err(e) = self.storage.record_episode(episode).await {

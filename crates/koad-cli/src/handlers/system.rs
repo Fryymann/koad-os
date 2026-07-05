@@ -1573,6 +1573,7 @@ async fn sync_session_histories(home: &std::path::Path, cass_url: &str) -> Resul
                                     }),
                                     task_ids: vec![],
                                     metadata: None,
+                                    partition: String::new(),
                                 };
 
                                 if let Err(e) = client
