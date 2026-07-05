@@ -391,9 +391,10 @@ impl CitadelSession for CitadelSessionService {
         };
 
         if let Some(record) = record_opt {
+            let partition = koad_core::utils::partition::partition_key(&record.agent_name);
             let _ = self.signal_corps.broadcast(
                 "system",
-                &format!("{{\"event_type\": \"session_closed\", \"session_id\": \"{}\", \"agent_name\": \"{}\"}}", sid, record.agent_name),
+                &format!("{{\"event_type\": \"session_closed\", \"session_id\": \"{}\", \"agent_name\": \"{}\", \"partition\": \"{}\"}}", sid, record.agent_name, partition),
                 "EOW-TRIGGER",
                 "citadel",
             ).await;

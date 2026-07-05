@@ -1573,7 +1573,7 @@ async fn sync_session_histories(home: &std::path::Path, cass_url: &str) -> Resul
                                     }),
                                     task_ids: vec![],
                                     metadata: None,
-                                    partition: String::new(),
+                                    partition: koad_core::utils::partition::partition_key(&agent_name),
                                 };
 
                                 if let Err(e) = client

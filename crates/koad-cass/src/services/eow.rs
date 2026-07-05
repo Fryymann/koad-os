@@ -61,6 +61,10 @@ impl EndOfWatchPipeline {
     async fn process_session_close(&self, event: &serde_json::Value) {
         let session_id = event["session_id"].as_str().unwrap_or_default();
         let agent_name = event["agent_name"].as_str().unwrap_or_default();
+        let partition = match event["partition"].as_str() {
+            Some(p) if !p.is_empty() => p.to_string(),
+            _ => koad_core::utils::partition::partition_key(agent_name),
+        };
 
         info!(session_id = %session_id, agent = %agent_name, "EndOfWatch: Starting distillation");
 
@@ -95,7 +99,7 @@ impl EndOfWatchPipeline {
             }),
             task_ids: vec![],
             metadata: None,
-            partition: String::new(),
+            partition,
         };
 
         if let Err(e) = self.storage.record_episode(episode).await {
