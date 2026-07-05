@@ -531,7 +531,13 @@ impl MemoryTier for QdrantTier {
             .result
             .iter()
             .filter_map(|p| Self::payload_to_episode(&p.payload))
-            .filter(|ep| ep.session_id.contains(agent_name))
+            .filter(|ep| {
+                if !ep.partition.is_empty() {
+                    ep.partition.starts_with(&format!("{}_", agent_name))
+                } else {
+                    ep.session_id.contains(agent_name)
+                }
+            })
             .collect();
 
         Ok(episodes)
@@ -609,14 +615,23 @@ impl QdrantTier {
             .await
         {
             Ok(res) => {
-                // Filter locally by agent partition since EpisodicMemory does not store partition natively
+                // Filter by the partition payload field; legacy points without it
+                // fall back to agent-prefix substring matching until backfilled.
                 res.result
                     .into_iter()
                     .filter(|p| {
+                        let ep_partition = match p.payload.get("partition").and_then(|v| v.kind.as_ref()) {
+                            Some(Kind::StringValue(s)) => s.as_str(),
+                            _ => "",
+                        };
+                        if !ep_partition.is_empty() {
+                            return ep_partition == partition;
+                        }
                         if let Some(Kind::StringValue(sid)) =
                             p.payload.get("session_id").and_then(|v| v.kind.as_ref())
                         {
-                            sid.contains(partition)
+                            let agent = partition.split('_').next().unwrap_or(partition);
+                            sid.contains(agent)
                         } else {
                             false
                         }
