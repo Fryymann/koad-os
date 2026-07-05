@@ -96,7 +96,6 @@ async fn main() -> Result<()> {
         storage.clone(),
         hierarchy.clone(),
         codegraph.clone(),
-        intelligence.clone(),
     )
     .with_pulse_store(Arc::clone(&redis_tier) as Arc<dyn koad_cass::storage::PulseTier>);
     let pulse_svc =

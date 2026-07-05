@@ -8,10 +8,7 @@
 use crate::storage::{MemoryTier, PulseTier};
 use koad_codegraph::CodeGraph;
 use koad_core::hierarchy::HierarchyManager;
-use koad_core::intelligence::IntelligenceRouter;
 use koad_core::utils::tokens::count_tokens;
-#[cfg(test)]
-use koad_intelligence::router::InferenceRouter;
 use koad_proto::cass::v1::hydration_service_server::HydrationService;
 use koad_proto::cass::v1::{HydrationRequest, HydrationResponse};
 use std::fs;
@@ -25,7 +22,6 @@ pub struct CassHydrationService {
     storage: Arc<dyn MemoryTier>,
     hierarchy: Arc<HierarchyManager>,
     codegraph: Arc<CodeGraph>,
-    intelligence: Arc<dyn IntelligenceRouter>,
     pulse_store: Option<Arc<dyn PulseTier>>,
 }
 
@@ -35,13 +31,11 @@ impl CassHydrationService {
         storage: Arc<dyn MemoryTier>,
         hierarchy: Arc<HierarchyManager>,
         codegraph: Arc<CodeGraph>,
-        intelligence: Arc<dyn IntelligenceRouter>,
     ) -> Self {
         Self {
             storage,
             hierarchy,
             codegraph,
-            intelligence,
             pulse_store: None,
         }
     }
@@ -58,7 +52,7 @@ impl HydrationService for CassHydrationService {
     /// Bundles context for an agent based on their workspace level and token budget.
     ///
     /// # Errors
-    /// Returns a `tonic::Status` if storage queries or intelligence distillation fail.
+    /// Returns a `tonic::Status` if storage queries fail.
     async fn hydrate(
         &self,
         request: Request<HydrationRequest>,
@@ -444,9 +438,7 @@ mod tests {
         });
         let hierarchy = Arc::new(HierarchyManager::new(config));
         let codegraph = Arc::new(CodeGraph::new_with_memory()?);
-        let intelligence = Arc::new(InferenceRouter::new_default()?);
-
-        let service = CassHydrationService::new(storage, hierarchy, codegraph, intelligence);
+        let service = CassHydrationService::new(storage, hierarchy, codegraph);
 
         let request = Request::new(HydrationRequest {
             agent_name: "test-agent".to_string(),
@@ -479,8 +471,6 @@ mod tests {
         });
         let hierarchy = Arc::new(HierarchyManager::new(config));
         let codegraph = Arc::new(CodeGraph::new_with_memory()?);
-        let intelligence = Arc::new(InferenceRouter::new_default()?);
-
         let pulse_store = Arc::new(MockPulseStore::new());
         pulse_store
             .seed(Pulse {
@@ -493,7 +483,7 @@ mod tests {
             })
             .await;
 
-        let service = CassHydrationService::new(storage, hierarchy, codegraph, intelligence)
+        let service = CassHydrationService::new(storage, hierarchy, codegraph)
             .with_pulse_store(pulse_store);
 
         let request = Request::new(HydrationRequest {
@@ -556,9 +546,7 @@ mod tests {
         });
         let hierarchy = Arc::new(HierarchyManager::new(config));
         let codegraph = Arc::new(CodeGraph::new_with_memory()?);
-        let intelligence = Arc::new(InferenceRouter::new_default()?);
-
-        let service = CassHydrationService::new(storage, hierarchy, codegraph, intelligence);
+        let service = CassHydrationService::new(storage, hierarchy, codegraph);
 
         // Budget large enough for the TCH header + fact header + the concise fact,
         // but far too small for the ~400-token verbose fact.
@@ -630,9 +618,7 @@ mod tests {
         });
         let hierarchy = Arc::new(HierarchyManager::new(config));
         let codegraph = Arc::new(CodeGraph::new_with_memory()?);
-        let intelligence = Arc::new(InferenceRouter::new_default()?);
-
-        let service = CassHydrationService::new(storage, hierarchy, codegraph, intelligence);
+        let service = CassHydrationService::new(storage, hierarchy, codegraph);
 
         let make_request = || {
             Request::new(HydrationRequest {
