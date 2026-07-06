@@ -79,3 +79,6 @@ portals/
 release/
 run/
 target/
+
+# Stale snapshot artifacts
+diff.patch
