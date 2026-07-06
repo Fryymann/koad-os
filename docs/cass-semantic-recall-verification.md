@@ -69,10 +69,22 @@ clean. Legacy-domain migration **completed 2026-07-02**: the only legacy shape
 Qdrant payload refresh (marker present → no LLM re-run), and verified recalled at rank 1
 under the production partition. Zero legacy domains remain in either tier.
 
-Residual gap (episodes): `search_semantic` matches episodes by
-`session_id.contains(partition)`; most session ids (e.g. `20260606_140451_01834a`) contain
-no partition string, so episode recall under production partitions is effectively empty.
-Episode partition keying needs its own design pass.
+Episode gap **closed 2026-07-05**: episodes now carry an explicit `partition` key
+(proto field 8, canon `{agent}_{host}_{user}` via `koad_core::utils::partition::partition_key`)
+stamped by all write paths (Citadel `session_closed` event, EOW fallback, koad-cli sync),
+persisted in SQLite (`episodic_memories.partition`) and the Qdrant episode payload. Both
+read filters (`search_semantic_scored`, `query_recent_episodes`) match on the partition
+field, with a legacy substring fallback for empty-partition rows. All 46 production rows
+backfilled via `backfill_episode_partitions` (backup: `cass.db.pre-episode-partition-20260705`)
+and re-upserted to Qdrant — verified 46/46 partitioned in both tiers, zero missing. Live
+test `test_episode_recall_by_partition` passes: paraphrase recall under the owning
+partition, zero cross-partition leakage. (Note: the original gap description cited
+partition-less session ids like `20260606_140451_01834a`; production ids were actually
+`SID-{agent}-{uuid}` — agent present, partition string absent. Root cause was the
+partition ≠ agent-name mismatch, per the design doc.)
+
+Design: `docs/superpowers/plans/2026-07-05-cass-episode-partition-keying-design.md`.
+Implementation: `docs/superpowers/plans/2026-07-05-cass-episode-partition-keying-impl.md`.
 
 ### 🟡 Minor — tag quality from granite3.3:2b
 
