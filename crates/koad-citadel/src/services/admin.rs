@@ -146,10 +146,18 @@ impl Admin for AdminService {
             metadata: None, // enrichment worker fills
         };
 
-        match koad_proto::cass::v1::memory_service_client::MemoryServiceClient::connect(
-            self.cass_grpc_addr.clone(),
-        )
-        .await
+        // Bounded connect/RPC so a hung CASS can't stall the admin handler.
+        let cass_channel = tonic::transport::Endpoint::from_shared(self.cass_grpc_addr.clone())
+            .map(|ep| {
+                ep.connect_timeout(std::time::Duration::from_secs(3))
+                    .timeout(std::time::Duration::from_secs(10))
+            });
+        let cass_connect = match cass_channel {
+            Ok(ep) => ep.connect().await.map_err(anyhow::Error::from),
+            Err(e) => Err(anyhow::Error::from(e)),
+        };
+        match cass_connect
+            .map(koad_proto::cass::v1::memory_service_client::MemoryServiceClient::new)
         {
             Ok(mut cass) => match cass.commit_fact(fact).await {
                 Ok(_) => {

@@ -31,10 +31,20 @@ pub async fn handle_intel_action(
             );
 
             // CASS-first: semantic recall under this agent's partition.
-            match koad_proto::cass::v1::memory_service_client::MemoryServiceClient::connect(
+            // Bounded connect so an unreachable CASS degrades fast, not a hang.
+            let cass_connect = match tonic::transport::Endpoint::from_shared(
                 config.network.cass_grpc_addr.clone(),
-            )
-            .await
+            ) {
+                Ok(ep) => ep
+                    .connect_timeout(std::time::Duration::from_secs(3))
+                    .timeout(std::time::Duration::from_secs(10))
+                    .connect()
+                    .await
+                    .map_err(anyhow::Error::from),
+                Err(e) => Err(anyhow::Error::from(e)),
+            };
+            match cass_connect
+                .map(koad_proto::cass::v1::memory_service_client::MemoryServiceClient::new)
             {
                 Ok(mut cass) => {
                     let query = koad_proto::cass::v1::SemanticQuery {
