@@ -24,12 +24,43 @@ pub async fn handle_intel_action(
             tags,
             agent,
         } => {
-            let results = db.query_knowledge(&term, limit, agent.as_deref())?;
             println!(
                 "
 \x1b[1m--- INTEL: Knowledge Query [{}] ---\x1b[0m",
                 term
             );
+
+            // CASS-first: semantic recall under this agent's partition.
+            match koad_proto::cass::v1::memory_service_client::MemoryServiceClient::connect(
+                config.network.cass_grpc_addr.clone(),
+            )
+            .await
+            {
+                Ok(mut cass) => {
+                    let query = koad_proto::cass::v1::SemanticQuery {
+                        query: term.clone(),
+                        partition: koad_core::utils::partition::partition_key(agent_name),
+                        limit: limit as u32,
+                        min_score: 0.0, // server-side threshold verdict applies
+                    };
+                    match cass.search_semantic(query).await {
+                        Ok(resp) => {
+                            let facts = resp.into_inner().facts;
+                            if facts.is_empty() {
+                                println!("  (CASS: no semantic matches)");
+                            }
+                            for f in facts {
+                                println!("[cass:{}] [{}] {}", f.domain, f.source_agent, f.content);
+                            }
+                        }
+                        Err(e) => println!("  (CASS search failed: {} — local archive only)", e),
+                    }
+                }
+                Err(_) => println!("  (CASS offline — local archive only)"),
+            }
+
+            println!("\x1b[1m--- Local Archive ---\x1b[0m");
+            let results = db.query_knowledge(&term, limit, agent.as_deref())?;
             for (cat, content, t, origin) in results {
                 if let Some(ref filter_tags) = tags {
                     if !t.contains(filter_tags) {
