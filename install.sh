@@ -228,6 +228,13 @@ run_install() {
             sudo rm -f /etc/systemd/system/koad-citadel.service /etc/systemd/system/koad-cass.service
             sudo systemctl daemon-reload
             ok "Clean up complete."
+        elif [[ ! -t 0 && -d "$KOAD_HOME" ]]; then
+            # Non-interactive with an existing install at the target: overwriting
+            # live config without confirmation is how instances get clobbered. Refuse.
+            # (A fresh --home path alongside existing systemd units is fine.)
+            fail "Existing installation detected at $KOAD_HOME and no TTY to confirm."
+            fail "Re-run interactively, or pass --home <fresh-path> for a side-by-side install."
+            exit 1
         else
             info "Proceeding with standard install (existing files will be overwritten)."
         fi
@@ -270,8 +277,10 @@ run_install() {
     check_cmd "python3" "Python 3"
     check_cmd "pipx" "pipx"
     
-    # Check for docker-compose or docker compose
-    if command -v "docker-compose" &>/dev/null; then
+    # Check for docker-compose or docker compose.
+    # Functional check, not command -v: WSL ships a docker-compose shim that
+    # exists on PATH but errors when Docker Desktop integration is off.
+    if docker-compose version &>/dev/null; then
         ok "docker-compose found"
     elif docker compose version &>/dev/null; then
         ok "docker compose plugin found"
@@ -325,7 +334,7 @@ run_install() {
     CURRENT_STEP="Infrastructure Boot"
     section "Infrastructure Boot (Docker with CASS)"
     info "Starting CASS, Redis, and Qdrant containers..."
-    if command -v "docker-compose" &>/dev/null; then
+    if docker-compose version &>/dev/null; then
         docker-compose up -d --build
     else
         docker compose up -d --build
@@ -455,7 +464,8 @@ run_install() {
 # Main CLI Driver
 # -----------------------------------------------------------------------------
 MODE=""
-KOAD_HOME=""
+# Honor an exported KOAD_HOME; --home still overrides below.
+KOAD_HOME="${KOAD_HOME:-}"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
