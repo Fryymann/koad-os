@@ -5,9 +5,9 @@
 ## 🎯 Active Missions
 - [x] **Episode Partition Keying:** DONE 2026-07-05 — designed (Condition Green), implemented, 46 production rows backfilled, verified live. Episodes carry explicit `partition` (canon `{agent}_{host}_{user}`); both read filters match on it.
 - [x] **v3.2.0 Release Promotion:** DONE 2026-07-05 — merged nightly → main (`16a13ef`), tag `v3.2.0` pushed. 19 stale remote + 3 local branches pruned.
-- [ ] **Fleet Distribution Prep:** Verify fresh installation on external systems and prepare release tag.
-- [ ] **AIS Documentation Sync:** Complete operating documents for the unified installer and `--update` flags.
-- [ ] **Docker Integration Guide:** Document WSL Resource configuration constraints for new developers.
+- [ ] **Fleet Distribution Prep:** Sandboxed fresh-install verification DONE 2026-07-06 — found + fixed 3 installer blockers (KOAD_HOME env wiped → live-instance clobber path; non-interactive overwrite; shallow WSL compose preflight). Remaining: happy-path install on an external host with working Docker.
+- [x] **AIS Documentation Sync:** DONE 2026-07-06 — `docs/ais/operations/INSTALLER.md` covers `--install`/`--update`/`--home`, the silent-restart gotcha, and sandboxed testing.
+- [x] **Docker Integration Guide:** DONE 2026-07-06 — WSL2 Docker Desktop integration, `.wslconfig` resource limits, Rust >=1.90 builders; folded into INSTALLER.md.
 
 ## 🗂 AIS Backlog
 - [ ] Add machine-readable nMap JSON export workflow.
@@ -29,7 +29,6 @@
 - **Rust Toolchain Modernization:** Container builders track modern compiler versions (>=1.90).
 
 ## 🔜 Immediate Next Actions
-1. Fleet distribution prep: fresh-install verification on external systems.
-2. AIS documentation sync (installer + `--update` docs).
-3. Review `citadel-io` remote branch (1 unique commit, 2026-06-23: "wire CASS as primary memory store") — land or drop.
-4. Consider stripping the tracked `diff.patch` leftover from the repo root.
+1. Happy-path installer verification on an external host with working Docker (last fleet-prep step).
+2. **Dood decision — `citadel-io` branch (reviewed 2026-07-06):** its session-rank change is superseded (Rook decommission); its `commit_knowledge`-via-CASS diverges from nightly's koad_db wiring; its CASS-first `intel query` is unlanded. Architecture call: CASS as primary memory surface for admin/intel paths, or keep DB-direct? Branch kept pending ruling.
+3. AIS backlog: nMap JSON export, link-check script, owner metadata on legacy docs.
