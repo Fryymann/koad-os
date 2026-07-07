@@ -15,6 +15,7 @@
 - [ ] Add owner metadata and last-reviewed dates to legacy docs.
 
 ## 🛠️ Recent Accomplishments
+- **CASS-Primary Memory Paths (P1, live 2026-07-06, Dood ruling):** `commit_knowledge` writes fact cards through CASS gRPC with domain `{partition}:{category}` (koad.db demoted to offline fallback); `koad intel query` recalls semantically from CASS first. Bounded connect timeouts on both paths. Verified live: sentinel write → enrichment → rank-1 paraphrase recall. CLI agent identity now derives from `KOAD_SESSION_ID`; `partition_key` lowercases agent names. Superseded `citadel-io` branch deleted.
 - **Episode Partition Keying (P1, live 2026-07-05):** `EpisodicMemory.partition` (proto field 8) stamped by all write paths, persisted in SQLite + Qdrant payload, partition-equality read filters with legacy fallback, `backfill_episode_partitions` binary (46/46 rows, idempotent). Live test: paraphrase recall under owning partition, zero cross-partition leakage. See `docs/cass-semantic-recall-verification.md`.
 - **v3.2.0 Release:** nightly promoted to main; semantic memory release tagged and pushed.
 - **CASS Semantic Enrichment Pipeline (P1, live):** Real embeddings via dedicated embedding client (`InferenceTask::Embedding`), Qdrant L3 with fingerprint fallback removed, enrichment worker consuming the `cass:enrichment` Redis stream with `is_meaningful` guard, `backfill_embeddings` migration binary. Verified 6/6 paraphrase recall. See `docs/cass-semantic-recall-verification.md`.
@@ -30,5 +31,5 @@
 
 ## 🔜 Immediate Next Actions
 1. Happy-path installer verification on an external host with working Docker (last fleet-prep step).
-2. **Dood decision — `citadel-io` branch (reviewed 2026-07-06):** its session-rank change is superseded (Rook decommission); its `commit_knowledge`-via-CASS diverges from nightly's koad_db wiring; its CASS-first `intel query` is unlanded. Architecture call: CASS as primary memory surface for admin/intel paths, or keep DB-direct? Branch kept pending ruling.
-3. AIS backlog: nMap JSON export, link-check script, owner metadata on legacy docs.
+2. AIS backlog: nMap JSON export, link-check script, owner metadata on legacy docs.
+3. Consider exporting `KOAD_AGENT` from `agent-boot` (CLI currently derives agent from `KOAD_SESSION_ID`; unbooted shells fall back to "Admiral").
