@@ -22,7 +22,10 @@ fn user() -> String {
 
 /// Canonical partition key for an agent on this instance.
 pub fn partition_key(agent: &str) -> String {
-    format!("{}_{}_{}", agent, host(), user())
+    // Agent segment is lowercased: session ids (SID-clyde-…) and existing
+    // fact domains use lowercase agent names; "Clyde" and "clyde" must not
+    // land in different partitions.
+    format!("{}_{}_{}", agent.to_lowercase(), host(), user())
 }
 
 #[cfg(test)]
@@ -34,5 +37,10 @@ mod tests {
         let key = partition_key("clyde");
         assert!(key.starts_with("clyde_"));
         assert!(key.split('_').count() >= 3);
+    }
+
+    #[test]
+    fn partition_key_lowercases_agent() {
+        assert_eq!(partition_key("Clyde"), partition_key("clyde"));
     }
 }

@@ -432,6 +432,15 @@ impl KoadConfig {
         if let Ok(agent) = env::var("KOAD_AGENT") {
             return agent;
         }
+        // Booted shells export KOAD_SESSION_ID ("SID-{agent}-{uuid}") but not
+        // KOAD_AGENT; derive the agent so CLI identity follows the boot.
+        if let Ok(sid) = env::var("KOAD_SESSION_ID") {
+            if let Some(agent) = sid.splitn(3, '-').nth(1) {
+                if !agent.is_empty() {
+                    return agent.to_string();
+                }
+            }
+        }
         "Admiral".to_string()
     }
 
