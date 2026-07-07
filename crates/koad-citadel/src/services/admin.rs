@@ -11,21 +11,33 @@ use tokio::sync::watch;
 use tonic::{Request, Response, Status};
 use tracing::{error, info, warn};
 
+/// Domain for committed knowledge: "{partition}:{category}" so facts are
+/// recallable under the committing agent's partition (partition canon = domain prefix).
+fn knowledge_domain(agent: &str, category: &str) -> String {
+    format!("{}:{}", koad_core::utils::partition::partition_key(agent), category)
+}
+
 /// Service implementation for the `Admin` gRPC interface.
 #[derive(Clone)]
 pub struct AdminService {
     shutdown_tx: watch::Sender<bool>,
     start_time: Instant,
     koad_db: Arc<KoadDB>,
+    cass_grpc_addr: String,
 }
 
 impl AdminService {
     /// Creates a new `AdminService`.
-    pub fn new(shutdown_tx: watch::Sender<bool>, koad_db: Arc<KoadDB>) -> Self {
+    pub fn new(
+        shutdown_tx: watch::Sender<bool>,
+        koad_db: Arc<KoadDB>,
+        cass_grpc_addr: String,
+    ) -> Self {
         Self {
             shutdown_tx,
             start_time: Instant::now(),
             koad_db,
+            cass_grpc_addr,
         }
     }
 }
@@ -111,6 +123,53 @@ impl Admin for AdminService {
             "Admin: Commit knowledge requested"
         );
 
+        // Primary sink: CASS MemoryService via gRPC.
+        let domain = knowledge_domain(&agent_name, &req.category);
+        let now = chrono::Utc::now();
+        let fact = koad_proto::cass::v1::FactCard {
+            id: uuid::Uuid::new_v4().to_string(),
+            source_agent: agent_name.clone(),
+            session_id: req.session_id.clone(),
+            domain: domain.clone(),
+            content: req.content.clone(),
+            confidence: 1.0,
+            tags: req
+                .tags
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+            created_at: Some(prost_types::Timestamp {
+                seconds: now.timestamp(),
+                nanos: 0,
+            }),
+            metadata: None, // enrichment worker fills
+        };
+
+        match koad_proto::cass::v1::memory_service_client::MemoryServiceClient::connect(
+            self.cass_grpc_addr.clone(),
+        )
+        .await
+        {
+            Ok(mut cass) => match cass.commit_fact(fact).await {
+                Ok(_) => {
+                    info!(agent = %agent_name, domain = %domain, "Admin: Knowledge committed to CASS");
+                    return Ok(Response::new(StatusResponse {
+                        success: true,
+                        message: format!("Knowledge committed to CASS (domain: {})", domain),
+                        context: req.context,
+                    }));
+                }
+                Err(e) => {
+                    warn!(error = %e, "Admin: CASS commit_fact failed, falling back to koad.db");
+                }
+            },
+            Err(e) => {
+                warn!(error = %e, "Admin: CASS unreachable, falling back to koad.db");
+            }
+        }
+
+        // Fallback: local archive (pre-CASS behavior).
         let tags = if req.tags.is_empty() { None } else { Some(req.tags.clone()) };
 
         match self.koad_db.remember(&req.category, &req.content, tags, 0, &agent_name) {
@@ -118,13 +177,19 @@ impl Admin for AdminService {
                 info!(agent = %agent_name, category = %req.category, "Admin: Knowledge committed to koad.db");
                 Ok(Response::new(StatusResponse {
                     success: true,
-                    message: format!("Knowledge ({}) committed to Citadel.", req.category),
+                    message: format!(
+                        "Knowledge committed to local archive (CASS unreachable) (category: {})",
+                        req.category
+                    ),
                     context: req.context,
                 }))
             }
             Err(e) => {
                 error!(error = %e, "Admin: Failed to commit knowledge to koad.db");
-                Err(Status::internal(format!("Knowledge commit failed: {}", e)))
+                Err(Status::internal(format!(
+                    "commit_knowledge failed on both CASS and local: {}",
+                    e
+                )))
             }
         }
     }
@@ -197,11 +262,18 @@ mod tests {
     use super::*;
     use tokio::sync::watch;
 
+    #[test]
+    fn knowledge_domain_is_partition_prefixed() {
+        let d = knowledge_domain("clyde", "learning");
+        assert!(d.starts_with("clyde_"));
+        assert!(d.ends_with(":learning"));
+    }
+
     #[tokio::test]
     async fn test_admin_shutdown() -> anyhow::Result<()> {
         let (tx, mut rx) = watch::channel(false);
         let db = Arc::new(KoadDB::new(std::path::Path::new(":memory:")).unwrap());
-        let service = AdminService::new(tx, db);
+        let service = AdminService::new(tx, db, "http://127.0.0.1:50052".to_string());
 
         let req = Request::new(ShutdownRequest {
             context: None,
@@ -219,7 +291,7 @@ mod tests {
     async fn test_admin_status() -> anyhow::Result<()> {
         let (tx, _) = watch::channel(false);
         let db = Arc::new(KoadDB::new(std::path::Path::new(":memory:")).unwrap());
-        let service = AdminService::new(tx, db);
+        let service = AdminService::new(tx, db, "http://127.0.0.1:50052".to_string());
 
         let req = Request::new(SystemStatusRequest { context: None });
         let res = service.get_system_status(req).await?;

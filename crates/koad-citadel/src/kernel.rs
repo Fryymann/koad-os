@@ -184,7 +184,11 @@ impl KernelBuilder {
         let signal_svc_impl = SignalService::new(signal_corps.clone(), quota.clone());
         let koad_db_path = home_dir.join(&config.storage.db_name);
         let koad_db = Arc::new(KoadDB::new(&koad_db_path)?);
-        let admin_svc_impl = AdminService::new(shutdown_tx.clone(), koad_db);
+        let admin_svc_impl = AdminService::new(
+            shutdown_tx.clone(),
+            koad_db,
+            config.network.cass_grpc_addr.clone(),
+        );
         let xp_svc_impl = CitadelXpService::new(storage.sqlite.clone(), config.clone()).await?;
 
         // 0. Hydrate active sessions from Redis
