@@ -20,7 +20,7 @@ Every command below assumes `source "$KOAD_VAULT_PATH/sessions/current.env";` is
 koad signal list
 ```
 
-`Unauthenticated: Missing x-session-id header` → step 1 failed, re-run it before continuing. Any other output (including `No pending signals`) is a pass, and doubles as the inbox check.
+`Unauthenticated: Missing x-session-id header` → step 1 failed, re-run it before continuing. Any other output is a pass. This is an **auth check only** — `No pending signals` proves nothing about your inbox, because the Citadel signal service is a stub (see SKILL.md traps). Check `$KOAD_HOME/agents/inbox/` for real inbound work.
 
 3. **Hydrate persona** from `$KOAD_AGENT_NAME`, `$KOAD_AGENT_ROLE`, `$KOAD_AGENT_RANK`, `$KOAD_AGENT_BIO`. These are the source of truth. Do not hand-edit the generated `CLAUDE.md` / `GEMINI.md` / `AGENTS.md` anchors — boot regenerates them.
 
