@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Identifies the KoadOS SessionStart hook in Claude Code settings.
@@ -172,10 +172,23 @@ fn bridge_inputs(config: &KoadConfig, agent: &str) -> Result<(String, String)> {
     Ok((distro, home))
 }
 
-const DETECT_TIMEOUT: Duration = Duration::from_secs(10);
+const CMD_EXE_TIMEOUT: Duration = Duration::from_secs(30);
+const WSLPATH_TIMEOUT: Duration = Duration::from_secs(10);
 const ANCHOR_TIMEOUT: Duration = Duration::from_secs(15);
 const MCP_TIMEOUT: Duration = Duration::from_secs(30);
-const NPX_TIMEOUT: Duration = Duration::from_secs(120);
+const NPX_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Returned by `run_bounded` when the deadline passed and the process was killed.
+#[derive(Debug)]
+struct TimedOut(Duration);
+
+impl std::fmt::Display for TimedOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "timed out after {}s", self.0.as_secs())
+    }
+}
+
+impl std::error::Error for TimedOut {}
 
 /// Run `cmd` to completion with a deadline: stdout and stderr are captured,
 /// `stdin` (if any) is fed on its own thread, and on timeout the process is
@@ -199,24 +212,35 @@ fn run_bounded(cmd: &mut Command, stdin: Option<&[u8]>, timeout: Duration) -> Re
             let _ = pipe.write_all(&data);
         });
     }
+    // Readers append as they go, so whatever arrived before the grace period
+    // ends is kept even if a grandchild holds the pipe open afterwards.
     let reader = |pipe: Option<Box<dyn Read + Send>>| {
-        let (tx, rx) = mpsc::channel();
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let (done_tx, done_rx) = mpsc::channel::<()>();
+        let sink = Arc::clone(&buf);
         std::thread::spawn(move || {
-            let mut buf = Vec::new();
             if let Some(mut p) = pipe {
-                let _ = p.read_to_end(&mut buf);
+                let mut chunk = [0u8; 8192];
+                while let Ok(n) = p.read(&mut chunk) {
+                    if n == 0 {
+                        break;
+                    }
+                    if let Ok(mut b) = sink.lock() {
+                        b.extend_from_slice(&chunk[..n]);
+                    }
+                }
             }
-            let _ = tx.send(buf);
+            drop(done_tx);
         });
-        rx
+        (buf, done_rx)
     };
-    let out_rx = reader(
+    let (out_buf, out_done) = reader(
         child
             .stdout
             .take()
             .map(|p| Box::new(p) as Box<dyn Read + Send>),
     );
-    let err_rx = reader(
+    let (err_buf, err_done) = reader(
         child
             .stderr
             .take()
@@ -231,15 +255,19 @@ fn run_bounded(cmd: &mut Command, stdin: Option<&[u8]>, timeout: Duration) -> Re
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            bail!("timed out after {}s", timeout.as_secs());
+            return Err(TimedOut(timeout).into());
         }
         std::thread::sleep(Duration::from_millis(20));
     };
-    let grace = Duration::from_secs(2);
+    let grace_end = Instant::now() + Duration::from_secs(2);
+    let collect = |buf: Arc<Mutex<Vec<u8>>>, done: mpsc::Receiver<()>| {
+        let _ = done.recv_timeout(grace_end.saturating_duration_since(Instant::now()));
+        buf.lock().map(|b| b.clone()).unwrap_or_default()
+    };
     Ok(Output {
         status,
-        stdout: out_rx.recv_timeout(grace).unwrap_or_default(),
-        stderr: err_rx.recv_timeout(grace).unwrap_or_default(),
+        stdout: collect(out_buf, out_done),
+        stderr: collect(err_buf, err_done),
     })
 }
 
@@ -306,7 +334,7 @@ fn record_path(koad_home: &Path) -> PathBuf {
 }
 
 fn recorded_skills(path: &Path) -> Result<Vec<String>> {
-    Ok(read_json(path)?
+    Ok(read_record(path)?
         .and_then(|v| v["skills_added"].as_array().cloned())
         .unwrap_or_default()
         .iter()
@@ -314,8 +342,18 @@ fn recorded_skills(path: &Path) -> Result<Vec<String>> {
         .collect())
 }
 
+/// The skill record, or an error that names it and says nothing was touched.
+fn read_record(path: &Path) -> Result<Option<Value>> {
+    read_json(path).map_err(|e| {
+        anyhow::anyhow!(
+            "skill record {} is unreadable ({e:#}); fix or delete it; skills were left in place",
+            path.display()
+        )
+    })
+}
+
 fn write_recorded_skills(path: &Path, skills: Vec<String>) -> Result<()> {
-    let mut record = match read_json(path)? {
+    let mut record = match read_record(path)? {
         Some(Value::Object(map)) => Value::Object(map),
         _ => json!({}),
     };
@@ -363,9 +401,18 @@ fn detect_windows() -> Result<WindowsEnv> {
     let out = run_bounded(
         win_cmd("cmd.exe").args(["/c", "echo %USERPROFILE%"]),
         None,
-        DETECT_TIMEOUT,
+        CMD_EXE_TIMEOUT,
     )
-    .context("cmd.exe not usable; is this WSL with Windows interop?")?;
+    .map_err(|e| {
+        if e.downcast_ref::<TimedOut>().is_some() {
+            anyhow::anyhow!(
+                "cmd.exe did not answer within {}s (Windows interop slow or hung)",
+                CMD_EXE_TIMEOUT.as_secs()
+            )
+        } else {
+            e.context("cmd.exe not usable; is this WSL with Windows interop?")
+        }
+    })?;
     let win = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !out.status.success() || win.is_empty() || win.contains('%') {
         bail!("could not read %USERPROFILE% through cmd.exe (got {win:?})");
@@ -373,7 +420,7 @@ fn detect_windows() -> Result<WindowsEnv> {
     let wsl = run_bounded(
         Command::new("wslpath").arg("-u").arg(&win),
         None,
-        DETECT_TIMEOUT,
+        WSLPATH_TIMEOUT,
     )
     .context("wslpath failed")?;
     let profile = PathBuf::from(String::from_utf8_lossy(&wsl.stdout).trim());
@@ -449,7 +496,16 @@ fn skill_present(win: &WindowsEnv, skill: &str) -> bool {
 fn npx_skills(args: &[&str]) -> Result<Output> {
     let mut cmd = win_cmd("cmd.exe");
     cmd.args(["/c", "npx", "-y", "skills@1.7.0"]).args(args);
-    run_bounded(&mut cmd, None, NPX_TIMEOUT)
+    run_bounded(&mut cmd, None, NPX_TIMEOUT).map_err(|e| {
+        if e.downcast_ref::<TimedOut>().is_some() {
+            anyhow::anyhow!(
+                "{e}; a Windows npx/node process may still be running; \
+                 re-run `koad body windows status` in a minute"
+            )
+        } else {
+            e
+        }
+    })
 }
 
 fn install(config: &KoadConfig, agent: &str) -> Result<()> {
@@ -497,6 +553,8 @@ fn install(config: &KoadConfig, agent: &str) -> Result<()> {
         }
     }
     if !missing.is_empty() {
+        let record = record_path(&config.home);
+        recorded_skills(&record)?;
         let mut args = vec!["add", SKILLS_SOURCE, "-g", "-a", "claude-code", "-s"];
         args.extend(&missing);
         args.push("-y");
@@ -506,7 +564,13 @@ fn install(config: &KoadConfig, agent: &str) -> Result<()> {
             .copied()
             .filter(|s| skill_present(&win, s))
             .collect();
-        record_skills_added(&record_path(&config.home), &added)?;
+        record_skills_added(&record, &added).map_err(|e| {
+            anyhow::anyhow!(
+                "{e:#}\nThese skills were added but are not recorded, so uninstall will \
+                 leave them: {}",
+                added.join(", ")
+            )
+        })?;
         if !succeeded(&result) || added.len() != missing.len() {
             bail!(
                 "installing skills on Windows failed ({})",
@@ -1158,5 +1222,45 @@ mod tests {
         assert!(mcp_registered_in(&path));
         std::fs::write(&path, "{ not json").unwrap();
         assert!(!mcp_registered_in(&path));
+    }
+
+    #[test]
+    fn run_bounded_keeps_output_when_a_grandchild_holds_the_pipe() {
+        let start = std::time::Instant::now();
+        let out = run_bounded(
+            Command::new("sh").args(["-c", "echo hi; sleep 30 &"]),
+            None,
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        assert!(start.elapsed() < Duration::from_secs(5));
+        assert_eq!(out.stdout, b"hi\n");
+    }
+
+    #[test]
+    fn run_bounded_timeout_is_recognisable() {
+        let err =
+            run_bounded(Command::new("sleep").arg("5"), None, Duration::from_secs(1)).unwrap_err();
+        assert!(err.downcast_ref::<TimedOut>().is_some());
+    }
+
+    #[test]
+    fn unreadable_skill_record_names_the_file_and_leaves_skills() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("body-windows.json");
+        std::fs::write(&path, "{ not json").unwrap();
+        for err in [
+            recorded_skills(&path).unwrap_err(),
+            record_skills_added(&path, &["cass-recall"]).unwrap_err(),
+            clear_recorded_skills(&path, &["cass-recall"]).unwrap_err(),
+        ] {
+            let msg = format!("{err:#}");
+            assert!(msg.contains(&path.display().to_string()), "{msg}");
+            assert!(
+                msg.contains("fix or delete it; skills were left in place"),
+                "{msg}"
+            );
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
     }
 }
