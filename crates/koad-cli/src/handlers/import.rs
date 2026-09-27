@@ -1,5 +1,4 @@
 use crate::cli::ImportRoute;
-use crate::handlers::system::spawn_issue;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use koad_core::config::KoadConfig;
@@ -14,11 +13,9 @@ pub async fn handle_import(
     format: String,
     delimiter: Option<String>,
     route: ImportRoute,
-    template: Option<String>,
     labels: Vec<String>,
     dry_run: bool,
     config: &KoadConfig,
-    db: &koad_core::db::KoadDB,
 ) -> Result<()> {
     println!(
         ">>> [IMPORT] Energizing Ingestion Pipeline: {}...",
@@ -65,22 +62,6 @@ pub async fn handle_import(
         }
 
         match route {
-            ImportRoute::GithubIssues => {
-                let tmpl = template.as_deref().unwrap_or("feature");
-                println!("[SYNC] Spawning Issue: {}...", title);
-                spawn_issue(
-                    config,
-                    db,
-                    tmpl,
-                    &title,
-                    "standard",
-                    None,
-                    None,
-                    labels.clone(),
-                    Some(body),
-                )
-                .await?;
-            }
             ImportRoute::Hydration => {
                 let mut hasher = Sha256::new();
                 hasher.update(&body);
@@ -110,7 +91,6 @@ pub async fn handle_import(
                     }
                 }
             }
-            _ => anyhow::bail!("Route {:?} not yet implemented.", route),
         }
     }
 

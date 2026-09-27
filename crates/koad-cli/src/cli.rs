@@ -67,11 +67,6 @@ pub enum Commands {
         action: IntelAction,
     },
 
-    /// Fleet-wide project coordination and board synchronization.
-    Fleet {
-        #[command(subcommand)]
-        action: FleetAction,
-    },
 
     /// Integration bridges for cloud ecosystems (GCP, Airtable, Notion).
     Bridge {
@@ -118,11 +113,6 @@ pub enum Commands {
         gpu: bool,
     },
 
-    /// Manage and sync the GitHub Command Deck (Project Board).
-    Board {
-        #[command(subcommand)]
-        action: BoardAction,
-    },
 
 
     /// Reveal active agent persona, bio, and authorization rank.
@@ -450,27 +440,6 @@ pub enum SystemAction {
         cleanup: bool,
     },
 
-    /// Spawn a new GitHub issue using a system template.
-    Spawn {
-        /// Template name (e.g., bug, feature, research).
-        #[arg(short, long, default_value = "feature")]
-        template: String,
-        /// Issue title.
-        #[arg(short, long)]
-        title: String,
-        /// Complexity weight (trivial, standard, complex).
-        #[arg(short, long, default_value = "standard")]
-        weight: String,
-        /// Describe the high-level goal or problem.
-        #[arg(short, long)]
-        objective: Option<String>,
-        /// Define the specific architectural or functional scope.
-        #[arg(short, long)]
-        scope: Option<String>,
-        /// Specific labels to apply.
-        #[arg(short, long)]
-        labels: Vec<String>,
-    },
 
     /// Bulk import data (Markdown/CSV) into KoadOS subsystems.
     Import {
@@ -482,12 +451,9 @@ pub enum SystemAction {
         /// Custom regex delimiter for chunking.
         #[arg(short, long)]
         delimiter: Option<String>,
-        /// Destination route (github-issues, hydration).
-        #[arg(short, long, default_value = "github-issues")]
+        /// Destination route (hydration: commit chunks to CASS memory).
+        #[arg(short, long, default_value = "hydration")]
         route: ImportRoute,
-        /// Issue template to use (for github-issues route).
-        #[arg(short, long)]
-        template: Option<String>,
         /// Labels to apply to imported items.
         #[arg(short, long)]
         labels: Vec<String>,
@@ -598,15 +564,6 @@ pub enum SystemAction {
         action: ContextAction,
     },
 
-    /// Force a 2-way synchronization between local reality (updates/log) and GitHub Project #6.
-    BoardSync {
-        /// Preview changes without modifying GitHub or CASS.
-        #[arg(long)]
-        dry_run: bool,
-        /// Automatically create missing issues for local updates.
-        #[arg(long)]
-        auto_spawn: bool,
-    },
 }
 
 #[derive(Subcommand)]
@@ -654,9 +611,7 @@ pub enum ConfigAction {
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 pub enum ImportRoute {
-    GithubIssues,
     Hydration,
-    Knowledge,
 }
 
 #[derive(Subcommand)]
@@ -719,43 +674,6 @@ pub enum MemoryCategory {
         #[arg(short, long)]
         tags: Option<String>,
     },
-}
-
-#[derive(Subcommand)]
-pub enum FleetAction {
-    /// Manage the high-level Command Deck.
-    Board {
-        #[command(subcommand)]
-        action: BoardAction,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum BoardAction {
-    /// Display current project board items.
-    Status {
-        /// Only show 'In Progress' and 'Todo' items.
-        #[arg(short, long)]
-        active: bool,
-    },
-    /// Perform a 2-way sync between GitHub and the Local Memory Bank.
-    Sync {
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// Transition a node to 'Done' on the Command Deck.
-    Done {
-        id: i32,
-        /// Explicit confirmation to bypass the safety gate.
-        #[arg(long)]
-        confirm: bool,
-    },
-    /// Re-open a node or move to 'Todo'.
-    Todo { id: i32 },
-    /// Run a Strategic Design Review (SDR).
-    Sdr,
-    /// Verify a node's status against the Command Deck.
-    Verify { id: i32 },
 }
 
 #[derive(Subcommand)]

@@ -20,7 +20,6 @@ use crate::cli::{AgentAction, Cli, Commands, SystemAction, UpdatesAction};
 // use crate::db::KoadDB;
 use crate::handlers::boot::handle_boot_command;
 use crate::handlers::bridge::handle_bridge_action;
-use crate::handlers::fleet::handle_fleet_action;
 use crate::handlers::intel::handle_intel_action;
 use crate::handlers::status::{handle_doctor_command, handle_status_command};
 use crate::handlers::system::handle_system_action;
@@ -161,12 +160,11 @@ async fn main() -> Result<()> {
                 format,
                 delimiter,
                 route,
-                template,
                 labels,
                 dry_run,
             } => {
                 crate::handlers::import::handle_import(
-                    source, format, delimiter, route, template, labels, dry_run, &config, &db,
+                    source, format, delimiter, route, labels, dry_run, &config,
                 )
                 .await?;
             }
@@ -176,9 +174,6 @@ async fn main() -> Result<()> {
         },
         Commands::Intel { action } => {
             handle_intel_action(action, &config, &db, &agent_name).await?;
-        }
-        Commands::Fleet { action } => {
-            handle_fleet_action(action, &config, &db).await?;
         }
         Commands::Bridge { action } => {
             handle_bridge_action(action, &config, &db).await?;
@@ -202,9 +197,6 @@ async fn main() -> Result<()> {
                     println!("KoadOS Citadel v{}", resp.into_inner().version);
                 }
             }
-        }
-        Commands::Board { action } => {
-            crate::handlers::board::handle_board(action, &config).await?;
         }
         Commands::Review { file } => {
             crate::handlers::review::handle_review(&file, &config).await?;

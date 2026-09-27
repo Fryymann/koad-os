@@ -5,7 +5,6 @@ members = [
     "crates/koad-citadel",
     "crates/koad-cli",
     "crates/koad-agent",
-    "crates/koad-board",
     "crates/koad-bridge-notion",
     "crates/koad-mcp",
     "crates/koad-os-mcp",
@@ -13,7 +12,6 @@ members = [
     "crates/koad-intelligence",
     "crates/koad-sandbox",
     "crates/koad-plugins",
-    "crates/koad-system",
 ]
 resolver = "2"
 

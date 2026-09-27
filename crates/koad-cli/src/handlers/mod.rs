@@ -1,12 +1,9 @@
 // pub mod abc;
 pub mod agent;
-pub mod board;
-pub mod board_sync;
 pub mod boot;
 pub mod bridge;
 pub mod cognitive;
 pub mod deploy;
-pub mod fleet;
 pub mod guide;
 pub mod import;
 pub mod intel;
