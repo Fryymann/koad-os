@@ -348,19 +348,23 @@ impl MemoryTier for SqliteTier {
 
     async fn query_recent_episodes(
         &self,
-        _agent_name: &str,
+        agent_name: &str,
         limit: u32,
         task_id: Option<&str>,
     ) -> Result<Vec<EpisodicMemory>> {
+        // Scope to the agent's own partition: episodes are session histories,
+        // and another agent's history in a boot packet reads as your own.
+        let partition = koad_core::utils::partition::partition_key(agent_name);
         let conn = self.conn.lock().await;
         let mut episodes = Vec::new();
         if let Some(tid) = task_id.filter(|t| !t.is_empty()) {
             let mut stmt = conn.prepare(
                 "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json, partition
-                 FROM episodic_memories WHERE task_ids LIKE '%' || ?1 || '%'
+                 FROM episodic_memories
+                 WHERE task_ids LIKE '%' || ?1 || '%' AND lower(partition) = lower(?3)
                  ORDER BY timestamp DESC LIMIT ?2",
             )?;
-            let rows = stmt.query_map(params![tid, limit], |row| {
+            let rows = stmt.query_map(params![tid, limit, partition], |row| {
                 Ok(EpisodicMemory {
                     session_id: row.get(0)?,
                     project_path: row.get(1)?,
@@ -382,9 +386,10 @@ impl MemoryTier for SqliteTier {
         } else {
             let mut stmt = conn.prepare(
                 "SELECT session_id, project_path, summary, turn_count, timestamp, task_ids, metadata_json, partition
-                 FROM episodic_memories ORDER BY timestamp DESC LIMIT ?1",
+                 FROM episodic_memories WHERE lower(partition) = lower(?2)
+                 ORDER BY timestamp DESC LIMIT ?1",
             )?;
-            let rows = stmt.query_map(params![limit], |row| {
+            let rows = stmt.query_map(params![limit, partition], |row| {
                 Ok(EpisodicMemory {
                     session_id: row.get(0)?,
                     project_path: row.get(1)?,
@@ -425,6 +430,50 @@ mod tests {
             created_at: None,
             metadata: None,
         }
+    }
+
+    fn episode(session: &str, partition: &str, task: &str) -> EpisodicMemory {
+        EpisodicMemory {
+            session_id: session.to_string(),
+            project_path: "/tmp".to_string(),
+            summary: format!("summary of {session}"),
+            turn_count: 1,
+            timestamp: None,
+            task_ids: vec![task.to_string()],
+            metadata: None,
+            partition: partition.to_string(),
+        }
+    }
+
+    /// Regression guard: query_recent_episodes ignored the agent and returned
+    /// the newest episodes of every agent, so each boot packet carried other
+    /// agents' session histories as if they were the booting agent's own.
+    #[tokio::test]
+    async fn test_recent_episodes_are_scoped_to_the_agent_partition() -> Result<()> {
+        let storage = SqliteTier::new(":memory:")?;
+        let clyde = koad_core::utils::partition::partition_key("clyde");
+        let hermes = koad_core::utils::partition::partition_key("hermes");
+        storage.record_episode(episode("clyde-1", &clyde, "t1")).await?;
+        storage.record_episode(episode("hermes-1", &hermes, "t1")).await?;
+        storage.record_episode(episode("hermes-2", &hermes, "t2")).await?;
+
+        let got: Vec<String> = storage
+            .query_recent_episodes("Hermes", 10, None)
+            .await?
+            .into_iter()
+            .map(|e| e.session_id)
+            .collect();
+        assert!(got.iter().all(|s| s.starts_with("hermes")), "{got:?}");
+        assert_eq!(got.len(), 2);
+
+        let by_task: Vec<String> = storage
+            .query_recent_episodes("clyde", 10, Some("t1"))
+            .await?
+            .into_iter()
+            .map(|e| e.session_id)
+            .collect();
+        assert_eq!(by_task, vec!["clyde-1".to_string()]);
+        Ok(())
     }
 
     #[tokio::test]
@@ -568,7 +617,7 @@ mod tests {
         storage
             .record_episode(EpisodicMemory {
                 session_id: "S-meta".into(),
-                partition: "hermes_jupiter_ideans".into(),
+                partition: koad_core::utils::partition::partition_key("hermes"),
                 project_path: "/x".into(),
                 summary: "episode summary".into(),
                 turn_count: 1,
@@ -583,7 +632,7 @@ mod tests {
                 }),
             })
             .await?;
-        let got = storage.query_recent_episodes("any", 10, None).await?;
+        let got = storage.query_recent_episodes("hermes", 10, None).await?;
         assert_eq!(got.len(), 1);
         assert_eq!(
             got[0].metadata.as_ref().unwrap().token_estimates[0].tokens,
