@@ -64,7 +64,7 @@ tracing-appender = "0.2"
 log = "0.4"
 
 # Runtime & Sandboxing
-wasmtime = { version = "22.0", features = ["component-model", "async"] }
+wasmtime = { version = "49", features = ["component-model", "async"] }
 libloading = "0.8"
 tree-sitter = "0.22"
 tree-sitter-rust = "0.21"

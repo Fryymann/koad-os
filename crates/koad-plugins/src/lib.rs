@@ -13,20 +13,19 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use tracing::info;
 use wasmtime::{
-    component::{bindgen, Component, Linker},
+    component::{bindgen, Component, HasSelf, Linker},
     Config, Engine, Store,
 };
 
 // Generate host-side bindings for our WIT world.
 //
-// For a world with only bare (non-interface) function imports, wasmtime 22.x
+// For a world with only bare (non-interface) function imports, wasmtime 49
 // generates the following at the current module scope:
 //
 //   struct CitadelHooks                       — component handle (exports live here)
 //   trait CitadelHooksImports                 — host must implement all bare imports
-//   trait CitadelHooksImportsGetHost<T>       — helper for the host-getter closure
-//   CitadelHooks::add_to_linker_imports_get_host(linker, getter) — registers the impl
-//   CitadelHooks::instantiate_async(store, component, linker) → (Self, Instance)
+//   CitadelHooks::add_to_linker::<T, D>(linker, getter) — registers the impl
+//   CitadelHooks::instantiate_async(store, component, linker) → Self
 //   CitadelHooks::call_invoke(store, topic, payload)
 //
 // The WIT package namespace (`koad:hooks`) does NOT produce a Rust module hierarchy.
@@ -34,28 +33,15 @@ use wasmtime::{
 bindgen!({
     path: "wit/hooks.wit",
     world: "citadel-hooks",
-    async: true,
+    imports: { default: async },
+    exports: { default: async },
 });
 
 struct MyHostState;
 
-// `CitadelHooksImports` uses explicit `Pin<Box<dyn Future>>` return types
-// (wasmtime 22.x stable async pattern).  We implement each method by pinning
-// an async block directly — no `#[async_trait]` needed.
 impl CitadelHooksImports for MyHostState {
-    fn log<'life0, 'async_trait>(
-        &'life0 mut self,
-        msg: wasmtime::component::__internal::String,
-    ) -> ::core::pin::Pin<
-        Box<dyn ::core::future::Future<Output = ()> + ::core::marker::Send + 'async_trait>,
-    >
-    where
-        'life0: 'async_trait,
-        Self: 'async_trait,
-    {
-        Box::pin(async move {
-            info!("[WASM Plugin]: {}", msg);
-        })
+    async fn log(&mut self, msg: String) {
+        info!("[WASM Plugin]: {}", msg);
     }
 }
 
@@ -67,7 +53,6 @@ impl WasmPluginManager {
     pub fn new() -> Result<Self> {
         let mut config = Config::new();
         config.wasm_component_model(true);
-        config.async_support(true);
         let engine = Engine::new(&config)?;
         Ok(Self { engine })
     }
@@ -76,21 +61,15 @@ impl WasmPluginManager {
         let mut store = Store::new(&self.engine, MyHostState);
         let mut linker: Linker<MyHostState> = Linker::new(&self.engine);
 
-        // Register the host implementation with the linker.
-        // The generated fn is an associated fn on `CitadelHooks`, not a free fn.
-        // A named function (not a closure) is required so the borrow checker can
-        // infer the `for<'a>` higher-ranked lifetime bound on the getter.
-        fn get_host(state: &mut MyHostState) -> &mut MyHostState {
-            state
-        }
-        CitadelHooks::add_to_linker_imports_get_host(&mut linker, get_host)?;
+        // `HasSelf` tells the bindings the store data itself implements the imports.
+        CitadelHooks::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
 
         let component = Component::from_file(&self.engine, wasm_path)
+            .map_err(anyhow::Error::from)
             .with_context(|| format!("Failed to load plugin at {:?}", wasm_path))?;
 
         // `instantiate_async` returns `(CitadelHooks, Instance)`, not `(Self, Store<T>)`.
-        let (instance, _instance_handle) =
-            CitadelHooks::instantiate_async(&mut store, &component, &linker).await?;
+        let instance = CitadelHooks::instantiate_async(&mut store, &component, &linker).await?;
 
         let res = instance.call_invoke(&mut store, topic, payload).await?;
 
