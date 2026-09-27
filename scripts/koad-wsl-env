@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# koad-wsl-env — run a command with the KoadOS environment established.
+#
+# Processes that Windows starts through `wsl.exe -e` get USER and HOME but not
+# KOAD_HOME, and $KOAD_HOME/bin is not on PATH; KoadOS config would then fall
+# back to the legacy ~/.koad-os install. This script lives in $KOAD_HOME/bin
+# and derives KOAD_HOME from its own location.
+#
+# Usage: koad-wsl-env <command> [args...]
+set -euo pipefail
+
+if [[ $# -eq 0 ]]; then
+  echo "usage: koad-wsl-env <command> [args...]" >&2
+  exit 64
+fi
+
+bin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KOAD_HOME="$(dirname "$bin_dir")"
+export KOAD_HOME
+export KOADOS_HOME="$KOAD_HOME"
+export PATH="$bin_dir:$PATH"
+export USER="${USER:-$(id -un)}"
+exec "$@"

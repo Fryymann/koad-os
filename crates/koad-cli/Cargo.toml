@@ -64,3 +64,4 @@ path = "src/bin/koad-fs-mcp.rs"
 [dev-dependencies]
 assert_cmd = "2.0"
 predicates = "3.0"
+tempfile.workspace = true

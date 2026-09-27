@@ -7,6 +7,8 @@ Installation, service setup, maintenance and diagnostics for KoadOS. The canonic
 |---|---|
 | `install-skills.sh` | Install the KoadOS agent skills with the Agent Skills CLI (from `nightly` on GitHub) |
 | `install-services.sh` | Install and enable the `koad-citadel` and `koad-cass` systemd units |
+| `koad-wsl-env` | Run a command with the KoadOS environment set (for processes launched from Windows via `wsl.exe`) |
+| `koad-mcp-stdio` | Start the CASS memory MCP server over stdio for one agent (Windows body bridge) |
 | `verify-services.sh` | Pre-flight Qdrant readiness check used by `koad-cass.service` |
 | `koad-functions.sh` | Shell functions (`agent-boot`) for interactive terminals |
 | `uninstall.sh` | Remove a KoadOS install |
