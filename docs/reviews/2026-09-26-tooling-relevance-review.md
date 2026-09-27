@@ -30,7 +30,7 @@ These ship in `$KOAD_HOME/bin` or the CLI but do nothing, or only pretend to.
 | `koad bridge` (unhandled actions) | `Bridge action placeholder.` | Trim the CLI to the implemented actions. |
 | `koad intel mind` (non-status actions) | `Mind action placeholder.` | Trim. |
 | Admin `get_snippet` / `trigger_backup` RPCs | `admin.rs` returns `"Snippet content placeholder"` and backup ID `bkp-placeholder`. `koad system backup` prints `[OK]` for a backup that never happened. | **Fix or remove.** A fake-success backup is dangerous. |
-| `koad saveup` step 1 | Sends the Citadel `Shutdown` RPC and prints `Hot-stream drained to durable memory` whenever the RPC returns OK. On 2026-09-26 the Citadel neither stopped nor restarted (`NRestarts=0`), and nothing drained. | **Fix the message** or give it a real drain. |
+| `koad saveup` step 1 | Sends the Citadel `Shutdown` RPC and prints `Hot-stream drained to durable memory`. On 2026-09-26 this **stopped the Citadel's gRPC servers (port 50051 gone) while the process stayed alive**, so systemd saw a healthy unit and didn't restart it. Every later `koad-agent boot` failed with `[OFFLINE] ... not reachable at 127.0.0.1:50051`, and `koad system status` still reported PASS. | **Fix urgently.** A save should not take down the control plane. Either drain without shutting down, or exit the process so `Restart=` brings it back. Make `system status` probe 50051, not just the socket file. |
 
 ## 2. Superseded by the harness
 
@@ -99,7 +99,8 @@ investing more in the plugin path.
 
 1. Stop boot from overwriting project `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` (§3).
 2. Restart `hermes-cass-mcp`; fix Codex's MCP port; bind MCP servers and Qdrant to localhost (§4).
-3. Fix fake-success paths: `system backup`, `saveup` step 1, `install.sh` restart message (§1, §3).
+3. Fix `saveup` step 1, which takes the Citadel down while systemd and `system status` report it
+   healthy, then the other fake-success paths: `system backup` and the `install.sh` restart message (§1, §3).
 4. Trim the anchor: drop the No-Read and `koadFsMcp` mandates and the map protocol for
    harness-hosted agents (§2).
 5. Delete the stub binaries and placeholder CLI actions, or file issues to implement them (§1).
