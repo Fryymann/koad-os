@@ -92,11 +92,6 @@ pub enum Commands {
         topic: Option<String>,
     },
 
-    /// Manage agent Experience Points (XP) and Skills.
-    Xp {
-        #[command(subcommand)]
-        action: XpCommands,
-    },
 
     /// Display the version of the KoadOS CLI and Citadel kernel.
     Version,
@@ -385,27 +380,6 @@ pub enum MapAction {
     Where {
         /// Search query.
         entity: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum XpCommands {
-    /// View current XP, level, and trust tier.
-    Status {
-        /// Optional: Name of the agent to query (defaults to self).
-        agent: Option<String>,
-    },
-    /// Programmatically award XP to an agent (Admin/Captain only).
-    Award {
-        /// Target agent name.
-        agent: String,
-        /// Amount of XP to award.
-        amount: i32,
-        /// Reason for the award.
-        reason: String,
-        /// Source type: task | skill | system.
-        #[arg(short, long, default_value = "system")]
-        source: String,
     },
 }
 

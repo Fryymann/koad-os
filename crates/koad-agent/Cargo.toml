@@ -19,7 +19,6 @@ dirs.workspace = true
 # Internal
 koad-core = { path = "../koad-core" }
 koad-proto = { path = "../koad-proto" }
-koad-codegraph = { path = "../koad-codegraph" }
 koad-intelligence = { path = "../koad-intelligence" }
 tracing.workspace = true
 
