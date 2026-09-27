@@ -50,6 +50,10 @@ skills, and restarts user services. System services need sudo: it prints the exa
 `sudo systemctl restart ...` command when they still run old binaries. A deploy is not done until
 that has run.
 
+Claude Code for Windows is linked as a second Clyde body with `koad body windows install`
+(check with `koad body windows status`): memory over MCP stdio through `wsl.exe`, identity via a
+SessionStart hook. Design: `docs/superpowers/specs/2026-09-27-windows-body-bridge-design.md`.
+
 ## Code navigation
 
 The `code-review-graph` MCP server (`.mcp.json`) indexes this repo. Prefer it for callers,
