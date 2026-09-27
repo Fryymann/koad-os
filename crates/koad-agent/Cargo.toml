@@ -22,3 +22,6 @@ koad-proto = { path = "../koad-proto" }
 koad-codegraph = { path = "../koad-codegraph" }
 koad-intelligence = { path = "../koad-intelligence" }
 tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
