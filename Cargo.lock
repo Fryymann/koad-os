@@ -2331,6 +2331,7 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "clap",
+ "koad-core",
  "koad-mcp",
  "koad-proto",
  "prost-types 0.13.5",

@@ -25,15 +25,17 @@ struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    // Logs go to stderr: in stdio mode stdout is the JSON-RPC channel.
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .with_ansi(false)
+        .init();
 
     let cass_url = std::env::var("CASS_URL").unwrap_or_else(|_| "http://localhost:50052".to_string());
-    // Identity is deployment-specific and MUST be explicit: a silent default
-    // here once misattributed memories to a partition no agent searched.
-    let partition = std::env::var("AGENT_PARTITION")
-        .map_err(|_| anyhow::anyhow!("AGENT_PARTITION is required (e.g. clyde_Jupiter_ideans)"))?;
     let agent_name = std::env::var("AGENT_NAME")
         .map_err(|_| anyhow::anyhow!("AGENT_NAME is required (e.g. clyde)"))?;
+    let partition = resolve_partition(std::env::var("AGENT_PARTITION").ok(), &agent_name);
     let mcp_mode = std::env::var("MCP_MODE").unwrap_or_else(|_| "read_only".to_string());
     let transport = std::env::var("MCP_TRANSPORT").unwrap_or_else(|_| "http".to_string());
     let port: u16 = std::env::var("MCP_PORT")
@@ -128,6 +130,15 @@ fn bind_addr(bind: Option<&str>, port: u16) -> anyhow::Result<SocketAddr> {
     Ok(SocketAddr::new(ip, port))
 }
 
+/// Partition from `AGENT_PARTITION`, or derived from the agent name with the
+/// canonical `partition_key` when unset. Keeping one derivation avoids shell
+/// copies of the rule drifting and writing memory to a partition no one reads.
+fn resolve_partition(explicit: Option<String>, agent_name: &str) -> String {
+    explicit
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| koad_core::utils::partition::partition_key(agent_name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,5 +169,16 @@ mod tests {
     #[test]
     fn rejects_a_non_ip_bind_address() {
         assert!(bind_addr(Some("localhost"), 9744).is_err());
+    }
+
+    #[test]
+    fn partition_defaults_to_the_canonical_key() {
+        let canonical = koad_core::utils::partition::partition_key("clyde");
+        assert_eq!(resolve_partition(None, "Clyde"), canonical);
+        assert_eq!(resolve_partition(Some(String::new()), "clyde"), canonical);
+        assert_eq!(
+            resolve_partition(Some("custom_p".into()), "clyde"),
+            "custom_p"
+        );
     }
 }
