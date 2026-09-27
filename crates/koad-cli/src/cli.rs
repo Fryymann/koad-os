@@ -652,11 +652,6 @@ pub enum IntelAction {
     /// Perform a deep recursive scan of the workspace for project roots.
     Scan { path: Option<PathBuf> },
 
-    /// Introspect on cognitive health and learning status.
-    Mind {
-        #[command(subcommand)]
-        action: MindAction,
-    },
 
 }
 
@@ -766,22 +761,6 @@ pub enum SkillAction {
         /// JSON payload for the skill.
         #[arg(default_value = "{}")]
         payload: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum MindAction {
-    /// Display cognitive health and learning metrics.
-    Status,
-    /// Integrate a new structured insight into the Mind.
-    Learn {
-        /// Technical domain (e.g., rust, ops, architecture).
-        domain: String,
-        /// High-level summary of the insight.
-        summary: String,
-        /// Detailed technical breakdown.
-        #[arg(short, long)]
-        detail: Option<String>,
     },
 }
 
