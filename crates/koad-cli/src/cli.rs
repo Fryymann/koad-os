@@ -85,11 +85,6 @@ pub enum Commands {
         file: PathBuf,
     },
 
-    /// Asynchronous agent-to-agent messaging (A2A-S).
-    Signal {
-        #[command(subcommand)]
-        action: SignalAction,
-    },
 
     /// KoadOS Field Guide: Protocols, Prime Directives, and Quick Start.
     Guide {
@@ -134,11 +129,6 @@ pub enum Commands {
         action: BoardAction,
     },
 
-    /// High-level project mapping and registration.
-    Project {
-        #[command(subcommand)]
-        action: ProjectAction,
-    },
 
     /// Reveal active agent persona, bio, and authorization rank.
     Whoami,
@@ -265,12 +255,6 @@ pub enum VaultAction {
         #[command(subcommand)]
         action: VaultSkillAction,
     },
-    /// Synchronize vault state from Citadel. [STUB]
-    Sync,
-    /// Create a ghost config bundle for offline use. [STUB]
-    Pack,
-    /// Show vault connection status and cache freshness. [STUB]
-    Status,
 }
 
 #[derive(Subcommand)]
@@ -668,15 +652,6 @@ pub enum ContextAction {
         #[arg(short = 'L', long, default_value_t = 0)]
         ttl: i32,
     },
-    /// Purge all volatile context for a session.
-    Flush {
-        /// Target session ID (omit for current).
-        #[arg(short, long)]
-        session: Option<String>,
-        /// Explicit confirmation to bypass the safety gate.
-        #[arg(long)]
-        confirm: bool,
-    },
     /// List available context quicksaves.
     List {
         /// Filter by agent name.
@@ -754,20 +729,6 @@ pub enum IntelAction {
         action: MindAction,
     },
 
-    /// Retrieve a precise line-range snippet from a file.
-    Snippet {
-        /// Target file path.
-        path: PathBuf,
-        /// Start line (1-indexed).
-        #[arg(short, long)]
-        start: i32,
-        /// End line (inclusive).
-        #[arg(short, long)]
-        end: i32,
-        /// Force reload from disk.
-        #[arg(short, long)]
-        bypass: bool,
-    },
 }
 
 #[derive(Subcommand)]
@@ -792,16 +753,6 @@ pub enum FleetAction {
     Board {
         #[command(subcommand)]
         action: BoardAction,
-    },
-    /// Low-level project mapping.
-    Project {
-        #[command(subcommand)]
-        action: ProjectAction,
-    },
-    /// Atomic task tracking and state transitions.
-    Issue {
-        #[command(subcommand)]
-        action: IssueAction,
     },
 }
 
@@ -834,44 +785,7 @@ pub enum BoardAction {
 }
 
 #[derive(Subcommand)]
-pub enum ProjectAction {
-    /// List all registered projects in the Master Map.
-    List,
-    /// Manually register a new project root.
-    Register {
-        /// Project identifier.
-        name: String,
-        /// Physical directory path.
-        path: Option<PathBuf>,
-    },
-    /// Update project health and branch metadata.
-    Sync { id: Option<i32> },
-    /// Display detailed project diagnostics.
-    Info { id: i32 },
-    /// Mark a project as retired or inactive.
-    Retire { id: i32 },
-}
-
-#[derive(Subcommand)]
-pub enum IssueAction {
-    /// Track an existing GitHub issue in the local task graph.
-    Track { number: i32, description: String },
-    /// Advance an issue through the KoadOS Canon steps (1-9).
-    Move { number: i32, step: i32 },
-    /// Authorize implementation or closure (Admin/Captain only).
-    Approve { number: i32 },
-    /// Close an issue locally and on GitHub.
-    Close { number: i32 },
-    /// Show detailed sovereignty status for an issue.
-    Status { number: i32 },
-}
-
-#[derive(Subcommand)]
 pub enum BridgeAction {
-    /// Interface with Google Cloud Platform.
-    Gcloud,
-    /// Synchronize data with Airtable.
-    Airtable,
     /// Interface with Notion (Optimized Native Bridge).
     Notion {
         #[command(subcommand)]
@@ -882,25 +796,10 @@ pub enum BridgeAction {
         #[command(subcommand)]
         action: FsAction,
     },
-    /// Execute a global cloud-to-local sync.
-    Sync,
-    /// Manage Google Drive file anchors.
-    Drive,
-    /// Post a high-priority event to the KoadStream.
-    Stream {
-        #[command(subcommand)]
-        action: StreamAction,
-    },
     /// Manage and execute specialized KoadOS Skills.
     Skill {
         #[command(subcommand)]
         action: SkillAction,
-    },
-    /// Publish local changes to the remote grid (Git Push).
-    Publish {
-        /// Commit message.
-        #[arg(short, long)]
-        message: Option<String>,
     },
 }
 
@@ -951,20 +850,6 @@ pub enum FsAction {
 }
 
 #[derive(Subcommand)]
-pub enum StreamAction {
-    /// Broadcast a message to the Neural Bus.
-    Post {
-        /// Topic or source identifier.
-        topic: String,
-        /// Event payload.
-        message: String,
-        /// Severity level (INFO, WARN, ERROR, CRITICAL).
-        #[arg(short, long, default_value = "INFO")]
-        msg_type: String,
-    },
-}
-
-#[derive(Subcommand)]
 pub enum SkillAction {
     /// List all currently registered Skills.
     List,
@@ -996,8 +881,6 @@ pub enum SkillAction {
 pub enum MindAction {
     /// Display cognitive health and learning metrics.
     Status,
-    /// Capture a manual identity snapshot.
-    Snapshot,
     /// Integrate a new structured insight into the Mind.
     Learn {
         /// Technical domain (e.g., rust, ops, architecture).
@@ -1061,33 +944,3 @@ pub enum UpdatesAction {
     },
 }
 
-#[derive(Subcommand)]
-pub enum SignalAction {
-    /// Send a signal to another agent.
-    Send {
-        /// Target agent name.
-        target: String,
-        /// Message content.
-        #[arg(short, long)]
-        message: String,
-        /// Priority (low, standard, high, critical).
-        #[arg(short, long, default_value = "standard")]
-        priority: String,
-    },
-    /// List pending signals for the current agent.
-    List {
-        /// Show all signals including read and archived.
-        #[arg(short, long)]
-        all: bool,
-    },
-    /// Read a specific signal.
-    Read {
-        /// Signal ID.
-        id: String,
-    },
-    /// Archive a signal.
-    Archive {
-        /// Signal ID.
-        id: String,
-    },
-}

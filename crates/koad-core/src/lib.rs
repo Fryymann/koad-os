@@ -7,6 +7,7 @@ pub mod constants;
 pub mod health;
 pub mod hierarchy;
 pub mod identity;
+pub mod inbox;
 pub mod intelligence;
 pub mod intent;
 pub mod logging;

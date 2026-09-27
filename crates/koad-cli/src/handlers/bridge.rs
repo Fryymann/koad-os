@@ -1,17 +1,13 @@
-use crate::cli::{BridgeAction, FsAction, NotionAction, SkillAction, StreamAction};
+use crate::cli::{BridgeAction, FsAction, NotionAction, SkillAction};
 use koad_core::db::KoadDB;
 use anyhow::{anyhow, Context, Result};
-use chrono::Utc;
 use koad_bridge_notion::{NotionClient, NotionMcpProxy};
 use koad_core::config::KoadConfig;
 use koad_proto::cass::v1::tool_registry_service_client::ToolRegistryServiceClient;
 use koad_proto::cass::v1::{
     DeregisterToolRequest, InvokeToolRequest, ListToolsRequest, RegisterToolRequest,
 };
-use koad_proto::citadel::v5::admin_client::AdminClient;
-use koad_proto::citadel::v5::{EventSeverity, SystemEvent};
 use std::env;
-use uuid::Uuid;
 
 pub async fn handle_bridge_action(
     action: BridgeAction,
@@ -90,44 +86,6 @@ pub async fn handle_bridge_action(
                 }
             }
         }
-        BridgeAction::Stream { action } => match action {
-            StreamAction::Post {
-                topic,
-                message,
-                msg_type,
-            } => {
-                let mut client = AdminClient::connect(config.network.citadel_grpc_addr.clone())
-                    .await
-                    .context("Failed to connect to Citadel gRPC")?;
-
-                let severity = match msg_type.to_uppercase().as_str() {
-                    "DEBUG" => EventSeverity::Debug,
-                    "INFO" => EventSeverity::Info,
-                    "WARN" => EventSeverity::Warn,
-                    "ERROR" => EventSeverity::Error,
-                    "CRITICAL" => EventSeverity::Critical,
-                    _ => EventSeverity::Info,
-                };
-
-                let context = Some(crate::utils::get_trace_context(&agent_name, 3));
-
-                let event = SystemEvent {
-                    event_id: Uuid::new_v4().to_string(),
-                    source: topic,
-                    severity: severity as i32,
-                    message,
-                    metadata_json: "{}".to_string(),
-                    timestamp: Some(prost_types::Timestamp {
-                        seconds: Utc::now().timestamp(),
-                        nanos: Utc::now().timestamp_subsec_nanos() as i32,
-                    }),
-                    context,
-                };
-
-                client.post_system_event(event).await?;
-                println!(">>> [UPLINK] Message broadcast to KoadStream.");
-            }
-        },
         BridgeAction::Skill { action } => {
             let mut client =
                 ToolRegistryServiceClient::connect(config.network.cass_grpc_addr.clone())
@@ -190,9 +148,6 @@ pub async fn handle_bridge_action(
                     println!("{}", resp.output);
                 }
             }
-        }
-        _ => {
-            println!("Bridge action placeholder.");
         }
     }
     Ok(())

@@ -21,19 +21,6 @@ enum AgentRole {
   ROLE_ADMIN_OVERRIDE = 4; // Emergency UDS bypass role
 }
 
-enum SignalPriority {
-  SIGNAL_PRIORITY_LOW = 0;
-  SIGNAL_PRIORITY_STANDARD = 1;
-  SIGNAL_PRIORITY_HIGH = 2;
-  SIGNAL_PRIORITY_CRITICAL = 3;
-}
-
-enum SignalStatus {
-  SIGNAL_STATUS_PENDING = 0;
-  SIGNAL_STATUS_READ = 1;
-  SIGNAL_STATUS_ARCHIVED = 2;
-}
-
 // Mandatory context for every request across the Tri-Tier model.
 message TraceContext {
   string trace_id = 1;     // TRC-{actor}-{uuid-short}
@@ -76,18 +63,6 @@ service Sector {
   rpc ValidateIntent(IntentRequest) returns (IntentResponse);
 }
 
-service Signal {
-  // Subscribe to the Signal Corps event stream.
-  rpc Subscribe(SubscribeRequest) returns (stream Event);
-  // Broadcast a high-signal event to the bus.
-  rpc Broadcast(Event) returns (StatusResponse);
-
-  // --- Agent-to-Agent Signals (A2A-S) ---
-  rpc SendSignal(SendSignalRequest) returns (StatusResponse);
-  rpc GetSignals(GetSignalsRequest) returns (GetSignalsResponse);
-  rpc UpdateSignalStatus(UpdateSignalStatusRequest) returns (StatusResponse);
-}
-
 service PersonalBay {
   // Provision or format a Personal Bay.
   rpc Provision(ProvisionRequest) returns (StatusResponse);
@@ -106,19 +81,8 @@ service Admin {
   rpc ForcePurgeSession(PurgeRequest) returns (StatusResponse);
   // Commit knowledge/learnings to the Memory Bank.
   rpc CommitKnowledge(CommitKnowledgeRequest) returns (StatusResponse);
-  // Retrieve a snippet of a file from the Citadel's cache or disk.
-  rpc GetFileSnippet(GetFileSnippetRequest) returns (SnippetResponse);
-  // Post a system event to the telemetry stream.
-  rpc PostSystemEvent(SystemEvent) returns (StatusResponse);
   // Trigger a system-wide backup or a specific source.
   rpc TriggerBackup(TriggerBackupRequest) returns (TriggerBackupResponse);
-  // Flush all volatile context for a session.
-  rpc FlushContext(FlushContextRequest) returns (StatusResponse);
-}
-
-message FlushContextRequest {
-  TraceContext context = 1;
-  string session_id = 2;
 }
 
 service XpService {
@@ -190,21 +154,6 @@ message CommitKnowledgeRequest {
   string tags = 5;
 }
 
-message GetFileSnippetRequest {
-  TraceContext context = 1;
-  string path = 2;
-  int32 start_line = 3;
-  int32 end_line = 4;
-  bool bypass_cache = 5;
-}
-
-message SnippetResponse {
-  string content = 1;
-  int32 total_lines = 2;
-  string source = 3; // "cache" or "disk"
-  TraceContext context = 4;
-}
-
 message LeaseRequest {
   TraceContext context = 1;
   string agent_name = 2;
@@ -270,35 +219,6 @@ message IntentResponse {
   TraceContext context = 3;
 }
 
-message SubscribeRequest {
-  TraceContext context = 1;
-  repeated string topics = 2;
-}
-
-message Event {
-  string topic = 1;
-  string payload = 2; // JSON-serialized event data
-  TraceContext context = 3;
-}
-
-enum EventSeverity {
-  EVENT_SEVERITY_DEBUG = 0;
-  EVENT_SEVERITY_INFO = 1;
-  EVENT_SEVERITY_WARN = 2;
-  EVENT_SEVERITY_ERROR = 3;
-  EVENT_SEVERITY_CRITICAL = 4;
-}
-
-message SystemEvent {
-  string event_id = 1;
-  string source = 2; 
-  EventSeverity severity = 3;
-  string message = 4;
-  string metadata_json = 5;
-  google.protobuf.Timestamp timestamp = 6;
-  TraceContext context = 7;
-}
-
 message ProvisionRequest {
   TraceContext context = 1;
   string agent_name = 2;
@@ -332,38 +252,3 @@ message WorkspaceResponse {
 
 // --- Signal Messages ---
 
-message SendSignalRequest {
-  TraceContext context = 1;
-  string target_agent = 2;
-  string message = 3;
-  SignalPriority priority = 4;
-  map<string, string> metadata = 5;
-}
-
-message GetSignalsRequest {
-  TraceContext context = 1;
-  string agent_name = 2;
-  SignalStatus filter_status = 3;
-}
-
-message GetSignalsResponse {
-  repeated GhostSignal signals = 1;
-  TraceContext context = 2;
-}
-
-message UpdateSignalStatusRequest {
-  TraceContext context = 1;
-  string signal_id = 2;
-  SignalStatus status = 3;
-}
-
-message GhostSignal {
-  string id = 1;
-  string source_agent = 2;
-  string target_agent = 3;
-  string message = 4;
-  SignalPriority priority = 5;
-  google.protobuf.Timestamp timestamp = 6;
-  map<string, string> metadata = 7;
-  SignalStatus status = 8;
-}

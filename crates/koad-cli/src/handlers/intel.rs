@@ -163,51 +163,7 @@ pub async fn handle_intel_action(
                         domain
                     );
                 }
-                _ => {
-                    println!("Mind action placeholder.");
-                }
             }
-        }
-        IntelAction::Snippet {
-            path,
-            start,
-            end,
-            bypass,
-        } => {
-            println!(
-                ">>> [UPLINK] Connecting to Citadel at {}...",
-                config.network.citadel_grpc_addr
-            );
-            let mut client = AdminClient::connect(config.network.citadel_grpc_addr.clone())
-                .await
-                .map_err(|e| {
-                    map_connect_err("KoadOS Citadel", &config.network.citadel_grpc_addr, e)
-                })
-                .map_err(anyhow::Error::from)?;
-            let resp = client
-                .get_file_snippet(crate::utils::authenticated_request(GetFileSnippetRequest {
-                    context: context.clone(),
-                    path: path.to_string_lossy().to_string(),
-                    start_line: start,
-                    end_line: end,
-                    bypass_cache: bypass,
-                }))
-                .await
-                .map_err(|e| {
-                    anyhow::anyhow!("Snippet Retrieval Failed: [{:?}] {}", e.code(), e.message())
-                })?;
-
-            let package = resp.into_inner();
-            println!(
-                "
-\x1b[1m--- SNIPPET: {:?} (Lines {}-{}, Source: {}) ---\x1b[0m",
-                path, start, end, package.source
-            );
-            println!("{}", package.content);
-            println!(
-                "\x1b[1m---------------------------------------------------\x1b[0m
-"
-            );
         }
     }
     Ok(())

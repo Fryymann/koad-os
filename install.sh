@@ -203,7 +203,16 @@ run_update() {
         # 2. Copy binaries
         local bin_dir="$p/bin"
         mkdir -p "$bin_dir"
-        local bins=(koad koad-agent koad-cass koad-citadel koad-fs-mcp koad-map koad-notion-mcp koad-os-mcp invoke-tool register-tool cass-ingest koad-mcp)
+        # Binaries that no longer exist; remove stale copies from earlier installs.
+        local retired=(koad-mcp koad-notion-mcp koad-map)
+        for bin in "${retired[@]}"; do
+            if [[ -f "$bin_dir/$bin" ]]; then
+                rm -f "$bin_dir/$bin"
+                ok "  ✓ Removed retired binary: $bin"
+            fi
+        done
+
+        local bins=(koad koad-agent koad-cass koad-citadel koad-fs-mcp koad-os-mcp invoke-tool register-tool cass-ingest)
         for bin in "${bins[@]}"; do
             if [[ -f "target/release/$bin" ]]; then
                 # Remove target first to avoid "text file busy" errors
@@ -435,7 +444,7 @@ run_install() {
     cargo build --release
     ok "Compilation complete."
     
-    local bins=(koad koad-agent koad-cass koad-citadel koad-fs-mcp koad-map koad-notion-mcp koad-os-mcp invoke-tool register-tool cass-ingest koad-mcp)
+    local bins=(koad koad-agent koad-cass koad-citadel koad-fs-mcp koad-os-mcp invoke-tool register-tool cass-ingest)
     for bin in "${bins[@]}"; do
         if [[ -f "target/release/$bin" ]]; then
             rm -f "$BIN_DIR/$bin"

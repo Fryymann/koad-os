@@ -1,6 +1,5 @@
 use anyhow::Result;
 use koad_core::config::KoadConfig;
-use koad_proto::citadel::v5::signal_client::SignalClient;
 use koad_proto::citadel::v5::xp_service_client::XpServiceClient;
 use koad_proto::citadel::v5::*;
 
@@ -24,23 +23,9 @@ pub async fn show_motd(agent_name: &str, config: &KoadConfig) -> Result<()> {
         None
     };
 
-    // 2. Fetch Pending Signals (Messages/Notes)
-    let signal_client = SignalClient::connect(config.network.citadel_grpc_addr.clone())
-        .await
-        .ok();
-    let pending_signals = if let Some(mut client) = signal_client {
-        client
-            .get_signals(GetSignalsRequest {
-                context: context.clone(),
-                agent_name: agent_name.to_string(),
-                filter_status: SignalStatus::Pending as i32,
-            })
-            .await
-            .ok()
-            .map(|r| r.into_inner().signals)
-    } else {
-        None
-    };
+    // 2. Pending inbox items (file-based agent handoff)
+    let inbox =
+        koad_core::inbox::pending_for(&koad_core::inbox::inbox_dir(&config.home), agent_name);
 
     // 3. Get Identity Info from Config
     let identity = config.identities.get(agent_name);
@@ -102,32 +87,19 @@ pub async fn show_motd(agent_name: &str, config: &KoadConfig) -> Result<()> {
     // Section: Intelligence (Inbox/Notes)
     println!();
     println!("\x1b[1;37m[ INTELLIGENCE ]\x1b[0m");
-    if let Some(signals) = pending_signals {
-        if signals.is_empty() {
-            println!("  No pending signals in inbox.");
-        } else {
-            println!("  \x1b[1;33m{} pending signals:\x1b[0m", signals.len());
-            for (i, sig) in signals.iter().take(3).enumerate() {
-                let prefix = if i == 2 && signals.len() > 3 {
-                    "  └─ ..."
-                } else {
-                    "  ├─"
-                };
-                println!(
-                    "  {} [{}] from {}: {}",
-                    prefix,
-                    &sig.id[..4],
-                    sig.source_agent,
-                    if sig.message.len() > 50 {
-                        format!("{}...", &sig.message[..47])
-                    } else {
-                        sig.message.clone()
-                    }
-                );
-            }
-        }
+    if inbox.is_empty() {
+        println!("  Inbox empty.");
     } else {
-        println!("  \x1b[33m[OFFLINE]\x1b[0m Signal Corps unreachable.");
+        println!("  \x1b[1;33m{} inbox item(s):\x1b[0m", inbox.len());
+        for item in inbox.iter().take(3) {
+            println!("  ├─ {}", item.title);
+        }
+        if inbox.len() > 3 {
+            println!(
+                "  └─ ... (see {})",
+                koad_core::inbox::inbox_dir(&config.home).display()
+            );
+        }
     }
 
     // Section: Grid Snapshot

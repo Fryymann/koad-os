@@ -211,37 +211,6 @@ impl Admin for AdminService {
         }
     }
 
-    /// Retrieve a snippet of a file from the Citadel's cache or disk.
-    async fn get_file_snippet(
-        &self,
-        request: Request<GetFileSnippetRequest>,
-    ) -> Result<Response<SnippetResponse>, Status> {
-        let req = request.into_inner();
-        info!(path = %req.path, "Admin: Get file snippet requested");
-
-        Ok(Response::new(SnippetResponse {
-            content: "Snippet content placeholder".to_string(),
-            total_lines: 0,
-            source: "placeholder".to_string(),
-            context: req.context,
-        }))
-    }
-
-    /// Post a system event to the telemetry stream.
-    async fn post_system_event(
-        &self,
-        request: Request<SystemEvent>,
-    ) -> Result<Response<StatusResponse>, Status> {
-        let req = request.into_inner();
-        info!(message = %req.message, "Admin: Post system event requested");
-
-        Ok(Response::new(StatusResponse {
-            success: true,
-            message: "System event posted".to_string(),
-            context: req.context,
-        }))
-    }
-
     /// Trigger a system-wide backup or a specific source.
     async fn trigger_backup(
         &self,
@@ -283,20 +252,6 @@ impl Admin for AdminService {
         }))
     }
 
-    /// Flush all volatile context for a session.
-    async fn flush_context(
-        &self,
-        request: Request<FlushContextRequest>,
-    ) -> Result<Response<StatusResponse>, Status> {
-        let req = request.into_inner();
-        info!(session_id = %req.session_id, "Admin: Flush context requested");
-
-        Ok(Response::new(StatusResponse {
-            success: true,
-            message: "Context flushed".to_string(),
-            context: req.context,
-        }))
-    }
 }
 
 #[cfg(test)]
