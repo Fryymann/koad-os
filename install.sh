@@ -177,9 +177,9 @@ run_update() {
         fi
         
         # 5. Copy skills
-        if [[ -d "plugin/skills" ]]; then
+        if [[ -d "skills" ]]; then
             mkdir -p "$p/skills"
-            cp -r plugin/skills/. "$p/skills/"
+            cp -r skills/. "$p/skills/"
             ok "  ✓ Updated skills"
         fi
         
@@ -342,8 +342,8 @@ run_install() {
     ok "gRPC and Docker infrastructure is online with CASS."
     
     # Deploy skills
-    if [[ -d "plugin/skills" ]]; then
-        cp -r plugin/skills/. "$KOAD_HOME/skills/"
+    if [[ -d "skills" ]]; then
+        cp -r skills/. "$KOAD_HOME/skills/"
         ok "Skills deployed to $KOAD_HOME/skills"
     fi
     
