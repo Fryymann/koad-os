@@ -17,7 +17,7 @@ The v3.2.0 release establishes the **Frontier Uplink Architecture**:
 
 KoadOS works *with* your existing frontier agent tools:
 
-1.  **Harness Layer:** You run `claude`, `gemini`, or `codex` as your primary interface.
+1.  **Harness Layer:** You run an agent harness (Claude Code, Hermes Agent, or similar) as your primary interface.
 2.  **KoadOS Layer (The Enhancer):**
     *   **Context:** `koad map` provides the agent with a high-fidelity "look" at the codebase via the knowledge graph.
     *   **Memory:** CASS records episodic and procedural facts, allowing the agent to "remember" previous sessions.

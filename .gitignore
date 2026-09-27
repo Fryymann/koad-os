@@ -44,9 +44,6 @@
 .vscode/
 /.claude/
 /bin/
-AGENTS.md
-CLAUDE.md
-GEMINI.md
 !plugin/GEMINI.md
 agents/*
 agents/.claude/
