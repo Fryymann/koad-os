@@ -12,7 +12,9 @@ use std::process::{Command, Output, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// Identifies the KoadOS SessionStart hook in Claude Code settings.
+/// Identifies the legacy string-form KoadOS SessionStart hook, which Git
+/// Bash on Windows broke by rewriting its POSIX path. Still recognised so
+/// install and uninstall clean it up.
 pub const HOOK_MARKER: &str = "/bin/koad-wsl-env koad-agent anchor ";
 
 /// Name of the MCP server registered in Claude Code for Windows.
@@ -21,9 +23,19 @@ pub const MCP_NAME: &str = "citadel-memory";
 /// Skills installed on the Windows side.
 pub const WINDOWS_SKILLS: [&str; 2] = ["cass-recall", "cass-search"];
 
-/// SessionStart hook command: prints the agent's anchor through WSL.
-pub fn hook_command(distro: &str, koad_home: &str, agent: &str) -> String {
-    format!("wsl.exe -d {distro} -e {koad_home}/bin/koad-wsl-env koad-agent anchor {agent} --body windows")
+/// SessionStart hook entry: prints the agent's anchor through WSL. Exec form
+/// (`command` + `args`): Claude Code spawns it directly with no shell, so Git
+/// Bash on Windows cannot rewrite the POSIX path in `args`.
+pub fn hook_json(distro: &str, koad_home: &str, agent: &str) -> Value {
+    json!({
+        "type": "command",
+        "command": "wsl.exe",
+        "args": [
+            "-d", distro, "-e", format!("{koad_home}/bin/koad-wsl-env"),
+            "koad-agent", "anchor", agent, "--body", "windows"
+        ],
+        "timeout": 30
+    })
 }
 
 /// MCP server definition for `claude.exe mcp add-json`.
@@ -35,13 +47,43 @@ pub fn mcp_server_json(distro: &str, koad_home: &str, agent: &str) -> Value {
     })
 }
 
-/// Whether a single hook entry (an object with a `command` field) is one
-/// KoadOS installed, as opposed to a user's own hook that happens to share
-/// a `SessionStart` group — or to merely mention the marker text.
+/// Whether a single hook entry is one KoadOS installed, as opposed to a
+/// user's own hook that happens to share a `SessionStart` group — or to
+/// merely mention the marker text. Recognises the exec form (`command`
+/// "wsl.exe" whose `args` run `…/bin/koad-wsl-env koad-agent anchor`) and
+/// the legacy string form.
 fn is_koad_hook(hook: &Value) -> bool {
-    hook["command"]
-        .as_str()
-        .is_some_and(|c| c.starts_with("wsl.exe -d ") && c.contains(HOOK_MARKER))
+    if let Some(args) = exec_hook_args(hook) {
+        return args.windows(3).any(|w| {
+            w[0].ends_with("/bin/koad-wsl-env") && w[1] == "koad-agent" && w[2] == "anchor"
+        });
+    }
+    is_legacy_koad_hook(hook)
+}
+
+/// `args` of an exec-form `wsl.exe` hook, if `hook` is one.
+fn exec_hook_args(hook: &Value) -> Option<Vec<&str>> {
+    if hook["command"] != "wsl.exe" {
+        return None;
+    }
+    hook["args"].as_array()?.iter().map(Value::as_str).collect()
+}
+
+fn is_legacy_koad_hook(hook: &Value) -> bool {
+    hook.get("args").is_none()
+        && hook["command"]
+            .as_str()
+            .is_some_and(|c| c.starts_with("wsl.exe -d ") && c.contains(HOOK_MARKER))
+}
+
+/// The KoadOS SessionStart hook entry stored in settings, if any.
+fn find_koad_hook(settings: &Value) -> Option<&Value> {
+    settings["hooks"]["SessionStart"]
+        .as_array()?
+        .iter()
+        .filter_map(|g| g["hooks"].as_array())
+        .flatten()
+        .find(|h| is_koad_hook(h))
 }
 
 /// Strip KoadOS hook entries out of each group's `hooks` array in place and
@@ -66,19 +108,11 @@ fn strip_koad_hooks(groups: &mut Vec<Value>) -> usize {
 /// Whether settings carry a KoadOS SessionStart hook. Any unexpected shape
 /// counts as "not installed".
 pub fn has_session_hook(settings: &Value) -> bool {
-    settings["hooks"]["SessionStart"]
-        .as_array()
-        .is_some_and(|groups| {
-            groups.iter().any(|g| {
-                g["hooks"]
-                    .as_array()
-                    .is_some_and(|hooks| hooks.iter().any(is_koad_hook))
-            })
-        })
+    find_koad_hook(settings).is_some()
 }
 
 /// Add (or replace) the KoadOS SessionStart hook, preserving everything else.
-pub fn merge_session_hook(mut settings: Value, command: &str) -> Result<Value> {
+pub fn merge_session_hook(mut settings: Value, hook: &Value) -> Result<Value> {
     let obj = settings
         .as_object_mut()
         .ok_or_else(|| anyhow::anyhow!("settings.json is not a JSON object"))?;
@@ -93,7 +127,7 @@ pub fn merge_session_hook(mut settings: Value, command: &str) -> Result<Value> {
         .as_array_mut()
         .ok_or_else(|| anyhow::anyhow!("settings.json `hooks.SessionStart` is not an array"))?;
     strip_koad_hooks(groups);
-    groups.push(json!({"hooks": [{"type": "command", "command": command, "timeout": 30}]}));
+    groups.push(json!({"hooks": [hook]}));
     Ok(settings)
 }
 
@@ -467,7 +501,7 @@ fn edit_settings(path: &Path, f: impl FnOnce(Value) -> Result<Option<Value>>) ->
 }
 
 /// `edit_settings` step for install: `None` when the hook is already in place.
-fn merge_edit(settings: Value, hook: &str) -> Result<Option<Value>> {
+fn merge_edit(settings: Value, hook: &Value) -> Result<Option<Value>> {
     let merged = merge_session_hook(settings.clone(), hook)?;
     Ok((merged != settings).then_some(merged))
 }
@@ -536,7 +570,7 @@ fn install(config: &KoadConfig, agent: &str) -> Result<()> {
     }
     println!("✓ MCP server '{MCP_NAME}' registered");
 
-    let hook = hook_command(&distro, &home, agent);
+    let hook = hook_json(&distro, &home, agent);
     let path = settings_path(&win);
     if edit_settings(&path, |s| merge_edit(s, &hook))? {
         println!("✓ SessionStart hook added to {}", path.display());
@@ -651,42 +685,45 @@ fn status(config: &KoadConfig, agent: &str) -> Result<()> {
     );
 
     let settings = settings_path(&win);
+    let stored = read_json(&settings);
     check(
         "SessionStart hook present",
-        match read_json(&settings) {
-            Ok(Some(s)) if has_session_hook(&s) => Ok(()),
+        match &stored {
+            Ok(Some(s)) if has_session_hook(s) => Ok(()),
             Ok(Some(_)) => Err(format!("no KoadOS hook in {}", settings.display())),
             Ok(None) => Err(format!("{} does not exist", settings.display())),
             Err(e) => Err(format!("{e:#}")),
         },
     );
 
-    let anchor = run_bounded(
-        win_cmd("wsl.exe").args([
-            "-d",
-            &distro,
-            "-e",
-            &format!("{home}/bin/koad-wsl-env"),
-            "koad-agent",
-            "anchor",
-            agent,
-            "--body",
-            "windows",
-        ]),
-        None,
-        ANCHOR_TIMEOUT,
-    );
-    let printed = anchor.as_ref().is_ok_and(|o| {
-        String::from_utf8_lossy(&o.stdout).starts_with("# KoadOS Agent Identity Anchor")
-    });
+    // Run the hook exactly as stored in settings.json, not a rebuilt copy.
+    let stored_hook = stored
+        .as_ref()
+        .ok()
+        .and_then(Option::as_ref)
+        .and_then(find_koad_hook);
     check(
         "Hook command prints the identity anchor",
-        if printed {
-            Ok(())
-        } else if succeeded(&anchor) {
-            Err("output is not an identity anchor".to_string())
-        } else {
-            Err(failure_reason(&anchor))
+        match stored_hook.map(|h| (h, exec_hook_args(h))) {
+            None => Err("SessionStart hook not installed".to_string()),
+            Some((_, None)) => Err(
+                "legacy string-form hook (breaks under Git Bash); rerun `koad body windows install`"
+                    .to_string(),
+            ),
+            Some((h, Some(args))) => {
+                let command = h["command"].as_str().unwrap_or_default();
+                let anchor = run_bounded(win_cmd(command).args(args), None, ANCHOR_TIMEOUT);
+                let printed = anchor.as_ref().is_ok_and(|o| {
+                    String::from_utf8_lossy(&o.stdout).starts_with("# KoadOS Agent Identity Anchor")
+                });
+                if printed {
+                    Ok(())
+                } else if succeeded(&anchor) {
+                    Err("output is not an identity anchor".to_string())
+                } else {
+                    Err(failure_reason(&anchor))
+                }
+            }
         },
     );
 
@@ -802,20 +839,76 @@ pub async fn handle(action: BodyAction, config: &KoadConfig) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// The legacy string-form hook earlier builds installed.
     const CMD: &str =
         "wsl.exe -d Ubuntu -e /h/.citadel-jupiter/bin/koad-wsl-env koad-agent anchor clyde --body windows";
 
-    #[test]
-    fn hook_command_runs_the_anchor_through_the_env_wrapper() {
-        assert_eq!(hook_command("Ubuntu", "/h/.citadel-jupiter", "clyde"), CMD);
+    fn hook() -> Value {
+        hook_json("Ubuntu", "/h/.citadel-jupiter", "clyde")
     }
 
     #[test]
-    fn hook_command_output_is_recognised_as_a_koad_hook() {
-        // is_koad_hook and hook_command must not drift apart.
+    fn hook_is_exec_form_running_the_anchor_through_the_env_wrapper() {
+        assert_eq!(
+            hook(),
+            json!({
+                "type": "command",
+                "command": "wsl.exe",
+                "args": [
+                    "-d", "Ubuntu", "-e", "/h/.citadel-jupiter/bin/koad-wsl-env",
+                    "koad-agent", "anchor", "clyde", "--body", "windows"
+                ],
+                "timeout": 30
+            })
+        );
+    }
+
+    #[test]
+    fn hook_json_output_is_recognised_as_a_koad_hook() {
+        // is_koad_hook and hook_json must not drift apart.
+        assert!(is_koad_hook(&hook()));
+    }
+
+    #[test]
+    fn legacy_string_hook_is_still_recognised() {
         assert!(is_koad_hook(
             &json!({"type": "command", "command": CMD, "timeout": 30})
         ));
+    }
+
+    #[test]
+    fn lookalike_exec_hooks_are_not_koad_hooks() {
+        for h in [
+            json!({"type": "command", "command": "wsl.exe", "args": ["-e", "echo", "koad-agent", "anchor"]}),
+            json!({"type": "command", "command": "wsl.exe", "args": ["-e", "/x/bin/koad-wsl-env", "koad", "status"]}),
+            json!({"type": "command", "command": "bash", "args": ["/x/bin/koad-wsl-env", "koad-agent", "anchor"]}),
+            json!({"type": "command", "command": "wsl.exe", "args": "-e /x/bin/koad-wsl-env koad-agent anchor"}),
+            json!({"type": "command", "command": CMD, "args": []}),
+        ] {
+            assert!(!is_koad_hook(&h), "{h}");
+        }
+    }
+
+    #[test]
+    fn merge_replaces_a_legacy_string_hook_with_the_exec_form() {
+        let settings = json!({"hooks": {"SessionStart": [
+            {"hooks": [{"type": "command", "command": CMD, "timeout": 30}]}
+        ]}});
+        let merged = merge_session_hook(settings, &hook()).unwrap();
+        assert_eq!(
+            merged,
+            json!({"hooks": {"SessionStart": [{"hooks": [hook()]}]}})
+        );
+    }
+
+    #[test]
+    fn find_koad_hook_returns_the_stored_entry() {
+        let settings = json!({"hooks": {"SessionStart": [
+            {"hooks": [{"type": "command", "command": "echo mine"}]},
+            {"hooks": [hook()]}
+        ]}});
+        assert_eq!(find_koad_hook(&settings), Some(&hook()));
+        assert_eq!(find_koad_hook(&json!({"hooks": null})), None);
     }
 
     #[test]
@@ -835,20 +928,20 @@ mod tests {
         let other = json!({"hooks": [{"type": "command", "command": "echo mine"}]});
         let settings =
             json!({"effortLevel": "high", "hooks": {"SessionStart": [other.clone()], "Stop": []}});
-        let merged = merge_session_hook(settings, CMD).unwrap();
+        let merged = merge_session_hook(settings, &hook()).unwrap();
         assert_eq!(merged["effortLevel"], "high");
         assert_eq!(merged["hooks"]["Stop"], json!([]));
         let groups = merged["hooks"]["SessionStart"].as_array().unwrap();
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0], other);
-        assert_eq!(groups[1]["hooks"][0]["command"], CMD);
+        assert_eq!(groups[1]["hooks"][0], hook());
         assert_eq!(groups[1]["hooks"][0]["timeout"], 30);
     }
 
     #[test]
     fn merge_is_idempotent() {
-        let once = merge_session_hook(json!({}), CMD).unwrap();
-        let twice = merge_session_hook(once.clone(), CMD).unwrap();
+        let once = merge_session_hook(json!({}), &hook()).unwrap();
+        let twice = merge_session_hook(once.clone(), &hook()).unwrap();
         assert_eq!(once, twice);
     }
 
@@ -860,7 +953,7 @@ mod tests {
                 {"type": "command", "command": CMD, "timeout": 30}
             ]}
         ]}});
-        let merged = merge_session_hook(settings, CMD).unwrap();
+        let merged = merge_session_hook(settings, &hook()).unwrap();
         let groups = merged["hooks"]["SessionStart"].as_array().unwrap();
         // The original group loses only the koad hook; a fresh group is pushed for it.
         assert_eq!(groups.len(), 2);
@@ -868,28 +961,28 @@ mod tests {
             groups[0]["hooks"],
             json!([{"type": "command", "command": "echo mine"}])
         );
-        assert_eq!(groups[1]["hooks"][0]["command"], CMD);
+        assert_eq!(groups[1]["hooks"][0], hook());
     }
 
     #[test]
     fn merge_errors_when_hooks_is_not_an_object() {
-        assert!(merge_session_hook(json!({"hooks": null}), CMD).is_err());
+        assert!(merge_session_hook(json!({"hooks": null}), &hook()).is_err());
     }
 
     #[test]
     fn merge_errors_when_session_start_is_not_an_array() {
-        assert!(merge_session_hook(json!({"hooks": {"SessionStart": {}}}), CMD).is_err());
+        assert!(merge_session_hook(json!({"hooks": {"SessionStart": {}}}), &hook()).is_err());
     }
 
     #[test]
     fn merge_refuses_non_object_settings() {
-        assert!(merge_session_hook(json!([1, 2]), CMD).is_err());
+        assert!(merge_session_hook(json!([1, 2]), &hook()).is_err());
     }
 
     #[test]
     fn remove_restores_the_original_settings() {
         let original = json!({"effortLevel": "high", "mcpServers": {}});
-        let mut merged = merge_session_hook(original.clone(), CMD).unwrap();
+        let mut merged = merge_session_hook(original.clone(), &hook()).unwrap();
         assert!(remove_session_hook(&mut merged));
         assert_eq!(merged, original);
     }
@@ -950,7 +1043,7 @@ mod tests {
 
     #[test]
     fn remove_reports_whether_a_koad_hook_was_removed() {
-        let mut merged = merge_session_hook(json!({}), CMD).unwrap();
+        let mut merged = merge_session_hook(json!({}), &hook()).unwrap();
         assert!(remove_session_hook(&mut merged));
         assert!(!remove_session_hook(&mut merged));
     }
@@ -978,7 +1071,7 @@ mod tests {
     #[test]
     fn has_session_hook_detects_only_koad_hooks() {
         assert!(has_session_hook(
-            &merge_session_hook(json!({}), CMD).unwrap()
+            &merge_session_hook(json!({}), &hook()).unwrap()
         ));
         assert!(!has_session_hook(&json!({})));
         assert!(!has_session_hook(&json!({"hooks": null})));
@@ -1031,11 +1124,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         std::fs::write(&path, "{ not json").unwrap();
-        assert!(
-            edit_settings(&path, |s| merge_session_hook(s, "x koad-agent anchor")
-                .map(Some))
-            .is_err()
-        );
+        assert!(edit_settings(&path, |s| merge_session_hook(s, &hook()).map(Some)).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
         assert_eq!(
             dir_entries(dir.path()),
@@ -1050,11 +1139,7 @@ mod tests {
         let path = dir.path().join("settings.json");
         let original = "{\"effortLevel\":\"high\"}";
         std::fs::write(&path, original).unwrap();
-        assert!(
-            edit_settings(&path, |s| merge_session_hook(s, "x koad-agent anchor")
-                .map(Some))
-            .unwrap()
-        );
+        assert!(edit_settings(&path, |s| merge_session_hook(s, &hook()).map(Some)).unwrap());
         let names = dir_entries(dir.path());
         let backups: Vec<_> = names
             .iter()
@@ -1076,8 +1161,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         std::fs::write(&path, "{}").unwrap();
-        edit_settings(&path, |s| merge_session_hook(s, "a").map(Some)).unwrap();
-        edit_settings(&path, |s| merge_session_hook(s, "b").map(Some)).unwrap();
+        edit_settings(&path, |s| {
+            merge_session_hook(s, &hook_json("Ubuntu", "/h", "a")).map(Some)
+        })
+        .unwrap();
+        edit_settings(&path, |s| {
+            merge_session_hook(s, &hook_json("Ubuntu", "/h", "b")).map(Some)
+        })
+        .unwrap();
         let backups = dir_entries(dir.path())
             .into_iter()
             .filter(|n| n.starts_with("settings.json.bak-"))
@@ -1089,7 +1180,7 @@ mod tests {
     fn edit_settings_creates_a_missing_file_without_a_backup() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        edit_settings(&path, |s| merge_session_hook(s, "x").map(Some)).unwrap();
+        edit_settings(&path, |s| merge_session_hook(s, &hook()).map(Some)).unwrap();
         assert_eq!(dir_entries(dir.path()), vec!["settings.json"]);
     }
 
@@ -1108,7 +1199,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         std::fs::write(&path, "[1]").unwrap();
-        assert!(edit_settings(&path, |s| merge_session_hook(s, "x").map(Some)).is_err());
+        assert!(edit_settings(&path, |s| merge_session_hook(s, &hook()).map(Some)).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "[1]");
         assert_eq!(dir_entries(dir.path()), vec!["settings.json"]);
     }
@@ -1188,7 +1279,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         std::fs::write(&path, "\u{feff}{\r\n\"a\":1\r\n}\r\n").unwrap();
-        assert!(edit_settings(&path, |s| merge_edit(s, CMD)).unwrap());
+        assert!(edit_settings(&path, |s| merge_edit(s, &hook())).unwrap());
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(!text.starts_with('\u{feff}'));
         let v: Value = serde_json::from_str(&text).unwrap();
@@ -1201,9 +1292,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         std::fs::write(&path, "{}").unwrap();
-        assert!(edit_settings(&path, |s| merge_edit(s, CMD)).unwrap());
+        assert!(edit_settings(&path, |s| merge_edit(s, &hook())).unwrap());
         let before = dir_entries(dir.path());
-        assert!(!edit_settings(&path, |s| merge_edit(s, CMD)).unwrap());
+        assert!(!edit_settings(&path, |s| merge_edit(s, &hook())).unwrap());
         assert_eq!(dir_entries(dir.path()), before, "no second backup");
     }
 

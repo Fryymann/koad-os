@@ -49,9 +49,13 @@ pub fn render_windows_anchor(
     id: &AnchorIdentity,
     timestamp: &str,
     koad_home: &str,
+    distro: &str,
     vault_unc: &str,
     cass_packet: Option<&str>,
 ) -> String {
+    // Leading `//`: Git Bash leaves it alone instead of rewriting a POSIX path
+    // into `C:/Program Files/Git/...`; PowerShell, cmd and WSL accept it too.
+    let env_wrapper = format!("//{}/bin/koad-wsl-env", koad_home.trim_start_matches('/'));
     let mut s = format!(
         "# KoadOS Agent Identity Anchor\n\
          Generated At: {timestamp}\n\
@@ -65,8 +69,9 @@ pub fn render_windows_anchor(
          `memory.search_semantic` / `memory.recall` before rebuilding knowledge; store durable \
          lessons with `memory.commit` and verify by recall. Also `memory.list_topics`, \
          `intel.get`, `status.citadel`.\n\
-         - **KoadOS CLI:** runs only in WSL. From PowerShell, when truly needed: \
-         `wsl.exe -e {koad_home}/bin/koad-wsl-env koad <command>`.\n\
+         - **KoadOS CLI:** runs only in WSL. From PowerShell, cmd or Git Bash, when truly needed: \
+         `wsl.exe -d {distro} -e {env_wrapper} koad <command>` (the leading `//` is deliberate: \
+         it stops Git Bash path conversion).\n\
          - **Vault:** `{vault_unc}`\n\
          - **Handoffs:** inbox files in the Citadel home in WSL (see the `koad-inbox` skill).\n"
     ));
@@ -158,7 +163,7 @@ pub async fn handle_anchor(config: &KoadConfig, agent: &str, body: AnchorBody) -
     let vault_unc = wsl_unc(&distro, &vault_path.to_string_lossy());
     let packet = fetch_cass_packet(
         &config.network.cass_grpc_addr,
-        &identity.name,
+        &key,
         &koad_home,
         ANCHOR_CASS_TIMEOUT,
     )
@@ -175,6 +180,7 @@ pub async fn handle_anchor(config: &KoadConfig, agent: &str, body: AnchorBody) -
             &id,
             &chrono::Utc::now().to_rfc3339(),
             &koad_home,
+            &distro,
             &vault_unc,
             packet.as_deref()
         )
@@ -229,6 +235,7 @@ mod tests {
             &clyde(),
             "T",
             "/home/ideans/.citadel-jupiter",
+            "Ubuntu",
             VAULT,
             Some("## Ⅰ. Episodes\n- x\n"),
         );
@@ -238,14 +245,17 @@ mod tests {
         assert!(a.contains("memory.search_semantic"));
         assert!(a.contains("memory.commit"));
         assert!(a.contains(VAULT));
-        assert!(a.contains("wsl.exe -e /home/ideans/.citadel-jupiter/bin/koad-wsl-env koad"));
+        assert!(a.contains(
+            "`wsl.exe -d Ubuntu -e //home/ideans/.citadel-jupiter/bin/koad-wsl-env koad <command>`"
+        ));
+        assert!(a.contains("leading `//` is deliberate"));
         assert!(a.contains("## 🧠 Temporal Context Packet (CASS)\n## Ⅰ. Episodes"));
     }
 
     /// The WSL-body session instructions do not apply on Windows.
     #[test]
     fn windows_anchor_has_no_wsl_session_instructions() {
-        let a = render_windows_anchor(&clyde(), "T", "/k", VAULT, Some("p"));
+        let a = render_windows_anchor(&clyde(), "T", "/k", "Ubuntu", VAULT, Some("p"));
         for wsl_only in [
             "agent-boot",
             "current.env",
@@ -257,8 +267,18 @@ mod tests {
     }
 
     #[test]
+    fn cli_line_uses_the_given_distro_and_a_double_slash_path() {
+        let a = render_windows_anchor(&clyde(), "T", "/k", "Ubuntu-24.04", VAULT, Some("p"));
+        assert!(
+            a.contains("wsl.exe -d Ubuntu-24.04 -e //k/bin/koad-wsl-env koad"),
+            "{a}"
+        );
+        assert!(!a.contains("///"), "{a}");
+    }
+
+    #[test]
     fn offline_cass_is_stated_not_hidden() {
-        let a = render_windows_anchor(&clyde(), "T", "/k", VAULT, None);
+        let a = render_windows_anchor(&clyde(), "T", "/k", "Ubuntu", VAULT, None);
         assert!(a.contains("Memory: offline (CASS unreachable)"), "{a}");
         assert!(!a.contains("Temporal Context Packet"));
     }
@@ -268,7 +288,7 @@ mod tests {
     /// belongs in the anchor for this case.
     #[test]
     fn empty_cass_packet_prints_neither_offline_nor_packet_section() {
-        let a = render_windows_anchor(&clyde(), "T", "/k", VAULT, Some(""));
+        let a = render_windows_anchor(&clyde(), "T", "/k", "Ubuntu", VAULT, Some(""));
         assert!(!a.contains("Memory: offline"), "{a}");
         assert!(!a.contains("Temporal Context Packet"), "{a}");
     }
