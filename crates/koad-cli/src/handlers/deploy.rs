@@ -76,7 +76,6 @@ async fn handle_deploy_station(name: &str, config: &KoadConfig) -> Result<()> {
         "\n\x1b[1;32m[SUCCESS]\x1b[0m Station '{}' deployed successfully.",
         name
     );
-    println!("Next: Register this station in your Citadel with 'koad project register'.");
 
     Ok(())
 }

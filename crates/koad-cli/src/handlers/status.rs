@@ -239,13 +239,30 @@ pub async fn handle_status_command(
         }
     };
 
-    // 2. Control Plane (Citadel)
-    print!("{:<30}", "Control Plane (Citadel):");
-    let citadel_socket = config.get_admin_socket();
-    if citadel_socket.exists() {
-        println!("\x1b[32m[PASS]\x1b[0m Neural bus (kadmin.sock) active.");
-    } else {
-        println!("\x1b[33m[WARN]\x1b[0m Orchestrator link severed. Some features offline.");
+    // 2. Control Plane (Citadel) and Memory Service (CASS): probe the gRPC
+    // listeners. The admin socket file can outlive a Citadel that stopped
+    // serving, so its existence proves nothing.
+    for (label, addr, unit) in [
+        (
+            "Control Plane (Citadel):",
+            &config.network.citadel_grpc_addr,
+            "koad-citadel",
+        ),
+        (
+            "Memory Service (CASS):",
+            &config.network.cass_grpc_addr,
+            "koad-cass",
+        ),
+    ] {
+        print!("{:<30}", label);
+        if grpc_port_open(addr).await {
+            println!("\x1b[32m[PASS]\x1b[0m gRPC listening at {}.", addr);
+        } else {
+            println!(
+                "\x1b[31m[FAIL]\x1b[0m Not responding at {}. Try: sudo systemctl restart {}.service",
+                addr, unit
+            );
+        }
     }
 
     // 3. Memory Bank (SQLite)
@@ -344,4 +361,42 @@ pub async fn handle_status_command(
 
     println!("\x1b[1m---------------------------------------------------\x1b[0m");
     Ok(())
+}
+
+/// True if something accepts TCP connections at a gRPC address such as
+/// `http://127.0.0.1:50051`, within a short timeout.
+async fn grpc_port_open(addr: &str) -> bool {
+    let host_port = addr
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .trim_end_matches('/');
+    matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            tokio::net::TcpStream::connect(host_port),
+        )
+        .await,
+        Ok(Ok(_))
+    )
+}
+
+#[cfg(test)]
+mod reachability_tests {
+    use super::grpc_port_open;
+
+    /// Regression guard: status reported the Citadel as PASS because its
+    /// admin socket file existed, while its gRPC listener was down.
+    #[tokio::test]
+    async fn detects_open_and_closed_ports() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(grpc_port_open(&format!("http://127.0.0.1:{port}")).await);
+        drop(listener);
+        assert!(!grpc_port_open(&format!("http://127.0.0.1:{port}")).await);
+    }
+
+    #[tokio::test]
+    async fn malformed_address_is_not_open() {
+        assert!(!grpc_port_open("not a url").await);
+    }
 }
