@@ -100,7 +100,7 @@ locate_citadels() {
 install_skills() {
     section "Installing KoadOS Skills"
     if bash scripts/install-skills.sh >/dev/null 2>&1; then
-        ok "Skills installed to ~/.agents/skills (Claude Code, Codex)"
+        ok "Skills installed to ~/.agents/skills (Claude Code)"
     else
         warn "Skills install failed. Run scripts/install-skills.sh to see the error."
     fi

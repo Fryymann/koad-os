@@ -1,6 +1,11 @@
 ---
 name: rtk
 description: Use when checking token savings, discovering missed compression opportunities, or explicitly invoking RTK commands outside of the automatic hook rewriting.
+license: MIT
+compatibility: Requires a KoadOS Citadel install (koad CLI, $KOAD_HOME, running Citadel and CASS services).
+metadata:
+  author: koados
+  version: "2.0.0"
 ---
 
 # RTK — Rust Token Killer

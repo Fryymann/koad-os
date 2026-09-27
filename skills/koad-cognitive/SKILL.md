@@ -1,49 +1,39 @@
 ---
 name: koad-cognitive
-description: Use when an agent is drifting from protocol, producing low-quality output, or when explicitly requested to audit cognitive health and memory state.
+description: Use when checking whether an agent's continuity systems are healthy - a live Citadel session, hot context, the agent inbox, and CASS memory recall.
+license: MIT
+compatibility: Requires a KoadOS Citadel install (koad CLI, $KOAD_HOME, running Citadel and CASS services).
+metadata:
+  author: koados
+  version: "2.0.0"
 ---
 
 # koad cognitive
 
-Deep audit of an agent's internal cognitive layers — memory integrity, protocol compliance, and learning status.
-
-## When to Run
-
-- Agent is producing inconsistent or protocol-violating output
-- User asks for a cognitive audit or "how are you doing"
-- Before a high-stakes session (architecture decisions, migrations)
-- `koad intel mind` shows anomalies
-
-## Command
+One command that checks what an agent's continuity depends on, and reports a verdict derived from the results.
 
 ```bash
 koad cognitive
 ```
 
-No arguments. Runs a full audit pass across:
-- Identity anchor (name, rank, principles)
-- Memory integrity (CASS partition health, fact count)
-- Protocol compliance (No-Read rule, filesystem protocol, efficiency)
-- Learning status (recent facts, pondered reflections)
-- Open signals (pending A2A messages)
-
-## After Running
-
-Read the output fully. Act on any flagged issues before proceeding:
-
-| Flag type | Action |
+| Check | What it verifies |
 |---|---|
-| Identity drift | Re-run `agent-boot <name>` |
-| CASS offline | Run `koad system start`, then `cass-recall` |
-| Low memory count | Check `koad intel mind` for partition issues |
-| Protocol violations | Acknowledge and correct behavior going forward |
+| L1 Session | The session in `KOAD_SESSION_ID` is accepted by the Citadel (a heartbeat, which also keeps it alive) |
+| L2 Hot context | Redis is reachable; number of hot-context chunks for the session |
+| L2 Inbox | Items addressed to this agent in `$KOAD_HOME/agents/inbox/` |
+| L3 CASS | A recall query in this agent's partition returns memory |
 
-## Relationship to Other Health Tools
+Verdict: any **FAIL** → `DEGRADED`, any **WARN** → `ATTENTION`, otherwise `OPTIMAL`.
 
-```
-koad doctor        → system/infra health (services, binaries, network)
-koad cognitive     → agent cognitive health (memory, identity, compliance)
-koad intel mind    → learning layer only (facts, reflections, recency)
-```
+## Acting on results
 
-Run `koad doctor` for infra issues, `koad cognitive` for agent quality issues.
+| Result | Action |
+|---|---|
+| L1 WARN "No session loaded" / FAIL "rejected" | Run the `agent-boot` skill to mint a session |
+| L1 FAIL "Citadel unreachable" | `koad system status`, then the restart command it prints |
+| L2 FAIL Redis | `koad doctor -f` |
+| L2 inbox items | Read them (`koad-inbox` skill) before starting new work |
+| L3 FAIL | `koad system status`; CASS may need a restart |
+| L3 WARN no memories | Normal for a new agent; otherwise check the partition name |
+
+`koad system status` covers infrastructure; `koad cognitive` covers this agent's session and memory.

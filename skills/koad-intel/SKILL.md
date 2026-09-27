@@ -1,77 +1,44 @@
 ---
 name: koad-intel
-description: Use when storing a fact or learning to durable memory, querying prior knowledge from the CLI, reading a precise file range, or recording an architectural reflection.
+description: Use when storing a fact, learning or reflection in durable CASS memory from the command line, or querying prior knowledge from the CLI when the citadel-memory MCP tools are not available.
+license: MIT
+compatibility: Requires a KoadOS Citadel install (koad CLI, $KOAD_HOME, running Citadel and CASS services).
+metadata:
+  author: koados
+  version: "2.0.0"
 ---
 
 # koad intel
 
-CLI memory operations against CASS. Use for direct writes and targeted reads outside of MCP context.
+CLI access to CASS memory. With the `citadel-memory` MCP tools available, prefer them for reads (see the `cass-recall` and `cass-search` skills); use the CLI for writes.
 
-## Decision: CLI vs MCP
+## Query
 
-```
-In a session with citadel-memory MCP? → use MCP tools (cass-recall, cass-search)
-No MCP / need to write memory?        → use koad intel CLI, after verifying its active Citadel path
-```
-
-### Jupiter scheduled-shell caveat
-
-In Hermes cron/scheduled shells, `koad intel` may resolve its database under the unrelated `~/.koad-os` tree even after a Jupiter boot and fail with `unable to open database file: /home/ideans/.koad-os/data/db/koad.db`. Do not repeat or flood logs with retries.
-
-For Jupiter Hermes, use the live partition-bound MCP bridge at `http://127.0.0.1:9745/mcp` when the native `citadel-memory` tools are not exposed:
-
-1. Check `GET /health`.
-2. Call MCP `status.citadel` and verify partition `hermes_jupiter_ideans`.
-3. Use `memory.list_topics`, `memory.recall`, or `memory.commit` through that bridge.
-4. Verify every commit by recall/search or the returned card identifier.
-
-Use direct CLI writes only when the CLI is demonstrably pointed at the intended Citadel and a live session identity exists.
-
-## Commands
-
-### Query memory
 ```bash
-koad intel query "<term>"            # search by keyword/regex
+koad intel query "<term>"                # CASS semantic matches, then the local archive
 koad intel query "<term>" --limit 20
-koad intel query "<term>" --tags rust,grpc
-koad intel query "<term>" --agent clyde
+koad intel query "<term>" --agent hermes
 ```
 
-### Commit a fact
+## Store
+
 ```bash
-koad intel remember fact "<statement>"
-koad intel remember learning "<technical insight>"
+koad intel remember fact "<statement>"          # durable truths: ports, conventions, decisions
+koad intel remember learning "<insight>"        # discoveries, patterns, bug causes
+koad intel remember fact "<statement>" -t tag1,tag2
+koad intel ponder "<reflection>" -t design      # persona reflections, tradeoffs, post-mortems
 ```
 
-Facts: persistent system truths (ports, conventions, decisions).  
-Learnings: technical discoveries, patterns, bug fixes.
+Writes need a live session: source the session env from the `agent-boot` skill first. If a write fails with `Session not found or expired`, re-mint and retry once.
 
-### Record a reflection
+Write statements that stand alone: include the component, the date when it matters, and why.
+
+## Other
+
 ```bash
-koad intel ponder "<architectural thought>" --tags design,grpc
+koad intel guide [quick|canon|workflow|ais|saveup|worktree]   # KoadOS field guide
 ```
 
-Reflections are persona-specific. Use for design decisions, tradeoffs, post-mortems.
+## Verify writes
 
-### Read file snippet (No-Read rule)
-```bash
-koad intel snippet <path> --start <N> --end <N>
-koad intel snippet crates/koad-cass/src/lib.rs --start 45 --end 80
-```
-
-Use instead of reading entire files. Satisfies the No-Read efficiency rule.
-
-### Other
-```bash
-koad intel mind          # cognitive health + learning status
-koad intel guide <topic> # KoadOS field guide lookup
-koad intel scan          # deep workspace scan for project roots
-```
-
-## Common Mistakes
-
-| Mistake | Fix |
-|---|---|
-| Reading entire files for one function | Use `snippet --start --end` |
-| Storing facts during MCP sessions | Still do it — CLI writes are durable regardless of MCP state |
-| Generic `remember fact` with no context | Include domain, crate, or component in the statement |
+After storing something important, confirm it can be recalled (`memory.search_semantic` via MCP, or `koad intel query`). A write that cannot be found is not memory.
