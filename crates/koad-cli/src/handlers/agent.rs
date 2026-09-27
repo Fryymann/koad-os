@@ -487,7 +487,7 @@ async fn scaffold_kapv(spec: KapvScaffoldSpec<'_>, config: &KoadConfig) -> Resul
          - **Sanctuary Rule:** Write authority scoped to `agents/{key}/` by default.\n\
            Operations outside this path require explicit Dood approval.\n\
          - **Dood Gate:** Architectural decisions require Condition Green before code runs.\n\
-         - **No-Read Rule:** Never read entire files over 50 lines. Use grep and line-range reads.\n\
+         - **Recall Before Rebuild:** Check CASS memory before re-deriving knowledge.\n\
          - **Plan Mode Law:** Standard complexity tasks require a plan before execution.\n\n\
          ---\n\n\
          ## IV. Runtime Notes\n\n\
@@ -600,9 +600,9 @@ async fn scaffold_kapv(spec: KapvScaffoldSpec<'_>, config: &KoadConfig) -> Resul
          ## Boundaries\n\n\
          - Local edits inside `{vault_path}/` are allowed without escalation.\n\
          - KoadOS source, shared config, or other agents' sanctuaries require Dood approval.\n\
-         - Escalate architecture decisions to Tyr via GitHub issues.\n\n\
+         - Escalate architecture decisions to Dood (Ian).\n\n\
          ## Working Standard\n\n\
-         - No-Read Rule: Never read full files over 50 lines.\n\
+         - Recall Before Rebuild: check CASS memory before re-deriving knowledge.\n\
          - Plan Mode Law: Standard complexity tasks require a plan before code runs.\n\
          - All Rust code must pass `cargo clippy -- -D warnings`.\n\
          - Keep durable memory factual and minimal.\n\n\
