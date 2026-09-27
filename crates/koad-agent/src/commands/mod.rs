@@ -1,3 +1,4 @@
+pub mod anchor;
 pub mod boot;
 pub mod verify;
 pub mod info;
@@ -5,6 +6,7 @@ pub mod brief;
 pub mod task;
 pub mod intel;
 
+pub use anchor::handle_anchor;
 pub use boot::handle_boot;
 pub use verify::handle_verify;
 pub use info::handle_info;

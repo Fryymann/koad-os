@@ -27,6 +27,14 @@ pub enum Commands {
         #[arg(short, long, default_value_t = true)]
         shell: bool,
     },
+    /// Print an identity anchor for another body (e.g. Claude Code for Windows).
+    Anchor {
+        /// The name of the agent.
+        agent: String,
+        /// Which body the session runs in.
+        #[arg(long, value_enum)]
+        body: commands::anchor::AnchorBody,
+    },
     /// Verify the integrity of an agent's personal vault (KAPV).
     Verify {
         /// The name of the agent vault to verify.
@@ -64,6 +72,9 @@ pub async fn run() -> Result<()> {
     match cli.command {
         Commands::Boot { agent, name, shell } => {
             commands::handle_boot(&config, agent, name, shell).await?;
+        }
+        Commands::Anchor { agent, body } => {
+            commands::handle_anchor(&config, &agent, body).await?;
         }
         Commands::Verify { agent } => {
             commands::handle_verify(agent, &config).await?;
