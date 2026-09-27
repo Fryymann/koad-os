@@ -50,8 +50,8 @@ pub fn build_citadel_interceptor(
 
         // 3. L1 Validation: Check local session cache
         // We use lock here as HashMap lookups are O(1) and the mutex is rarely contested.
-        let sessions_guard = sessions.lock();
-        if let Some(record) = sessions_guard.get(session_id) {
+        let mut sessions_guard = sessions.lock();
+        if let Some(record) = sessions_guard.get_mut(session_id) {
             if record.session_token != session_token {
                 return Err(Status::unauthenticated("Invalid session token"));
             }
@@ -60,6 +60,13 @@ pub fn build_citadel_interceptor(
             }
             if !record.state.is_alive() {
                 return Err(Status::unavailable("Session is not active"));
+            }
+            // A validated request proves the agent is alive, so it counts as a
+            // heartbeat. Harness-driven agents run no heartbeat daemon and were
+            // otherwise purged while actively using their session.
+            record.last_heartbeat = chrono::Utc::now();
+            if record.state == crate::state::docking::DockingState::Dark {
+                record.state = crate::state::docking::DockingState::Active;
             }
         } else {
             // Bypass only for the 'BOOT' handshake which creates the first lease.
@@ -111,6 +118,67 @@ mod tests {
             .insert("x-session-token", "secret-token".parse().unwrap());
 
         assert!(interceptor(req).is_ok());
+    }
+
+    /// Regression guard: only the Heartbeat RPC refreshed liveness, so a
+    /// harness agent actively using its session (but running no heartbeat
+    /// daemon) was purged after purge_timeout_secs of "silence".
+    #[test]
+    fn test_authenticated_request_counts_as_heartbeat_and_revives_dark() {
+        let sessions = setup_test_sessions();
+        let stale = Utc::now() - chrono::Duration::seconds(200);
+        {
+            let mut guard = sessions.lock();
+            let record = guard.get_mut("SID-test-123").unwrap();
+            record.last_heartbeat = stale;
+            record.state = DockingState::Dark;
+        }
+        let interceptor = build_citadel_interceptor(sessions.clone());
+
+        let mut req = Request::new(());
+        req.metadata_mut().insert("x-actor", "Tyr".parse().unwrap());
+        req.metadata_mut()
+            .insert("x-session-id", "SID-test-123".parse().unwrap());
+        req.metadata_mut()
+            .insert("x-session-token", "secret-token".parse().unwrap());
+        assert!(interceptor(req).is_ok());
+
+        let guard = sessions.lock();
+        let record = guard.get("SID-test-123").unwrap();
+        assert!(
+            record.last_heartbeat > stale,
+            "activity must refresh last_heartbeat"
+        );
+        assert_eq!(
+            record.state,
+            DockingState::Active,
+            "activity must revive a Dark session"
+        );
+    }
+
+    #[test]
+    fn test_rejected_request_does_not_refresh_liveness() {
+        let sessions = setup_test_sessions();
+        let stale = Utc::now() - chrono::Duration::seconds(200);
+        sessions
+            .lock()
+            .get_mut("SID-test-123")
+            .unwrap()
+            .last_heartbeat = stale;
+        let interceptor = build_citadel_interceptor(sessions.clone());
+
+        let mut req = Request::new(());
+        req.metadata_mut().insert("x-actor", "Tyr".parse().unwrap());
+        req.metadata_mut()
+            .insert("x-session-id", "SID-test-123".parse().unwrap());
+        req.metadata_mut()
+            .insert("x-session-token", "wrong-token".parse().unwrap());
+        assert!(interceptor(req).is_err());
+
+        assert_eq!(
+            sessions.lock().get("SID-test-123").unwrap().last_heartbeat,
+            stale
+        );
     }
 
     #[test]
