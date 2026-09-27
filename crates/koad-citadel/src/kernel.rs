@@ -8,9 +8,7 @@ use crate::services::admin::AdminService;
 use crate::services::bay::PersonalBayService;
 use crate::services::sector::SectorService;
 use crate::services::session::CitadelSessionService;
-use crate::services::signal::SignalService;
 use crate::services::xp::CitadelXpService;
-use crate::signal_corps::quota::QuotaValidator;
 use crate::state::bay_store::BayStore;
 use crate::state::storage_bridge::CitadelStorageBridge;
 use crate::workspace::manager::WorkspaceManager;
@@ -26,7 +24,6 @@ use koad_proto::citadel::v5::admin_server::AdminServer;
 use koad_proto::citadel::v5::citadel_session_server::CitadelSessionServer;
 use koad_proto::citadel::v5::personal_bay_server::PersonalBayServer;
 use koad_proto::citadel::v5::sector_server::SectorServer;
-use koad_proto::citadel::v5::signal_server::SignalServer;
 use koad_proto::citadel::v5::xp_service_server::XpServiceServer;
 use koad_sandbox::Sandbox;
 
@@ -164,7 +161,6 @@ impl KernelBuilder {
         bay_store.auto_provision_all(&identities_dir).await?;
 
         let signal_corps = Arc::new(SignalCorps::new(redis.clone(), "koad:stream:", 1000));
-        let quota = Arc::new(QuotaValidator::new(redis.clone(), 60, 60));
         let workspace_mgr = Arc::new(WorkspaceManager::new(
             home_dir.join("workspaces"),
             home_dir.clone(),
@@ -181,7 +177,6 @@ impl KernelBuilder {
         );
         let bay_svc_impl = PersonalBayService::new(bay_store.clone(), workspace_mgr.clone());
         let sector_svc_impl = SectorService::new(redis.clone(), sandbox.clone());
-        let signal_svc_impl = SignalService::new(signal_corps.clone(), quota.clone());
         let koad_db_path = home_dir.join(&config.storage.db_name);
         let koad_db = Arc::new(KoadDB::new(&koad_db_path)?);
         let admin_svc_impl = AdminService::new(
@@ -239,10 +234,6 @@ impl KernelBuilder {
             ))
             .add_service(SectorServer::with_interceptor(
                 sector_svc_impl.clone(),
-                auth_interceptor.clone(),
-            ))
-            .add_service(SignalServer::with_interceptor(
-                signal_svc_impl.clone(),
                 auth_interceptor,
             ))
             .add_service(XpServiceServer::new(xp_svc_impl.clone()));

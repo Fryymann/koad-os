@@ -1056,11 +1056,6 @@ pub async fn handle_context_action(
     db: &KoadDB,
     agent_name: &str,
 ) -> Result<()> {
-    let mut client = AdminClient::connect(config.network.citadel_grpc_addr.clone())
-        .await
-        .map_err(|e| map_connect_err("KoadOS Citadel", &config.network.citadel_grpc_addr, e))
-        .map_err(anyhow::Error::from)?;
-
     match action {
         crate::cli::ContextAction::Hydrate {
             session,
@@ -1125,31 +1120,6 @@ pub async fn handle_context_action(
             } else {
                 println!("\x1b[31m[ERROR]\x1b[0m Hydration Failed: {}", res.message);
             }
-        }
-        crate::cli::ContextAction::Flush { session, confirm } => {
-            if !confirm {
-                println!("\x1b[33m[SAFETY GATE]\x1b[0m This will purge all volatile hot context for the target session. This action is irreversible.");
-                println!("Run with --confirm to proceed.");
-                return Ok(());
-            }
-            let target_sid = if let Some(s) = session {
-                s
-            } else {
-                env::var("KOAD_SESSION_ID")
-                    .context("KOAD_SESSION_ID not set. Provide --session ID.")?
-            };
-
-            client
-                .flush_context(crate::utils::authenticated_request(FlushContextRequest {
-                    context: Some(crate::utils::get_trace_context(agent_name, 3)),
-                    session_id: target_sid.clone(),
-                }))
-                .await?;
-
-            println!(
-                "\x1b[32m[OK]\x1b[0m Hot context flushed for session {}.",
-                target_sid
-            );
         }
         crate::cli::ContextAction::List { agent } => {
             let conn = db.get_conn()?;

@@ -12,9 +12,6 @@ pub async fn handle_fleet_action(
         FleetAction::Board { action } => {
             crate::handlers::board::handle_board(action, config).await?;
         }
-        _ => {
-            println!("Fleet action placeholder.");
-        }
     }
     Ok(())
 }

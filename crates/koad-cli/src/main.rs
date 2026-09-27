@@ -184,9 +184,6 @@ async fn main() -> Result<()> {
         Commands::Bridge { action } => {
             handle_bridge_action(action, &config, &db).await?;
         }
-        Commands::Signal { action } => {
-            crate::handlers::signal::handle_signal_action(action, &config, &agent_name).await?
-        }
         Commands::Guide { topic } => {
             crate::handlers::guide::handle_guide_action(topic, &config).await?
         }
@@ -212,9 +209,6 @@ async fn main() -> Result<()> {
         }
         Commands::Board { action } => {
             crate::handlers::board::handle_board(action, &config).await?;
-        }
-        Commands::Project { action } => {
-            crate::handlers::project::handle_project(action, &config).await?;
         }
         Commands::Review { file } => {
             crate::handlers::review::handle_review(&file, &config).await?;

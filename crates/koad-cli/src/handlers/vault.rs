@@ -29,12 +29,6 @@ pub async fn handle_vault_action(action: VaultAction, config: &KoadConfig) -> Re
         VaultAction::Skill { action } => {
             handle_vault_skill_action(action, &agent_name, config, &vault_path).await
         }
-        _ => {
-            println!(
-                "\x1b[33m[STUB]\x1b[0m This vault action is not yet implemented in Dark Mode."
-            );
-            Ok(())
-        }
     }
 }
 

@@ -49,7 +49,6 @@ koad-codegraph = { path = "../koad-codegraph" }
 koad-sandbox = { path = "../koad-sandbox", features = ["container"] }
 koad-board = { path = "../koad-board" }
 koad-bridge-notion = { path = "../koad-bridge-notion" }
-koad-mcp = { path = "../koad-mcp" }
 koad-intelligence = { path = "../koad-intelligence" }
 
 [[bin]]
@@ -61,20 +60,8 @@ name = "koad-agent"
 path = "src/bin/koad-agent.rs"
 
 [[bin]]
-name = "koad-mcp"
-path = "src/bin/koad-mcp.rs"
-
-[[bin]]
-name = "koad-notion-mcp"
-path = "src/bin/koad-notion-mcp.rs"
-
-[[bin]]
 name = "koad-fs-mcp"
 path = "src/bin/koad-fs-mcp.rs"
-
-[[bin]]
-name = "koad-map"
-path = "src/bin/koad-map.rs"
 
 [dev-dependencies]
 assert_cmd = "2.0"
