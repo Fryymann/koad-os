@@ -58,6 +58,35 @@ impl CitadelSessionService {
         self.sessions.clone()
     }
 
+    /// Push a session's persisted lease `expires_at` to `now + lease_duration`.
+    /// Failures are logged, not returned: the in-memory session stays valid.
+    async fn extend_lease(&self, sid: &str, now: chrono::DateTime<Utc>) {
+        let key = format!("koad:session:{}", sid);
+        let current: Option<String> = match self.storage.redis.pool.hget("koad:state", &key).await {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("Heartbeat: could not read lease for {}: {}", sid, e);
+                return;
+            }
+        };
+        let Some(mut lease) =
+            current.and_then(|v| serde_json::from_str::<serde_json::Value>(&v).ok())
+        else {
+            return;
+        };
+        let expires_at = now + chrono::Duration::seconds(self.lease_duration_secs as i64);
+        lease["expires_at"] = serde_json::Value::String(expires_at.to_rfc3339());
+        let result: Result<(), fred::error::RedisError> = self
+            .storage
+            .redis
+            .pool
+            .hset("koad:state", (key, lease.to_string()))
+            .await;
+        if let Err(e) = result {
+            warn!("Heartbeat: could not extend lease for {}: {}", sid, e);
+        }
+    }
+
     /// Repopulates the in-memory session cache from Redis.
     pub async fn hydrate_sessions(&self) -> Result<(), Status> {
         let state: std::collections::HashMap<String, String> = self
@@ -355,26 +384,30 @@ impl CitadelSession for CitadelSessionService {
 
         {
             let mut sessions = self.sessions.lock();
-            if let Some(record) = sessions.get_mut(sid) {
-                record.last_heartbeat = now;
-                record.state = DockingState::Active;
+            let Some(record) = sessions.get_mut(sid) else {
+                return Err(Status::not_found(format!("Session {} not found", sid)));
+            };
+            record.last_heartbeat = now;
+            record.state = DockingState::Active;
 
-                if let Some(metrics) = req.metrics {
-                    info!(
-                        "Telemetry [{}]: tokens_in={}, tokens_out={}",
-                        sid, metrics.input_tokens, metrics.output_tokens
-                    );
-                }
-
-                Ok(Response::new(StatusResponse {
-                    success: true,
-                    message: "Heartbeat acknowledged".to_string(),
-                    context: None,
-                }))
-            } else {
-                Err(Status::not_found(format!("Session {} not found", sid)))
+            if let Some(metrics) = req.metrics {
+                info!(
+                    "Telemetry [{}]: tokens_in={}, tokens_out={}",
+                    sid, metrics.input_tokens, metrics.output_tokens
+                );
             }
         }
+
+        // Extend the persisted lease too. Previously only the in-memory record
+        // was refreshed, so the Redis lease kept its original expires_at and a
+        // Citadel restart discarded every session older than the lease window.
+        self.extend_lease(sid, now).await;
+
+        Ok(Response::new(StatusResponse {
+            success: true,
+            message: "Heartbeat acknowledged".to_string(),
+            context: None,
+        }))
     }
 
     async fn close_session(
