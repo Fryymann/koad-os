@@ -114,17 +114,21 @@ impl McpServer {
             let value: Value = match serde_json::from_str(&line) {
                 Ok(value) => value,
                 Err(e) => {
-                    tracing::warn!("Ignoring unparseable request: {}", e);
+                    tracing::warn!("Ignoring invalid JSON: {}", e);
                     continue;
                 }
             };
+            if !value.is_object() {
+                tracing::warn!("Ignoring non-object JSON-RPC message: {}", line);
+                continue;
+            }
             if value.get("id").is_none() {
                 continue;
             }
             let req: JsonRpcRequest = match serde_json::from_value(value) {
                 Ok(req) => req,
                 Err(e) => {
-                    tracing::warn!("Ignoring unparseable request: {}", e);
+                    tracing::warn!("Ignoring valid JSON that is not a valid request: {}", e);
                     continue;
                 }
             };
@@ -389,5 +393,30 @@ mod tests {
         assert_eq!(lines.len(), 1);
         let res: Value = serde_json::from_str(lines[0]).unwrap();
         assert!(res.get("result").is_some());
+    }
+
+    /// Regression guard: a line that is valid JSON but not an object (a bare
+    /// number, string, array, or `null`) has no `"id"` key and was silently
+    /// treated as a notification. It must be logged and skipped, not treated
+    /// as if it were a well-formed request or notification.
+    #[tokio::test]
+    async fn serve_ignores_non_object_json_and_still_answers_later_requests() {
+        let server = server_with_tool();
+        let input = concat!(
+            "42\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}\n",
+        );
+        let mut out: Vec<u8> = Vec::new();
+        server.serve(input.as_bytes(), &mut out).await.unwrap();
+
+        let text = String::from_utf8(out).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines.len(),
+            1,
+            "the bare `42` line must not produce a response"
+        );
+        let res: Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(res["id"].as_i64(), Some(1));
     }
 }
