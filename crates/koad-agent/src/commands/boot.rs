@@ -340,7 +340,7 @@ pub async fn handle_boot(
 
             // --- AI Anchor Generation ---
             let mut anchor_content = format!(
-            "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## MANDATORY: Session Hydration\nIf you have not done so, or if you need to refresh your context, run:\n`source {}/bin/koad-functions.sh && agent-boot {}`\n",
+            "# KoadOS Agent Identity Anchor\nGenerated At: {}\n\n## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n\n## Session\nIn an agent harness, run the `agent-boot` skill: it mints a Citadel session and saves it to `$KOAD_VAULT_PATH/sessions/current.env` for later commands. In an interactive terminal: `source {}/bin/koad-functions.sh && agent-boot {}`\n",
             timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, config.home.display(), agent_key
         );
 
@@ -348,11 +348,11 @@ pub async fn handle_boot(
             if !active_pulses.is_empty() {
                 anchor_content.push_str("\n## 🛜 Live Awareness (Global Pulses)\n");
                 for p in active_pulses {
-                    anchor_content.push_str(&format!("- **{}**: {} \x1b[2m— {}\x1b[0m\n", p.author, p.message, p.role));
+                    anchor_content.push_str(&pulse_line(&p.author, &p.message, &p.role));
                 }
             }
 
-            anchor_content.push_str("\n## 📂 Filesystem Protocol: Scoped MCP\nAll filesystem operations MUST be performed via the `koadFsMcp` toolset (read_text_file, write_file, list_directory, etc.). Raw shell commands for file manipulation are strictly prohibited to ensure Sanctuary compliance.\n\n## 🧭 Navigation Protocol: Game Map HUD\nUse `koad map` for instant situational awareness. \n- `koad map look` → Describe surroundings & POIs.\n- `koad map exits` → Show available paths.\n- `koad map goto <alias>` → Fast-travel to pinned locations.\n- `koad map nearby` → Scan for related configs/tasks.\n\n## ⚡ Efficiency Policy: The 'No-Read' Rule\nTo minimize token burn, you are STRICTLY FORBIDDEN from reading entire source files unless they are under 50 lines. \n1. **Use your Context Packet:** Structural maps of relevant crates are provided in the CASS section below. Use them first.\n2. **Discovery:** Use `grep_search` to locate specific logic or patterns.\n3. **Targeted Reading:** Use `read_file` ONLY with `start_line` and `end_line` parameters for surgical extraction.\n");
+            anchor_content.push_str(operating_guidance());
 
             if !cass_packet.is_empty() {
                 anchor_content.push_str("\n## 🧠 Temporal Context Packet (CASS)\n");
@@ -557,6 +557,24 @@ async fn write_identity_anchor(
     safe_write_anchor(home.join(runtime.home_relative_path()), content, agent_name).await
 }
 
+/// Operating guidance written into every identity anchor.
+fn operating_guidance() -> &'static str {
+    "\n## Working Environment\n\
+     - **Files:** use your harness's own file tools. Models without file tools (local or \
+     harness-less) can use `koad-fs-mcp`, a filesystem MCP server scoped to this agent's \
+     allowed directories.\n\
+     - **Memory:** recall prior work from CASS before rebuilding knowledge (`citadel-memory` \
+     MCP or `koad intel query`); store durable lessons with `koad intel remember`.\n\
+     - **Handoffs:** messages between agents are files in \
+     `$KOAD_HOME/agents/inbox/<slug>.<type>.<agent>.md`.\n\
+     - **Orientation (optional):** `koad map look` summarises the current directory.\n"
+}
+
+/// One Global Pulse as a Markdown list item.
+fn pulse_line(author: &str, message: &str, role: &str) -> String {
+    format!("- **{author}**: {message} ({role})\n")
+}
+
 async fn safe_write_anchor(path: PathBuf, content: &str, agent_name: &str) -> Result<()> {
     if path.exists() {
         if let Ok(existing) = fs::read_to_string(&path).await {
@@ -589,6 +607,35 @@ async fn safe_write_anchor(path: PathBuf, content: &str, agent_name: &str) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression guard: the anchor mandated a filesystem MCP that did not
+    /// exist, forbade reading whole files, and named Gemini CLI tools.
+    #[test]
+    fn guidance_matches_current_harnesses() {
+        let g = operating_guidance();
+        for stale in [
+            "MUST be performed via",
+            "No-Read",
+            "STRICTLY FORBIDDEN",
+            "grep_search",
+            "read_file",
+        ] {
+            assert!(!g.contains(stale), "stale guidance still present: {stale}");
+        }
+        assert!(
+            g.contains("koad-fs-mcp"),
+            "local models should be pointed at koad-fs-mcp"
+        );
+    }
+
+    /// Regression guard: pulses were written with terminal escape codes into
+    /// a Markdown file.
+    #[test]
+    fn pulse_line_is_plain_markdown() {
+        let line = pulse_line("hermes", "deploy done", "global");
+        assert!(!line.contains('\x1b'), "{line:?}");
+        assert_eq!(line, "- **hermes**: deploy done (global)\n");
+    }
 
     /// Regression guard: boot used to write the anchor to CLAUDE.md, AGENTS.md
     /// and GEMINI.md in the current directory, clobbering a project's own
