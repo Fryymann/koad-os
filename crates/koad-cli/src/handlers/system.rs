@@ -797,15 +797,23 @@ pub async fn handle_system_action(
             }
         }
         SystemAction::Start => {
-            start_citadel_services(config)?;
+            if systemd_units_installed() {
+                systemctl_stack("start")?;
+            } else {
+                start_citadel_services(config)?;
+            }
         }
         SystemAction::Status { json, full } => {
             crate::handlers::status::handle_status_command(json, full, false, config, db).await?;
         }
         SystemAction::Restart => {
-            stop_citadel_processes();
-            std::thread::sleep(Duration::from_millis(800));
-            start_citadel_services(config)?;
+            if systemd_units_installed() {
+                systemctl_stack("restart")?;
+            } else {
+                stop_citadel_processes();
+                std::thread::sleep(Duration::from_millis(800));
+                start_citadel_services(config)?;
+            }
         }
         SystemAction::Stop { drain, confirm } => {
             if !is_admin {
@@ -834,7 +842,11 @@ pub async fn handle_system_action(
             }
 
             println!(">>> [2/2] Terminating KoadOS Core...");
-            stop_citadel_processes();
+            if systemd_units_installed() {
+                systemctl_stack("stop")?;
+            } else {
+                stop_citadel_processes();
+            }
             println!("\x1b[32m[OK]\x1b[0m System halted.");
         }
         SystemAction::Scrub { dry_run, force } => {
@@ -857,17 +869,71 @@ pub async fn handle_system_action(
     Ok(())
 }
 
+/// Processes `koad system stop/start/restart` manages when there is no
+/// systemd unit. Per-agent memory MCP servers (koad-os-mcp) are separate
+/// per-agent user units and are never touched here.
+const CITADEL_BINARIES: [&str; 2] = ["koad-citadel", "koad-cass"];
+
+/// systemd units for the Citadel stack.
+const CITADEL_UNITS: [&str; 2] = ["koad-citadel.service", "koad-cass.service"];
+
+/// Arguments for a non-interactive `sudo systemctl <verb>` over the stack.
+fn systemctl_args(verb: &str) -> Vec<String> {
+    ["-n", "systemctl", verb]
+        .into_iter()
+        .chain(CITADEL_UNITS)
+        .map(String::from)
+        .collect()
+}
+
+/// True when systemd supervises the Citadel on this host.
+fn systemd_units_installed() -> bool {
+    Command::new("systemctl")
+        .args(["cat", CITADEL_UNITS[0]])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Run `sudo -n systemctl <verb>` over the stack. Killing or spawning
+/// processes behind systemd's back left unmanaged copies running and the
+/// units dead, so when sudo needs a password this reports the exact command
+/// instead of falling back.
+fn systemctl_stack(verb: &str) -> Result<()> {
+    let ok = Command::new("sudo")
+        .args(systemctl_args(verb))
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if ok {
+        println!(
+            "\x1b[32m[OK]\x1b[0m systemctl {} {}",
+            verb,
+            CITADEL_UNITS.join(" ")
+        );
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "systemd manages the Citadel here and sudo needs a password. Run in a terminal:\n  sudo systemctl {} {}",
+            verb,
+            CITADEL_UNITS.join(" ")
+        )
+    }
+}
+
 /// Kill all running Citadel-stack processes (citadel + cass).
 fn stop_citadel_processes() {
-    let _ = Command::new("pkill").arg("koad-citadel").status();
-    let _ = Command::new("pkill").arg("koad-cass").status();
-    let _ = Command::new("pkill").arg("koad-os-mcp").status();
+    for bin in CITADEL_BINARIES {
+        let _ = Command::new("pkill").arg("-x").arg(bin).status();
+    }
 }
 
 /// Start koad-citadel and koad-cass.
 ///
-/// Tries systemctl first (when units are installed). Falls back to spawning
-/// the binaries directly from the koad-os bin/ directory with log file output.
+/// Start koad-citadel and koad-cass directly, for hosts without systemd
+/// units. Logs go to `$KOAD_HOME/logs`.
 fn start_citadel_services(config: &KoadConfig) -> Result<()> {
     println!("Pre-flight cleanup: Terminating existing Citadel processes...");
     stop_citadel_processes();
@@ -875,29 +941,6 @@ fn start_citadel_services(config: &KoadConfig) -> Result<()> {
     let log_dir = config.home.join("logs");
     let _ = std::fs::create_dir_all(&log_dir);
 
-    // Prefer systemctl when the unit is known to systemd.
-    let systemctl_known = Command::new("systemctl")
-        .args(["cat", "koad-citadel.service"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-
-    if systemctl_known {
-        // Starting citadel also starts cass via Wants=koad-cass.service.
-        let status = Command::new("systemctl")
-            .args(["start", "koad-citadel.service"])
-            .status()?;
-        if status.success() {
-            println!("\x1b[32m[OK]\x1b[0m Citadel, CASS, and MCP started via systemctl.");
-            return Ok(());
-        } else {
-            warn!("systemctl start koad-citadel.service failed (likely auth required). Falling back to manual spawn.");
-        }
-    }
-
-    // Fallback: spawn binaries directly.
     let bin_dir = config.home.join("bin");
     let env_file = config.home.join(".env");
 
@@ -934,27 +977,14 @@ fn start_citadel_services(config: &KoadConfig) -> Result<()> {
         .spawn()
         .context("Failed to spawn koad-cass")?;
 
-    println!("\x1b[32m[2/3]\x1b[0m koad-cass started.");
-    std::thread::sleep(Duration::from_millis(500));
-
-    // Start MCP Bridge.
-    Command::new(bin_dir.join("koad-os-mcp"))
-        .env("KOADOS_HOME", &config.home)
-        .env("KOAD_HOME", &config.home)
-        .env_remove("RUST_LOG")
-        .stdout(open_log("mcp", "out")?)
-        .stderr(open_log("mcp", "error")?)
-        .spawn()
-        .context("Failed to spawn koad-os-mcp")?;
-
-    println!("\x1b[32m[3/3]\x1b[0m koad-os-mcp started.");
+    println!("\x1b[32m[2/2]\x1b[0m koad-cass started.");
 
     // Source .env for KOADOS_PAT_NOTION_MAIN etc. if present — best-effort.
     // (The spawned processes inherit this shell's env; actual secret resolution
     //  happens inside each binary via KoadConfig::resolve_secret.)
     drop(env_file); // not parsed here; binaries handle it internally.
 
-    println!("\x1b[32m[OK]\x1b[0m Citadel, CASS, and MCP online.");
+    println!("\x1b[32m[OK]\x1b[0m Citadel and CASS online.");
     Ok(())
 }
 
@@ -1658,6 +1688,34 @@ mod scrub_tests {
             fs::read(&file).unwrap(),
             b"",
             "truncated file should be empty"
+        );
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    /// Regression guard: start/stop/restart pkilled every koad-os-mcp,
+    /// taking down each agent's memory MCP server (separate per-agent user
+    /// units) along with the Citadel.
+    #[test]
+    fn lifecycle_never_touches_agent_mcp_servers() {
+        assert!(!CITADEL_BINARIES.contains(&"koad-os-mcp"));
+        assert!(!CITADEL_UNITS.iter().any(|u| u.contains("mcp")));
+    }
+
+    #[test]
+    fn systemctl_args_cover_the_whole_stack_non_interactively() {
+        assert_eq!(
+            systemctl_args("restart"),
+            vec![
+                "-n",
+                "systemctl",
+                "restart",
+                "koad-citadel.service",
+                "koad-cass.service"
+            ]
         );
     }
 }
