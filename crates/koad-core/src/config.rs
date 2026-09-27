@@ -480,9 +480,11 @@ impl KoadConfig {
         None
     }
 
-    /// Resolves a vault URI to a local PathBuf.
-    /// Currently only supports file:// scheme.
-    pub fn resolve_vault_path(&self, uri: &str) -> Result<PathBuf> {
+    /// Expands a `file://` vault URI to a local path, without checking
+    /// whether it exists. Shared by `resolve_vault_path` (which then checks
+    /// existence) and callers, such as `koad-agent anchor`, that only need
+    /// the path to render into text rather than to open.
+    pub fn resolve_vault_path_unchecked(&self, uri: &str) -> Result<PathBuf> {
         if let Some(path_str) = uri.strip_prefix("file://") {
             let mut p_str = path_str.to_string();
             if p_str.starts_with('~') {
@@ -490,17 +492,23 @@ impl KoadConfig {
                     .context("Could not determine home directory for tilde expansion.")?;
                 p_str = p_str.replacen('~', &home.to_string_lossy(), 1);
             }
-            let path = PathBuf::from(p_str);
-            if path.exists() {
-                Ok(path)
-            } else {
-                anyhow::bail!("Vault path does not exist: {}", path.display())
-            }
+            Ok(PathBuf::from(p_str))
         } else {
             anyhow::bail!(
                 "Unsupported vault URI scheme: {}. Currently only 'file://' is supported.",
                 uri
             )
+        }
+    }
+
+    /// Resolves a vault URI to a local PathBuf.
+    /// Currently only supports file:// scheme.
+    pub fn resolve_vault_path(&self, uri: &str) -> Result<PathBuf> {
+        let path = self.resolve_vault_path_unchecked(uri)?;
+        if path.exists() {
+            Ok(path)
+        } else {
+            anyhow::bail!("Vault path does not exist: {}", path.display())
         }
     }
 
@@ -720,6 +728,22 @@ fn default_sandbox() -> SandboxConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `resolve_vault_path_unchecked` must expand `~` like `resolve_vault_path`
+    /// does, but must not require the resolved path to exist — callers that
+    /// only render the path (e.g. `koad-agent anchor`) need it for a vault
+    /// that hasn't been created yet or isn't visible from this host.
+    #[test]
+    fn test_resolve_vault_path_unchecked_expands_tilde_without_requiring_existence() {
+        let config: KoadConfig = KoadConfig::from_json(r#"{"home": "/tmp/koad-test-home"}"#)
+            .expect("minimal config should deserialize");
+        let path = config
+            .resolve_vault_path_unchecked("file://~/does/not/exist/anywhere")
+            .expect("should resolve without checking existence");
+        let home = dirs::home_dir().expect("home dir for test");
+        assert_eq!(path, home.join("does/not/exist/anywhere"));
+        assert!(!path.exists(), "fixture path should not exist: {path:?}");
+    }
 
     #[test]
     fn test_skill_blueprint_serialization() {

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# koad-mcp-stdio — start the CASS memory MCP server over stdio for one agent.
+# Run it through koad-wsl-env (KOAD_HOME must be set). koad-os-mcp derives the
+# partition from AGENT_NAME.
+#
+# Usage: koad-mcp-stdio <agent>
+set -euo pipefail
+
+agent="${1:-}"
+if [[ -z "$agent" ]]; then
+  echo "usage: koad-mcp-stdio <agent>" >&2
+  exit 64
+fi
+: "${KOAD_HOME:?KOAD_HOME is not set; run through koad-wsl-env}"
+
+agent="${agent,,}"
+if [[ ! "$agent" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+  echo "koad-mcp-stdio: invalid agent name '$agent'" >&2
+  exit 64
+fi
+if [[ ! -f "$KOAD_HOME/config/identities/$agent.toml" ]]; then
+  echo "koad-mcp-stdio: unknown agent '$agent' (no $KOAD_HOME/config/identities/$agent.toml)" >&2
+  exit 1
+fi
+
+export MCP_TRANSPORT=stdio
+export AGENT_NAME="$agent"
+export MCP_MODE=read_write
+export CASS_URL="${CASS_URL:-http://127.0.0.1:50052}"
+unset AGENT_PARTITION
+exec "$KOAD_HOME/bin/koad-os-mcp"

@@ -13,6 +13,7 @@ name = "cass-ingest"
 path = "src/bin/cass-ingest.rs"
 
 [dependencies]
+koad-core = { path = "../koad-core" }
 koad-mcp = { path = "../koad-mcp" }
 koad-proto = { path = "../koad-proto" }
 tokio = { workspace = true }

@@ -231,7 +231,13 @@ run_update() {
             cp "plugin/bin/agent-boot.sh" "$bin_dir/agent-boot.sh"
             ok "  ✓ Updated agent-boot.sh"
         fi
-        
+        # Windows body bridge launchers (see docs/superpowers/specs/2026-09-27-windows-body-bridge-design.md)
+        for launcher in koad-wsl-env koad-mcp-stdio; do
+            cp "scripts/$launcher" "$bin_dir/$launcher"
+            chmod +x "$bin_dir/$launcher"
+        done
+        ok "  ✓ Updated Windows bridge launchers"
+
         # 4. Copy scripts folder
         if [[ -d "scripts" ]]; then
             mkdir -p "$p/scripts"
@@ -460,6 +466,10 @@ run_install() {
     if [[ -f "plugin/bin/agent-boot.sh" ]]; then
         cp "plugin/bin/agent-boot.sh" "$BIN_DIR/agent-boot.sh"
     fi
+    for launcher in koad-wsl-env koad-mcp-stdio; do
+        cp "scripts/$launcher" "$BIN_DIR/$launcher"
+        chmod +x "$BIN_DIR/$launcher"
+    done
 
     # 7. Systemd Service Deployment
     CURRENT_STEP="Systemd Service Deployment"

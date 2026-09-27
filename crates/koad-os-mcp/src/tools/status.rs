@@ -1,8 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use koad_mcp::{McpContent, McpTool, McpToolCallResponse, McpToolHandler};
-use koad_proto::cass::v1::memory_service_client::MemoryServiceClient;
-use koad_proto::cass::v1::pulse_service_client::PulseServiceClient;
 use koad_proto::cass::v1::{FactQuery, GetPulsesRequest};
 use serde_json::{json, Value};
 
@@ -32,16 +30,15 @@ impl McpToolHandler for StatusTool {
     }
 
     async fn call(&self, _params: Value) -> Result<McpToolCallResponse> {
-        let memory_status = match MemoryServiceClient::connect(self.cass_url.clone()).await {
+        let memory_status = match super::cass::memory(&self.cass_url).await {
             Ok(mut client) => {
-                match client
-                    .query_facts(FactQuery {
-                        domain: self.partition.clone(),
-                        tags: vec![],
-                        limit: 1000,
-                        min_level: 0,
-                    })
-                    .await
+                match super::cass::call(client.query_facts(FactQuery {
+                    domain: self.partition.clone(),
+                    tags: vec![],
+                    limit: 1000,
+                    min_level: 0,
+                }))
+                .await
                 {
                     Ok(resp) => format!("ONLINE — {} cards in partition", resp.into_inner().facts.len()),
                     Err(e) => format!("DEGRADED — {e}"),
@@ -50,11 +47,13 @@ impl McpToolHandler for StatusTool {
             Err(e) => format!("OFFLINE — {e}"),
         };
 
-        let pulse_status = match PulseServiceClient::connect(self.cass_url.clone()).await {
+        let pulse_status = match super::cass::pulse(&self.cass_url).await {
             Ok(mut client) => {
-                match client
-                    .get_pulses(GetPulsesRequest { role: "global".to_string(), context: None })
-                    .await
+                match super::cass::call(client.get_pulses(GetPulsesRequest {
+                    role: "global".to_string(),
+                    context: None,
+                }))
+                .await
                 {
                     Ok(resp) => format!("{} active pulses", resp.into_inner().pulses.len()),
                     Err(_) => "pulse unavailable".to_string(),

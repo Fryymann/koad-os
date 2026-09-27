@@ -272,6 +272,9 @@ async fn main() -> Result<()> {
         Commands::Deploy { action } => {
             crate::handlers::deploy::handle_deploy_action(action, &config).await?;
         }
+        Commands::Body { action } => {
+            crate::handlers::body_windows::handle(action, &config).await?;
+        }
         Commands::Saveup { full } => {
             handle_system_action(
                 SystemAction::Save { full },
