@@ -2135,7 +2135,6 @@ dependencies = [
  "fred",
  "futures-util",
  "koad-agent",
- "koad-board",
  "koad-bridge-notion",
  "koad-codegraph",
  "koad-core",
@@ -2187,22 +2186,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tonic 0.12.3",
- "tracing",
-]
-
-[[package]]
-name = "koad-board"
-version = "3.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "koad-core",
- "log",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
  "tracing",
 ]
 
@@ -2416,28 +2399,6 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "koad-system"
-version = "3.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "clap",
- "fred",
- "futures-util",
- "koad-board",
- "koad-core",
- "koad-proto",
- "rusqlite",
- "serde",
- "serde_json",
- "tokio",
- "toml 0.8.23",
- "tonic 0.12.3",
- "tracing",
 ]
 
 [[package]]

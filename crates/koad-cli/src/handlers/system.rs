@@ -76,106 +76,6 @@ impl DistributedLock for RedisLockClient {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn spawn_issue(
-    config: &KoadConfig,
-    db: &KoadDB,
-    template: &str,
-    title: &str,
-    weight: &str,
-    objective: Option<String>,
-    scope: Option<String>,
-    labels: Vec<String>,
-    raw_body: Option<String>,
-) -> Result<koad_board::issue::Issue> {
-    let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let project_ctx = config.resolve_project_context(&current_dir);
-    let project = project_ctx.as_ref().map(|(_, p)| p);
-
-    // Resolve repository from Context or DB
-    let (owner, repo) = if let Some(p) = project {
-        (
-            config.get_github_owner(Some(p)),
-            config.get_github_repo(Some(p)),
-        )
-    } else if let Ok(conn) = db.get_conn() {
-        let abs_current = std::fs::canonicalize(&current_dir).unwrap_or(current_dir);
-        let search_path = abs_current.to_string_lossy().to_string();
-        let mut stmt = conn.prepare("SELECT github_repo FROM projects WHERE ?1 LIKE path || '%' ORDER BY length(path) DESC LIMIT 1")?;
-        let repo_full: Option<String> = stmt.query_row(params![search_path], |r| r.get(0)).ok();
-
-        if let Some(full) = repo_full {
-            let parts: Vec<&str> = full.split('/').collect();
-            if parts.len() == 2 {
-                (parts[0].to_string(), parts[1].to_string())
-            } else {
-                (
-                    config.get_github_owner(None::<&str>),
-                    config.get_github_repo(None::<&str>),
-                )
-            }
-        } else {
-            (
-                config.get_github_owner(None::<&str>),
-                config.get_github_repo(None::<&str>),
-            )
-        }
-    } else {
-        (
-            config.get_github_owner(None::<&str>),
-            config.get_github_repo(None::<&str>),
-        )
-    };
-
-    let token = config.resolve_gh_token(project.as_ref().map(|s| s.as_str()), None)?;
-    let client = koad_board::GitHubClient::new(token, owner.clone(), repo.clone())?;
-
-    let body = if let Some(rb) = raw_body {
-        rb
-    } else {
-        let template_path = config
-            .home
-            .join("templates")
-            .join("issues")
-            .join(format!("{}.md", template));
-        if !template_path.exists() {
-            anyhow::bail!("Template '{}' not found at {:?}", template, template_path);
-        }
-
-        let mut b = std::fs::read_to_string(&template_path)?;
-
-        // String Substitution for fast-spawning
-        b = b.replace("[trivial | standard | complex]", weight);
-
-        if let Some(obj) = objective {
-            b = b.replace(
-                "[Describe the high-level goal of this architectural change]",
-                &obj,
-            );
-            b = b.replace("[Describe the system subsystem to be hardened]", &obj);
-            b = b.replace("[Identify the resource or latency bottleneck]", &obj);
-            b = b.replace(
-                "[Describe the observed behavior vs expected behavior]",
-                &obj,
-            );
-        }
-        if let Some(sc) = scope {
-            b = b.replace(
-                "- [Component A]\n- [Component B]\n- [Interface change/Addition]",
-                &sc,
-            );
-            b = b.replace("- [Recovery logic for X]\n- [Watchdog implementation for Y]\n- [Self-healing procedure for Z]", &sc);
-            b = b.replace(
-                "- [Caching strategy]\n- [Refactor of inefficient loop]\n- [Payload reduction]",
-                &sc,
-            );
-        }
-        b
-    };
-
-    client.create_issue(title, &body, labels).await
-}
-
 pub async fn handle_system_action(
     action: SystemAction,
     config: &KoadConfig,
@@ -530,51 +430,6 @@ pub async fn handle_system_action(
 "
             );
         }
-        SystemAction::Spawn {
-            template,
-            title,
-            weight,
-            objective,
-            scope,
-            labels,
-        } => {
-            println!(">>> [SPAWN] Energizing Forge for Issue: {}...", title);
-            let issue = spawn_issue(
-                config, db, &template, &title, &weight, objective, scope, labels, None,
-            )
-            .await?;
-
-            // Resolve repo string for the reporter (using normalized path)
-            let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            let abs_current = std::fs::canonicalize(&current_dir).unwrap_or(current_dir);
-            let search_path = abs_current.to_string_lossy().to_string();
-
-            let repo_full = if let Ok(conn) = db.get_conn() {
-                let stmt = conn.prepare("SELECT github_repo FROM projects WHERE ?1 LIKE path || '%' ORDER BY length(path) DESC LIMIT 1").ok();
-                stmt.and_then(|mut s| {
-                    s.query_row(params![search_path], |r| r.get::<_, String>(0))
-                        .ok()
-                })
-                .unwrap_or_else(|| {
-                    format!(
-                        "{}/{}",
-                        config.get_github_owner(None),
-                        config.get_github_repo(None)
-                    )
-                })
-            } else {
-                format!(
-                    "{}/{}",
-                    config.get_github_owner(None),
-                    config.get_github_repo(None)
-                )
-            };
-
-            println!(
-                "\x1b[32m[SPAWNED]\x1b[0m Issue #{} live at: https://github.com/{}/issues/{}",
-                issue.number, repo_full, issue.number
-            );
-        }
         SystemAction::Import { .. } => {
             // Handled in main.rs dispatcher
         }
@@ -842,13 +697,6 @@ pub async fn handle_system_action(
         }
         SystemAction::Context { action } => {
             handle_context_action(action, config, db, agent_name).await?;
-        }
-        SystemAction::BoardSync {
-            dry_run,
-            auto_spawn,
-        } => {
-            crate::handlers::board_sync::handle_board_sync(dry_run, auto_spawn, config, agent_name)
-                .await?;
         }
         SystemAction::Heartbeat { daemon, session } => {
             handle_heartbeat(daemon, session, config).await?;
