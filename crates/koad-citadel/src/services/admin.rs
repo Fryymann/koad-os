@@ -5,6 +5,7 @@
 use koad_core::db::KoadDB;
 use koad_proto::citadel::v5::admin_server::Admin;
 use koad_proto::citadel::v5::*;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::watch;
@@ -24,6 +25,10 @@ pub struct AdminService {
     start_time: Instant,
     koad_db: Arc<KoadDB>,
     cass_grpc_addr: String,
+    /// Directory holding the Citadel's SQLite databases.
+    db_dir: PathBuf,
+    /// Root directory for timestamped backup snapshots.
+    backup_root: PathBuf,
 }
 
 impl AdminService {
@@ -32,12 +37,16 @@ impl AdminService {
         shutdown_tx: watch::Sender<bool>,
         koad_db: Arc<KoadDB>,
         cass_grpc_addr: String,
+        db_dir: PathBuf,
+        backup_root: PathBuf,
     ) -> Self {
         Self {
             shutdown_tx,
             start_time: Instant::now(),
             koad_db,
             cass_grpc_addr,
+            db_dir,
+            backup_root,
         }
     }
 }
@@ -241,10 +250,35 @@ impl Admin for AdminService {
         let req = request.into_inner();
         info!(source = %req.source, "Admin: Trigger backup requested");
 
+        // `source` is accepted for compatibility; every database is backed up.
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let (db_dir, backup_root) = (self.db_dir.clone(), self.backup_root.clone());
+        let stamp_for_task = stamp.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            koad_core::backup::backup_databases(&db_dir, &backup_root, &stamp_for_task)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Backup task failed: {}", e)))?;
+
+        let (success, message) = match result {
+            Ok(files) => (
+                true,
+                format!(
+                    "Backed up {} database(s) to {}",
+                    files.len(),
+                    self.backup_root.join(&stamp).display()
+                ),
+            ),
+            Err(e) => {
+                error!("Admin: Backup failed: {:#}", e);
+                (false, format!("Backup failed: {:#}", e))
+            }
+        };
+
         Ok(Response::new(TriggerBackupResponse {
-            success: true,
-            message: "Backup triggered (Placeholder)".to_string(),
-            backup_id: "bkp-placeholder".to_string(),
+            success,
+            message,
+            backup_id: stamp,
             context: req.context,
         }))
     }
@@ -277,11 +311,54 @@ mod tests {
         assert!(d.ends_with(":learning"));
     }
 
+    fn test_service(tx: watch::Sender<bool>, db: Arc<KoadDB>) -> AdminService {
+        AdminService::new(
+            tx,
+            db,
+            "http://127.0.0.1:50052".to_string(),
+            PathBuf::from("/nonexistent/db"),
+            PathBuf::from("/nonexistent/backups"),
+        )
+    }
+
+    /// Regression guard: trigger_backup used to return success with
+    /// backup_id "bkp-placeholder" without writing anything.
+    #[tokio::test]
+    async fn test_admin_trigger_backup_writes_real_snapshots() -> anyhow::Result<()> {
+        let data = tempfile::tempdir()?;
+        let backups = tempfile::tempdir()?;
+        rusqlite::Connection::open(data.path().join("koad.db"))?
+            .execute_batch("CREATE TABLE t(v); INSERT INTO t VALUES (1);")?;
+
+        let (tx, _) = watch::channel(false);
+        let db = Arc::new(KoadDB::new(std::path::Path::new(":memory:")).unwrap());
+        let service = AdminService::new(
+            tx,
+            db,
+            "http://127.0.0.1:50052".to_string(),
+            data.path().to_path_buf(),
+            backups.path().to_path_buf(),
+        );
+
+        let res = service
+            .trigger_backup(Request::new(TriggerBackupRequest {
+                context: None,
+                source: "all".to_string(),
+            }))
+            .await?
+            .into_inner();
+
+        assert!(res.success, "{}", res.message);
+        let snapshot = backups.path().join(&res.backup_id).join("koad.db");
+        assert!(snapshot.is_file(), "missing {}", snapshot.display());
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_admin_shutdown() -> anyhow::Result<()> {
         let (tx, mut rx) = watch::channel(false);
         let db = Arc::new(KoadDB::new(std::path::Path::new(":memory:")).unwrap());
-        let service = AdminService::new(tx, db, "http://127.0.0.1:50052".to_string());
+        let service = test_service(tx, db);
 
         let req = Request::new(ShutdownRequest {
             context: None,
@@ -299,7 +376,7 @@ mod tests {
     async fn test_admin_status() -> anyhow::Result<()> {
         let (tx, _) = watch::channel(false);
         let db = Arc::new(KoadDB::new(std::path::Path::new(":memory:")).unwrap());
-        let service = AdminService::new(tx, db, "http://127.0.0.1:50052".to_string());
+        let service = test_service(tx, db);
 
         let req = Request::new(SystemStatusRequest { context: None });
         let res = service.get_system_status(req).await?;

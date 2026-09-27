@@ -352,28 +352,15 @@ pub async fn handle_system_action(
             let home = config.home.clone();
             let now_ts = Local::now().format("%Y%m%d-%H%M%S").to_string();
 
-            // 1. Memory Drain (gRPC)
-            println!(">>> [1/4] Neuronal Flush (Citadel Shutdown)...");
-            match AdminClient::connect(config.network.citadel_grpc_addr.clone()).await {
-                Ok(mut client) => {
-                    let context = Some(crate::utils::get_trace_context(agent_name, 3));
-                    if let Err(e) = client
-                        .shutdown(crate::utils::authenticated_request(ShutdownRequest {
-                            context,
-                            reason: "Sovereign Save Protocol initiated.".to_string(),
-                        }))
-                        .await
-                    {
-                        warn!(
-                            "  [FAIL] Neuronal flush failed: {}. Continuing with local save.",
-                            e
-                        );
-                    } else {
-                        println!("  [OK] Hot-stream drained to durable memory.");
-                    }
-                }
-                Err(_) => warn!("  [SKIP] Citadel offline. Skipping hot-stream drain."),
-            }
+            // 1. Memory drain. The Citadel drains its hot stream (Redis) into
+            // SQLite continuously, so there is nothing to force here. This step
+            // used to send the admin Shutdown RPC, which stopped the Citadel's
+            // listeners and left it down.
+            println!(">>> [1/4] Hot-Stream Drain...");
+            println!(
+                "  [OK] Continuous: the Citadel drains to durable memory every {}s.",
+                config.storage.drain_interval_secs
+            );
 
             // 2. Cognitive Snapshot
             println!(">>> [2/4] Archiving Identity (Mind Snapshot)...");
@@ -398,11 +385,18 @@ pub async fn handle_system_action(
 
                 // 3. Database Backup
                 println!(">>> [3/4] Fortifying Memory (Database Backup)...");
-                let backup_dir = home.join("backups");
-                std::fs::create_dir_all(&backup_dir)?;
-                let backup_path = backup_dir.join(format!("koad-{}.db", now_ts));
-                std::fs::copy(home.join("data/db/koad.db"), &backup_path)?;
-                println!("  [OK] Database archived to: {}", backup_path.display());
+                let db_dir = config
+                    .get_db_path()
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| home.join("data/db"));
+                let files =
+                    koad_core::backup::backup_databases(&db_dir, &home.join("backups"), &now_ts)?;
+                println!(
+                    "  [OK] {} database(s) archived to: {}",
+                    files.len(),
+                    home.join("backups").join(&now_ts).display()
+                );
 
                 // 4. Git Checkpoint
                 println!(">>> [4/4] Finalizing Timeline (Git Checkpoint)...");

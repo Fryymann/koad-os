@@ -106,6 +106,50 @@ install_skills() {
     fi
 }
 
+# Find running processes whose executable under one of the given install
+# roots has been replaced on disk ("(deleted)"). Restart user units directly
+# (no password needed); print the exact sudo command for system units.
+# Returns non-zero if any system unit is still running old code.
+restart_stale_services() {
+    local roots=("$@") stale_user=() stale_system=()
+    local link exe pid unit root match
+    for link in /proc/[0-9]*/exe; do
+        exe=$(readlink "$link" 2>/dev/null) || continue
+        [[ "$exe" == *" (deleted)" ]] || continue
+        match=false
+        for root in "${roots[@]}"; do
+            [[ "$exe" == "$root/bin/"* ]] && match=true
+        done
+        [[ "$match" == true ]] || continue
+        pid=${link#/proc/}; pid=${pid%/exe}
+        unit=$(grep -o '[^/]*\.service' "/proc/$pid/cgroup" 2>/dev/null | tail -1)
+        [[ -n "$unit" ]] || { warn "PID $pid runs a replaced binary ($exe) outside systemd."; continue; }
+        if grep -q 'user@' "/proc/$pid/cgroup" 2>/dev/null; then
+            [[ " ${stale_user[*]} " == *" $unit "* ]] || stale_user+=("$unit")
+        else
+            [[ " ${stale_system[*]} " == *" $unit "* ]] || stale_system+=("$unit")
+        fi
+    done
+
+    for unit in "${stale_user[@]}"; do
+        if systemctl --user restart "$unit"; then
+            ok "Restarted $unit (user service)"
+        else
+            warn "Could not restart $unit. Run: systemctl --user restart $unit"
+        fi
+    done
+
+    if [[ ${#stale_system[@]} -eq 0 ]]; then
+        ok "All services are running the new binaries."
+        return 0
+    fi
+    echo
+    warn "These system services are STILL RUNNING THE OLD BINARIES: ${stale_system[*]}"
+    warn "Restart them in a terminal (needs your sudo password):"
+    echo -e "      ${BOLD}sudo systemctl restart ${stale_system[*]}${RESET}"
+    return 1
+}
+
 run_update() {
     CURRENT_STEP="Update Setup"
     section "Locating Locally Installed Citadels"
@@ -202,8 +246,14 @@ run_update() {
     CURRENT_STEP="Finalizing"
     install_skills
 
-    section "All updates complete!"
-    ok "Citadel installations have been successfully updated to version 3.2.0."
+    section "Checking Running Services"
+    if restart_stale_services "${paths[@]}"; then
+        section "All updates complete!"
+        ok "Citadel installations have been successfully updated to version 3.2.0."
+    else
+        section "Binaries updated, but services are still running old code"
+        warn "Run the restart command above, then re-run install.sh --update to confirm."
+    fi
 }
 
 # -----------------------------------------------------------------------------

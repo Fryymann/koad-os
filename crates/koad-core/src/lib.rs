@@ -1,6 +1,7 @@
 //! Koad-Core: The Hull of the Spaceship
 //! Shared traits, types, and constants for the KoadOS workspace.
 
+pub mod backup;
 pub mod config;
 pub mod constants;
 pub mod health;
