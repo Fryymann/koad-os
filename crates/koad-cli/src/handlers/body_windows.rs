@@ -6,9 +6,11 @@ use crate::cli::{BodyAction, WindowsBodyAction};
 use anyhow::{bail, Context, Result};
 use koad_core::config::KoadConfig;
 use serde_json::{json, Value};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 /// Identifies the KoadOS SessionStart hook in Claude Code settings.
 pub const HOOK_MARKER: &str = "/bin/koad-wsl-env koad-agent anchor ";
@@ -170,6 +172,177 @@ fn bridge_inputs(config: &KoadConfig, agent: &str) -> Result<(String, String)> {
     Ok((distro, home))
 }
 
+const DETECT_TIMEOUT: Duration = Duration::from_secs(10);
+const ANCHOR_TIMEOUT: Duration = Duration::from_secs(15);
+const MCP_TIMEOUT: Duration = Duration::from_secs(30);
+const NPX_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Run `cmd` to completion with a deadline: stdout and stderr are captured,
+/// `stdin` (if any) is fed on its own thread, and on timeout the process is
+/// killed and reaped. Output still held open by a surviving grandchild is
+/// given a short grace period rather than waited on forever.
+fn run_bounded(cmd: &mut Command, stdin: Option<&[u8]>, timeout: Duration) -> Result<Output> {
+    let mut child = cmd
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("could not start {:?}", cmd.get_program()))?;
+
+    if let (Some(data), Some(mut pipe)) = (stdin, child.stdin.take()) {
+        let data = data.to_vec();
+        std::thread::spawn(move || {
+            let _ = pipe.write_all(&data);
+        });
+    }
+    let reader = |pipe: Option<Box<dyn Read + Send>>| {
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut buf);
+            }
+            let _ = tx.send(buf);
+        });
+        rx
+    };
+    let out_rx = reader(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let err_rx = reader(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("timed out after {}s", timeout.as_secs());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let grace = Duration::from_secs(2);
+    Ok(Output {
+        status,
+        stdout: out_rx.recv_timeout(grace).unwrap_or_default(),
+        stderr: err_rx.recv_timeout(grace).unwrap_or_default(),
+    })
+}
+
+/// Short reason for a failed or unsuccessful run: the error (e.g. a timeout)
+/// or the exit code plus the last non-empty stderr line.
+fn failure_reason(result: &Result<Output>) -> String {
+    match result {
+        Err(e) => e.to_string(),
+        Ok(out) => {
+            let code = out.status.code().map_or_else(
+                || "killed by signal".to_string(),
+                |c| format!("exit code {c}"),
+            );
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            match stderr.lines().rev().map(str::trim).find(|l| !l.is_empty()) {
+                Some(line) => format!("{code}: {line}"),
+                None => code,
+            }
+        }
+    }
+}
+
+fn succeeded(result: &Result<Output>) -> bool {
+    matches!(result, Ok(out) if out.status.success())
+}
+
+/// Parse JSON text, tolerating a leading UTF-8 BOM (Windows editors add one).
+fn parse_json(text: &str) -> serde_json::Result<Value> {
+    serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(text))
+}
+
+/// Read and parse a JSON file; `Ok(None)` if it does not exist.
+fn read_json(path: &Path) -> Result<Option<Value>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let value =
+        parse_json(&text).with_context(|| format!("{} is not valid JSON", path.display()))?;
+    Ok(Some(value))
+}
+
+/// Replace `path` atomically: temp file in the same directory, fsync, rename.
+fn write_atomic(path: &Path, value: &Value) -> Result<()> {
+    let dir = path.parent().context("path has no parent directory")?;
+    std::fs::create_dir_all(dir)?;
+    let mut tmp = tempfile::Builder::new()
+        .prefix(&format!(
+            ".{}.tmp-",
+            path.file_name().unwrap_or_default().to_string_lossy()
+        ))
+        .tempfile_in(dir)?;
+    tmp.write_all((serde_json::to_string_pretty(value)? + "\n").as_bytes())?;
+    tmp.as_file().sync_all()?;
+    tmp.persist(path)
+        .with_context(|| format!("replacing {}", path.display()))?;
+    Ok(())
+}
+
+/// Where install records which Windows skills it added (and so may remove).
+fn record_path(koad_home: &Path) -> PathBuf {
+    koad_home.join("state/body-windows.json")
+}
+
+fn recorded_skills(path: &Path) -> Result<Vec<String>> {
+    Ok(read_json(path)?
+        .and_then(|v| v["skills_added"].as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|s| s.as_str().map(str::to_string))
+        .collect())
+}
+
+fn write_recorded_skills(path: &Path, skills: Vec<String>) -> Result<()> {
+    let mut record = match read_json(path)? {
+        Some(Value::Object(map)) => Value::Object(map),
+        _ => json!({}),
+    };
+    record["skills_added"] = json!(skills);
+    write_atomic(path, &record)
+}
+
+/// Add `skills` to the record (union, order kept), creating it if needed.
+fn record_skills_added(path: &Path, skills: &[&str]) -> Result<()> {
+    let mut all = recorded_skills(path)?;
+    for s in skills {
+        if !all.iter().any(|r| r == s) {
+            all.push(s.to_string());
+        }
+    }
+    write_recorded_skills(path, all)
+}
+
+/// Drop `skills` from the record.
+fn clear_recorded_skills(path: &Path, skills: &[&str]) -> Result<()> {
+    let remaining = recorded_skills(path)?
+        .into_iter()
+        .filter(|r| !skills.contains(&r.as_str()))
+        .collect();
+    write_recorded_skills(path, remaining)
+}
+
 /// The Windows side as seen from WSL.
 struct WindowsEnv {
     /// e.g. /mnt/c/Users/idean
@@ -178,21 +351,31 @@ struct WindowsEnv {
     claude: PathBuf,
 }
 
+/// A command run from a Windows-visible directory, so interop doesn't warn
+/// about a UNC working directory.
+fn win_cmd(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut cmd = Command::new(program);
+    cmd.current_dir("/mnt/c");
+    cmd
+}
+
 fn detect_windows() -> Result<WindowsEnv> {
-    let out = Command::new("cmd.exe")
-        .args(["/c", "echo %USERPROFILE%"])
-        .current_dir("/mnt/c")
-        .output()
-        .context("cmd.exe not reachable; is this WSL with Windows interop?")?;
+    let out = run_bounded(
+        win_cmd("cmd.exe").args(["/c", "echo %USERPROFILE%"]),
+        None,
+        DETECT_TIMEOUT,
+    )
+    .context("cmd.exe not usable; is this WSL with Windows interop?")?;
     let win = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !out.status.success() || win.is_empty() || win.contains('%') {
         bail!("could not read %USERPROFILE% through cmd.exe (got {win:?})");
     }
-    let wsl = Command::new("wslpath")
-        .arg("-u")
-        .arg(&win)
-        .output()
-        .context("wslpath not found")?;
+    let wsl = run_bounded(
+        Command::new("wslpath").arg("-u").arg(&win),
+        None,
+        DETECT_TIMEOUT,
+    )
+    .context("wslpath failed")?;
     let profile = PathBuf::from(String::from_utf8_lossy(&wsl.stdout).trim());
     if !wsl.status.success() || !profile.is_dir() {
         bail!("Windows profile {win} does not map to a WSL directory");
@@ -208,29 +391,20 @@ fn settings_path(win: &WindowsEnv) -> PathBuf {
     win.profile.join(".claude/settings.json")
 }
 
-/// Read settings.json (missing = `{}`) and pass it to `f`. If `f` returns a
-/// new value, back the file up to `settings.json.bak-<timestamp>` and replace
-/// it atomically (temp file in the same directory, then rename). Invalid
-/// JSON, or an error from `f`, aborts without touching anything. Returns
-/// whether the file was written.
+/// Read settings.json (missing = `{}`, BOM tolerated) and pass it to `f`. If
+/// `f` returns a new value, back the file up to
+/// `settings.json.bak-<timestamp>` and replace it atomically, without a BOM.
+/// Invalid JSON, or an error from `f`, aborts without touching anything.
+/// Returns whether the file was written.
 fn edit_settings(path: &Path, f: impl FnOnce(Value) -> Result<Option<Value>>) -> Result<bool> {
-    let exists = path.exists();
-    let current = if exists {
-        let text =
-            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        serde_json::from_str(&text)
-            .with_context(|| format!("{} is not valid JSON; nothing changed", path.display()))?
-    } else {
-        json!({})
-    };
+    let current = read_json(path)
+        .map_err(|e| anyhow::anyhow!("{e:#}; nothing changed"))?
+        .unwrap_or_else(|| json!({}));
     let Some(updated) = f(current)? else {
         return Ok(false);
     };
-    let dir = path
-        .parent()
-        .context("settings path has no parent directory")?;
-    std::fs::create_dir_all(dir)?;
-    if exists {
+    if path.exists() {
+        let dir = path.parent().context("settings path has no parent")?;
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
         let mut backup = dir.join(format!("settings.json.bak-{stamp}"));
         let mut n = 1;
@@ -241,122 +415,149 @@ fn edit_settings(path: &Path, f: impl FnOnce(Value) -> Result<Option<Value>>) ->
         std::fs::copy(path, &backup)
             .with_context(|| format!("backing up to {}", backup.display()))?;
     }
-    let mut tmp = tempfile::Builder::new()
-        .prefix(".settings.json.tmp-")
-        .tempfile_in(dir)?;
-    tmp.write_all((serde_json::to_string_pretty(&updated)? + "\n").as_bytes())?;
-    tmp.as_file().sync_all()?;
-    tmp.persist(path)
-        .with_context(|| format!("replacing {}", path.display()))?;
+    write_atomic(path, &updated)?;
     Ok(true)
 }
 
-fn run_windows(cmd: &mut Command) -> Result<bool> {
-    Ok(cmd.current_dir("/mnt/c").status()?.success())
+/// `edit_settings` step for install: `None` when the hook is already in place.
+fn merge_edit(settings: Value, hook: &str) -> Result<Option<Value>> {
+    let merged = merge_session_hook(settings.clone(), hook)?;
+    Ok((merged != settings).then_some(merged))
+}
+
+/// User-scope MCP registration, read straight from `~/.claude.json` so no
+/// server health check is spawned. Missing or unreadable = not registered.
+fn mcp_registered_in(claude_json: &Path) -> bool {
+    read_json(claude_json)
+        .ok()
+        .flatten()
+        .is_some_and(|v| v["mcpServers"].get(MCP_NAME).is_some())
 }
 
 fn mcp_registered(win: &WindowsEnv) -> bool {
-    Command::new(&win.claude)
-        .args(["mcp", "get", MCP_NAME])
-        .current_dir("/mnt/c")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    mcp_registered_in(&win.profile.join(".claude.json"))
 }
 
-fn skills_present(win: &WindowsEnv) -> Vec<&'static str> {
-    WINDOWS_SKILLS
-        .into_iter()
-        .filter(|s| {
-            win.profile
-                .join(".claude/skills")
-                .join(s)
-                .join("SKILL.md")
-                .exists()
-        })
-        .collect()
+fn skill_present(win: &WindowsEnv, skill: &str) -> bool {
+    win.profile
+        .join(".claude/skills")
+        .join(skill)
+        .join("SKILL.md")
+        .exists()
+}
+
+fn npx_skills(args: &[&str]) -> Result<Output> {
+    let mut cmd = win_cmd("cmd.exe");
+    cmd.args(["/c", "npx", "-y", "skills@1.7.0"]).args(args);
+    run_bounded(&mut cmd, None, NPX_TIMEOUT)
 }
 
 fn install(config: &KoadConfig, agent: &str) -> Result<()> {
     let (distro, home) = bridge_inputs(config, agent)?;
     let win = detect_windows()?;
 
-    let _ = Command::new(&win.claude)
-        .args(["mcp", "remove", MCP_NAME, "--scope", "user"])
-        .current_dir("/mnt/c")
-        .output();
+    let was_registered = mcp_registered(&win);
+    let _ = run_bounded(
+        win_cmd(&win.claude).args(["mcp", "remove", MCP_NAME, "--scope", "user"]),
+        None,
+        MCP_TIMEOUT,
+    );
     let server = mcp_server_json(&distro, &home, agent).to_string();
-    if !run_windows(
-        Command::new(&win.claude).args(["mcp", "add-json", MCP_NAME, &server, "--scope", "user"]),
-    )? {
-        bail!("claude.exe mcp add-json failed");
+    let added = run_bounded(
+        win_cmd(&win.claude).args(["mcp", "add-json", MCP_NAME, &server, "--scope", "user"]),
+        None,
+        MCP_TIMEOUT,
+    );
+    if !succeeded(&added) {
+        let reason = failure_reason(&added);
+        if was_registered {
+            bail!(
+                "claude.exe mcp add-json failed ({reason}); the previous '{MCP_NAME}' \
+                 registration was already removed — rerun `koad body windows install`"
+            );
+        }
+        bail!("claude.exe mcp add-json failed ({reason})");
     }
     println!("✓ MCP server '{MCP_NAME}' registered");
 
     let hook = hook_command(&distro, &home, agent);
     let path = settings_path(&win);
-    edit_settings(&path, |s| merge_session_hook(s, &hook).map(Some))?;
-    println!("✓ SessionStart hook added to {}", path.display());
-
-    let mut skills = Command::new("cmd.exe");
-    skills.args([
-        "/c",
-        "npx",
-        "-y",
-        "skills@1.7.0",
-        "add",
-        SKILLS_SOURCE,
-        "-g",
-        "-a",
-        "claude-code",
-        "-s",
-    ]);
-    skills.args(WINDOWS_SKILLS).arg("-y");
-    if !run_windows(&mut skills)? {
-        bail!("installing skills on Windows failed");
+    if edit_settings(&path, |s| merge_edit(s, &hook))? {
+        println!("✓ SessionStart hook added to {}", path.display());
+    } else {
+        println!("- SessionStart hook already present in {}", path.display());
     }
-    println!("✓ Skills installed: {}", WINDOWS_SKILLS.join(", "));
+
+    let mut missing = Vec::new();
+    for skill in WINDOWS_SKILLS {
+        if skill_present(&win, skill) {
+            println!("- Skill {skill} already present; left as is");
+        } else {
+            missing.push(skill);
+        }
+    }
+    if !missing.is_empty() {
+        let mut args = vec!["add", SKILLS_SOURCE, "-g", "-a", "claude-code", "-s"];
+        args.extend(&missing);
+        args.push("-y");
+        let result = npx_skills(&args);
+        let added: Vec<&str> = missing
+            .iter()
+            .copied()
+            .filter(|s| skill_present(&win, s))
+            .collect();
+        record_skills_added(&record_path(&config.home), &added)?;
+        if !succeeded(&result) || added.len() != missing.len() {
+            bail!(
+                "installing skills on Windows failed ({})",
+                failure_reason(&result)
+            );
+        }
+        println!("✓ Skills installed: {}", added.join(", "));
+    }
 
     status(config, agent)
 }
 
 /// Pipe `initialize` + a semantic search through the configured MCP command.
-fn mcp_round_trip(distro: &str, home: &str, agent: &str) -> Result<bool> {
-    let mut child = Command::new("wsl.exe")
-        .args([
+fn mcp_round_trip(distro: &str, home: &str, agent: &str) -> std::result::Result<(), String> {
+    let requests = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memory.search_semantic","arguments":{"query":"KoadOS","limit":1}}}"#,
+        "\n",
+    );
+    let result = run_bounded(
+        win_cmd("wsl.exe").args([
             "-d",
             distro,
             "-e",
             &format!("{home}/bin/koad-wsl-env"),
             "koad-mcp-stdio",
             agent,
-        ])
-        .current_dir("/mnt/c")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
-    {
-        let stdin = child.stdin.as_mut().context("stdin")?;
-        writeln!(
-            stdin,
-            r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2025-11-25"}}}}"#
-        )?;
-        writeln!(
-            stdin,
-            r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"memory.search_semantic","arguments":{{"query":"KoadOS","limit":1}}}}}}"#
-        )?;
+        ]),
+        Some(requests.as_bytes()),
+        MCP_TIMEOUT,
+    );
+    let answered = result.as_ref().is_ok_and(|out| {
+        String::from_utf8_lossy(&out.stdout).lines().any(|l| {
+            parse_json(l)
+                .map(|v| {
+                    v["id"] == 2 && v.get("result").is_some() && v["result"]["isError"] != true
+                })
+                .unwrap_or(false)
+        })
+    });
+    if answered {
+        Ok(())
+    } else if succeeded(&result) {
+        Err(format!(
+            "no successful tools/call response; {}",
+            failure_reason(&result)
+        ))
+    } else {
+        Err(failure_reason(&result))
     }
-    drop(child.stdin.take());
-    let out = child.wait_with_output()?;
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    Ok(stdout.lines().any(|l| {
-        serde_json::from_str::<Value>(l)
-            .map(|v| v["id"] == 2 && v.get("result").is_some() && v["result"]["isError"] != true)
-            .unwrap_or(false)
-    }))
 }
 
 /// Read-only: checks every link of the bridge and changes nothing.
@@ -364,24 +565,40 @@ fn status(config: &KoadConfig, agent: &str) -> Result<()> {
     let (distro, home) = bridge_inputs(config, agent)?;
     let win = detect_windows()?;
     let mut ok = true;
-    let mut check = |label: &str, pass: bool| {
-        println!("{} {label}", if pass { "✓" } else { "✗" });
-        ok &= pass;
+    let mut check = |label: &str, result: std::result::Result<(), String>| match result {
+        Ok(()) => println!("✓ {label}"),
+        Err(reason) => {
+            println!("✗ {label} — {reason}");
+            ok = false;
+        }
     };
 
+    let claude_json = win.profile.join(".claude.json");
     check(
         "MCP server registered in Claude Code for Windows",
-        mcp_registered(&win),
+        if mcp_registered_in(&claude_json) {
+            Ok(())
+        } else {
+            Err(format!(
+                "no mcpServers.{MCP_NAME} in {}",
+                claude_json.display()
+            ))
+        },
     );
 
-    let hook = std::fs::read_to_string(settings_path(&win))
-        .ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        .is_some_and(|s| has_session_hook(&s));
-    check("SessionStart hook present", hook);
+    let settings = settings_path(&win);
+    check(
+        "SessionStart hook present",
+        match read_json(&settings) {
+            Ok(Some(s)) if has_session_hook(&s) => Ok(()),
+            Ok(Some(_)) => Err(format!("no KoadOS hook in {}", settings.display())),
+            Ok(None) => Err(format!("{} does not exist", settings.display())),
+            Err(e) => Err(format!("{e:#}")),
+        },
+    );
 
-    let anchor = Command::new("wsl.exe")
-        .args([
+    let anchor = run_bounded(
+        win_cmd("wsl.exe").args([
             "-d",
             &distro,
             "-e",
@@ -391,21 +608,40 @@ fn status(config: &KoadConfig, agent: &str) -> Result<()> {
             agent,
             "--body",
             "windows",
-        ])
-        .current_dir("/mnt/c")
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).starts_with("# KoadOS Agent Identity Anchor"))
-        .unwrap_or(false);
-    check("Hook command prints the identity anchor", anchor);
+        ]),
+        None,
+        ANCHOR_TIMEOUT,
+    );
+    let printed = anchor.as_ref().is_ok_and(|o| {
+        String::from_utf8_lossy(&o.stdout).starts_with("# KoadOS Agent Identity Anchor")
+    });
+    check(
+        "Hook command prints the identity anchor",
+        if printed {
+            Ok(())
+        } else if succeeded(&anchor) {
+            Err("output is not an identity anchor".to_string())
+        } else {
+            Err(failure_reason(&anchor))
+        },
+    );
 
+    let missing: Vec<&str> = WINDOWS_SKILLS
+        .into_iter()
+        .filter(|s| !skill_present(&win, s))
+        .collect();
     check(
         "Memory skills installed",
-        skills_present(&win).len() == WINDOWS_SKILLS.len(),
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("missing: {}", missing.join(", ")))
+        },
     );
 
     check(
         "MCP round trip: semantic search through wsl.exe",
-        mcp_round_trip(&distro, &home, agent).unwrap_or(false),
+        mcp_round_trip(&distro, &home, agent),
     );
 
     if !ok {
@@ -414,17 +650,23 @@ fn status(config: &KoadConfig, agent: &str) -> Result<()> {
     Ok(())
 }
 
-fn uninstall() -> Result<()> {
+fn uninstall(config: &KoadConfig) -> Result<()> {
     let win = detect_windows()?;
     let mut failed = false;
 
     if mcp_registered(&win) {
-        if run_windows(
-            Command::new(&win.claude).args(["mcp", "remove", MCP_NAME, "--scope", "user"]),
-        )? {
+        let result = run_bounded(
+            win_cmd(&win.claude).args(["mcp", "remove", MCP_NAME, "--scope", "user"]),
+            None,
+            MCP_TIMEOUT,
+        );
+        if succeeded(&result) {
             println!("✓ MCP server '{MCP_NAME}' removed");
         } else {
-            println!("✗ claude.exe mcp remove {MCP_NAME} failed");
+            println!(
+                "✗ claude.exe mcp remove {MCP_NAME} failed — {}",
+                failure_reason(&result)
+            );
             failed = true;
         }
     } else {
@@ -432,9 +674,7 @@ fn uninstall() -> Result<()> {
     }
 
     let path = settings_path(&win);
-    let removed = path.exists()
-        && edit_settings(&path, |mut s| Ok(remove_session_hook(&mut s).then_some(s)))?;
-    if removed {
+    if edit_settings(&path, |mut s| Ok(remove_session_hook(&mut s).then_some(s)))? {
         println!("✓ SessionStart hook removed from {}", path.display());
     } else {
         println!(
@@ -443,17 +683,37 @@ fn uninstall() -> Result<()> {
         );
     }
 
-    let present = skills_present(&win);
-    if present.is_empty() {
-        println!("- Skills not installed; nothing to remove");
-    } else {
-        let mut skills = Command::new("cmd.exe");
-        skills.args(["/c", "npx", "-y", "skills@1.7.0", "remove"]);
-        skills.args(&present).args(["-g", "-y"]);
-        if run_windows(&mut skills)? && skills_present(&win).is_empty() {
-            println!("✓ Skills removed: {}", present.join(", "));
+    let record = record_path(&config.home);
+    let recorded = recorded_skills(&record)?;
+    let mut ours = Vec::new();
+    for skill in WINDOWS_SKILLS {
+        if recorded.iter().any(|r| r == skill) {
+            ours.push(skill);
+        } else if skill_present(&win, skill) {
+            println!("- Skill {skill} was not installed by koad; left in place");
+        }
+    }
+    let (present, gone): (Vec<&str>, Vec<&str>) =
+        ours.into_iter().partition(|s| skill_present(&win, s));
+    if !gone.is_empty() {
+        println!("- Skills already gone: {}", gone.join(", "));
+        clear_recorded_skills(&record, &gone)?;
+    }
+    if !present.is_empty() {
+        let mut args = vec!["remove"];
+        args.extend(&present);
+        args.extend(["-g", "-y"]);
+        let result = npx_skills(&args);
+        let removed: Vec<&str> = present
+            .iter()
+            .copied()
+            .filter(|s| !skill_present(&win, s))
+            .collect();
+        clear_recorded_skills(&record, &removed)?;
+        if removed.len() == present.len() {
+            println!("✓ Skills removed: {}", removed.join(", "));
         } else {
-            println!("✗ Removing skills failed: {}", present.join(", "));
+            println!("✗ Removing skills failed — {}", failure_reason(&result));
             failed = true;
         }
     }
@@ -469,7 +729,7 @@ pub async fn handle(action: BodyAction, config: &KoadConfig) -> Result<()> {
         BodyAction::Windows { action } => match action {
             WindowsBodyAction::Install { agent } => install(config, &agent.to_lowercase()),
             WindowsBodyAction::Status { agent } => status(config, &agent.to_lowercase()),
-            WindowsBodyAction::Uninstall => uninstall(),
+            WindowsBodyAction::Uninstall => uninstall(config),
         },
     }
 }
@@ -787,5 +1047,116 @@ mod tests {
         assert!(edit_settings(&path, |s| merge_session_hook(s, "x").map(Some)).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "[1]");
         assert_eq!(dir_entries(dir.path()), vec!["settings.json"]);
+    }
+
+    #[test]
+    fn run_bounded_kills_a_process_that_overruns() {
+        let start = std::time::Instant::now();
+        let err =
+            run_bounded(Command::new("sleep").arg("5"), None, Duration::from_secs(1)).unwrap_err();
+        assert!(err.to_string().contains("timed out after 1s"), "{err}");
+        assert!(start.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn run_bounded_returns_output_and_feeds_stdin() {
+        let out =
+            run_bounded(Command::new("echo").arg("hi"), None, Duration::from_secs(5)).unwrap();
+        assert!(out.status.success());
+        assert_eq!(out.stdout, b"hi\n");
+        let out = run_bounded(
+            &mut Command::new("cat"),
+            Some(b"piped"),
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert_eq!(out.stdout, b"piped");
+    }
+
+    #[test]
+    fn failure_reason_shows_exit_code_and_last_stderr_line() {
+        let out = run_bounded(
+            Command::new("sh").args(["-c", "echo one >&2; echo two >&2; exit 3"]),
+            None,
+            Duration::from_secs(5),
+        );
+        assert_eq!(failure_reason(&out), "exit code 3: two");
+    }
+
+    #[test]
+    fn skill_record_merges_reads_and_clears() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state/body-windows.json");
+        assert!(
+            recorded_skills(&path).unwrap().is_empty(),
+            "no record = nothing"
+        );
+        record_skills_added(&path, &["cass-recall"]).unwrap();
+        record_skills_added(&path, &["cass-search", "cass-recall"]).unwrap();
+        assert_eq!(
+            recorded_skills(&path).unwrap(),
+            vec!["cass-recall", "cass-search"]
+        );
+        clear_recorded_skills(&path, &["cass-recall"]).unwrap();
+        assert_eq!(recorded_skills(&path).unwrap(), vec!["cass-search"]);
+    }
+
+    #[test]
+    fn skill_record_keeps_other_fields_and_tolerates_a_bom() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("body-windows.json");
+        std::fs::write(
+            &path,
+            "\u{feff}{\"other\": 1, \"skills_added\": [\"cass-search\"]}",
+        )
+        .unwrap();
+        record_skills_added(&path, &["cass-recall"]).unwrap();
+        let v = read_json(&path).unwrap().unwrap();
+        assert_eq!(v["other"], 1);
+        assert_eq!(
+            recorded_skills(&path).unwrap(),
+            vec!["cass-search", "cass-recall"]
+        );
+    }
+
+    #[test]
+    fn edit_settings_tolerates_a_bom_and_writes_without_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, "\u{feff}{\r\n\"a\":1\r\n}\r\n").unwrap();
+        assert!(edit_settings(&path, |s| merge_edit(s, CMD)).unwrap());
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.starts_with('\u{feff}'));
+        let v: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["a"], 1);
+        assert!(has_session_hook(&v));
+    }
+
+    #[test]
+    fn merge_edit_is_a_no_op_when_the_hook_is_already_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, "{}").unwrap();
+        assert!(edit_settings(&path, |s| merge_edit(s, CMD)).unwrap());
+        let before = dir_entries(dir.path());
+        assert!(!edit_settings(&path, |s| merge_edit(s, CMD)).unwrap());
+        assert_eq!(dir_entries(dir.path()), before, "no second backup");
+    }
+
+    #[test]
+    fn mcp_registration_is_read_from_claude_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".claude.json");
+        assert!(!mcp_registered_in(&path));
+        std::fs::write(&path, "{\"mcpServers\": {\"other\": {}}}").unwrap();
+        assert!(!mcp_registered_in(&path));
+        std::fs::write(
+            &path,
+            "\u{feff}{\"mcpServers\": {\"citadel-memory\": {\"type\": \"stdio\"}}}",
+        )
+        .unwrap();
+        assert!(mcp_registered_in(&path));
+        std::fs::write(&path, "{ not json").unwrap();
+        assert!(!mcp_registered_in(&path));
     }
 }
