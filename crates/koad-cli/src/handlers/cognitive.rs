@@ -38,18 +38,16 @@ pub async fn handle_cognitive_check(
     let chunks: std::collections::HashMap<String, String> =
         client.pool.hgetall(&context_key).await.unwrap_or_default();
 
-    let mailbox_key = format!("koad:mailbox:{}", agent_name);
-    let signals: std::collections::HashMap<String, String> =
-        client.pool.hgetall(&mailbox_key).await.unwrap_or_default();
-    let pending_signals = signals.values().filter(|v| v.contains("pending")).count();
+    let inbox =
+        koad_core::inbox::pending_for(&koad_core::inbox::inbox_dir(&config.home), agent_name);
 
     println!(
         "[32m[PASS][0m L2: Hot Context ({} chunks active)",
         chunks.len()
     );
     println!(
-        "[32m[PASS][0m L2: Mailbox ({} pending signals)",
-        pending_signals
+        "[32m[PASS][0m L2: Inbox ({} pending item(s))",
+        inbox.len()
     );
 
     // --- Layer 3: Deep Memory ---
