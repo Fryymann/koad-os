@@ -28,21 +28,25 @@ fn fake_home() -> tempfile::TempDir {
 }
 
 /// Mimic `wsl.exe -e`: minimal environment, no KOAD_HOME, no KoadOS PATH.
-fn run_bare(home: &Path, args: &[&str]) -> Output {
-    Command::new("bash")
-        .arg(home.join("bin/koad-wsl-env"))
+/// `extra_env` simulates whatever stale/foreign values the inherited
+/// environment might already carry.
+fn run_bare(home: &Path, args: &[&str], extra_env: &[(&str, &str)]) -> Output {
+    let mut cmd = Command::new("bash");
+    cmd.arg(home.join("bin/koad-wsl-env"))
         .args(args)
         .env_clear()
         .env("HOME", home)
-        .env("PATH", "/usr/bin:/bin")
-        .output()
-        .unwrap()
+        .env("PATH", "/usr/bin:/bin");
+    for (k, v) in extra_env {
+        cmd.env(k, v);
+    }
+    cmd.output().unwrap()
 }
 
 #[test]
 fn wsl_env_sets_koad_home_path_and_user() {
     let home = fake_home();
-    let out = run_bare(home.path(), &["env"]);
+    let out = run_bare(home.path(), &["env"], &[]);
     assert!(
         out.status.success(),
         "{}",
@@ -74,18 +78,31 @@ fn mcp_stdio_starts_the_server_for_a_known_agent() {
         "[identities.clyde]\n",
     )
     .unwrap();
-    let out = run_bare(home.path(), &["koad-mcp-stdio", "Clyde"]);
+    // Simulate an inherited environment carrying stale/foreign values: a
+    // leftover AGENT_PARTITION, a CASS_URL that should pass through
+    // unchanged, and a wrong KOAD_HOME that the script's own location must
+    // win over.
+    let out = run_bare(
+        home.path(),
+        &["koad-mcp-stdio", "Clyde"],
+        &[
+            ("AGENT_PARTITION", "stale"),
+            ("CASS_URL", "http://x:1"),
+            ("KOAD_HOME", "/wrong"),
+        ],
+    );
     assert!(
         out.status.success(),
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
     let env = String::from_utf8(out.stdout).unwrap();
+    let h = home.path().display();
     for want in [
         "MCP_TRANSPORT=stdio",
         "AGENT_NAME=clyde",
         "MCP_MODE=read_write",
-        "CASS_URL=http://127.0.0.1:50052",
+        "CASS_URL=http://x:1",
     ] {
         assert!(env.lines().any(|l| l == want), "missing {want}: {env}");
     }
@@ -93,13 +110,31 @@ fn mcp_stdio_starts_the_server_for_a_known_agent() {
         !env.contains("AGENT_PARTITION="),
         "partition must be derived by koad-os-mcp"
     );
+    assert!(
+        env.lines().any(|l| l == format!("KOAD_HOME={h}")),
+        "script location must win over inherited KOAD_HOME: {env}"
+    );
 }
 
 #[test]
 fn mcp_stdio_refuses_an_unknown_agent_without_touching_stdout() {
     let home = fake_home();
-    let out = run_bare(home.path(), &["koad-mcp-stdio", "nobody"]);
+    let out = run_bare(home.path(), &["koad-mcp-stdio", "nobody"], &[]);
     assert!(!out.status.success());
     assert!(out.stdout.is_empty(), "stdout must stay clean for MCP");
     assert!(String::from_utf8_lossy(&out.stderr).contains("unknown agent"));
+}
+
+#[test]
+fn mcp_stdio_refuses_a_path_traversal_agent_name() {
+    let home = fake_home();
+    fs::write(
+        home.path().join("config/identities/clyde.toml"),
+        "[identities.clyde]\n",
+    )
+    .unwrap();
+    let out = run_bare(home.path(), &["koad-mcp-stdio", "../clyde"], &[]);
+    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(64), "{:?}", out);
+    assert!(out.stdout.is_empty(), "stdout must stay clean for MCP");
 }

@@ -14,10 +14,10 @@ if [[ $# -eq 0 ]]; then
   exit 64
 fi
 
-bin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bin_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 KOAD_HOME="$(dirname "$bin_dir")"
 export KOAD_HOME
 export KOADOS_HOME="$KOAD_HOME"
-export PATH="$bin_dir:$PATH"
+export PATH="$bin_dir:${PATH:-/usr/bin:/bin}"
 export USER="${USER:-$(id -un)}"
 exec "$@"
