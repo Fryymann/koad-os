@@ -96,6 +96,16 @@ locate_citadels() {
 # -----------------------------------------------------------------------------
 # Update Mode
 # -----------------------------------------------------------------------------
+# Skills install through scripts/install-skills.sh (Agent Skills CLI, lock-tracked).
+install_skills() {
+    section "Installing KoadOS Skills"
+    if bash scripts/install-skills.sh >/dev/null 2>&1; then
+        ok "Skills installed to ~/.agents/skills (Claude Code, Codex)"
+    else
+        warn "Skills install failed. Run scripts/install-skills.sh to see the error."
+    fi
+}
+
 run_update() {
     CURRENT_STEP="Update Setup"
     section "Locating Locally Installed Citadels"
@@ -176,13 +186,6 @@ run_update() {
             ok "  ✓ Updated scripts directory"
         fi
         
-        # 5. Copy skills
-        if [[ -d "skills" ]]; then
-            mkdir -p "$p/skills"
-            cp -r skills/. "$p/skills/"
-            ok "  ✓ Updated skills"
-        fi
-        
         # 7. Restart systemd services if they were active
         if [[ "$restart_cass" = true ]]; then
             info "Restarting koad-cass.service..."
@@ -197,6 +200,8 @@ run_update() {
     done
     
     CURRENT_STEP="Finalizing"
+    install_skills
+
     section "All updates complete!"
     ok "Citadel installations have been successfully updated to version 3.2.0."
 }
@@ -341,11 +346,7 @@ run_install() {
     fi
     ok "gRPC and Docker infrastructure is online with CASS."
     
-    # Deploy skills
-    if [[ -d "skills" ]]; then
-        cp -r skills/. "$KOAD_HOME/skills/"
-        ok "Skills deployed to $KOAD_HOME/skills"
-    fi
+    install_skills
     
     
     # Copy scripts
