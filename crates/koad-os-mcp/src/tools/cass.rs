@@ -19,10 +19,20 @@ use tonic::transport::{Channel, Endpoint};
 use tonic::{Response, Status};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+// Calibration: cold `memory.search_semantic` measured ~1.8s on Jupiter
+// (2026-09-27). 8s keeps ~4x margin over that while still failing fast when
+// CASS is silent.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Open a channel to CASS or fail within `CONNECT_TIMEOUT`.
 pub async fn channel(url: &str) -> Result<Channel> {
+    // Both `connect_timeout` (tonic's own bound on the TCP dial) and the
+    // outer `tokio::time::timeout` below are kept deliberately: on WSL
+    // mirrored networking a closed loopback port drops the SYN instead of
+    // refusing it, so `connect_timeout` alone can still hang past its own
+    // deadline waiting on the OS-level retransmission timer. The outer
+    // `tokio::time::timeout` is what reliably fires in that case — don't
+    // drop either one.
     let endpoint = Endpoint::from_shared(url.to_string())
         .with_context(|| format!("invalid CASS_URL {url}"))?
         .connect_timeout(CONNECT_TIMEOUT);
@@ -53,6 +63,11 @@ pub async fn pulse(url: &str) -> Result<PulseServiceClient<Channel>> {
 /// request stalls. A `Status` the RPC itself returned (a real, if unwelcome,
 /// answer from CASS) is passed through unchanged — only our own timeout is
 /// reported as unreachable.
+///
+/// A timed-out call (e.g. `commit_fact`) may still complete server-side after
+/// we've already given up on it. For `commit_fact` specifically that's safe
+/// to retry: fact ids are `sha256(partition:content)`, so a retried commit
+/// after a timeout is idempotent rather than creating a duplicate.
 pub async fn call<T, F>(fut: F) -> Result<Response<T>>
 where
     F: Future<Output = std::result::Result<Response<T>, Status>>,
