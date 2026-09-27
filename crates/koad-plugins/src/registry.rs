@@ -286,10 +286,10 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    /// Committed hello-plugin component fixture. Tests fail rather than skip
+    /// when it is missing, so a broken runtime cannot pass silently.
     fn component_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "examples/hello-plugin/target/wasm32-unknown-unknown/release/hello_plugin.component.wasm",
-        )
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit/hello-plugin.component.wasm")
     }
 
     #[tokio::test]
@@ -354,10 +354,6 @@ mod tests {
     #[tokio::test]
     async fn test_registry_invoke_hello_plugin() {
         let path = component_path();
-        if !path.exists() {
-            eprintln!("SKIP: hello-plugin component not found. See lib.rs test docs.");
-            return;
-        }
 
         let registry = PluginRegistry::new().expect("registry init");
         registry.register("hello", path).await;
@@ -368,17 +364,14 @@ mod tests {
             .expect("invocation should succeed");
 
         assert_eq!(result.plugin_name, "hello");
-        // Duration should be non-zero (wasmtime init takes some time)
-        // We just assert it's a valid u64, not zero (timing is environment-dependent)
-        let _ = result.metrics.duration_ms;
+        // Proves the guest actually ran and received its arguments.
+        assert!(result.output.contains("Hello from WASM!"), "output: {}", result.output);
+        assert!(result.output.contains("\"topic\": \"test.topic\""), "output: {}", result.output);
     }
 
     #[tokio::test]
     async fn test_registry_concurrency() {
         let path = component_path();
-        if !path.exists() {
-            return;
-        }
 
         let registry = PluginRegistry::new().expect("registry init");
         registry.register("hello", path).await;

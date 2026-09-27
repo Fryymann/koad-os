@@ -204,20 +204,11 @@ mod tests {
     /// `invoke` export.  The guest calls back the host `log` import.
     #[tokio::test]
     async fn test_plugin_manager_runs_wasm() {
-        // `.component.wasm` is a pure WASM component produced by `wasm-tools component new`
-        // from the `wasm32-unknown-unknown` build of hello-plugin.
-        let component_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "examples/hello-plugin/target/wasm32-unknown-unknown/release/hello_plugin.component.wasm",
-        );
-
-        if !component_path.exists() {
-            eprintln!(
-                "SKIP: hello-plugin component not found at {:?}. \
-                 See test doc-comment for build instructions.",
-                component_path
-            );
-            return;
-        }
+        // Committed fixture built by `wasm-tools component new` from the
+        // `wasm32-unknown-unknown` build of examples/hello-plugin. Fail rather
+        // than skip when missing, so a broken runtime cannot pass silently.
+        let component_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit/hello-plugin.component.wasm");
 
         let manager = WasmPluginManager::new().expect("engine init");
         manager
