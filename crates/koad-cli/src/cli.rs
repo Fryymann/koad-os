@@ -192,6 +192,12 @@ pub enum Commands {
         action: DeployAction,
     },
 
+    /// Link another harness body (Claude Code for Windows) to this Citadel.
+    Body {
+        #[command(subcommand)]
+        action: BodyAction,
+    },
+
     /// Alias for `koad system save` — Sovereign Save Protocol (Total State Checkpoint).
     Saveup {
         /// Create a full durable backup (Database + Git commit).
@@ -815,3 +821,27 @@ pub enum UpdatesAction {
     },
 }
 
+#[derive(Subcommand)]
+pub enum BodyAction {
+    /// Claude Code for Windows, bridged over stdio through wsl.exe.
+    Windows {
+        #[command(subcommand)]
+        action: WindowsBodyAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum WindowsBodyAction {
+    /// Register the memory MCP server, the SessionStart identity hook and the memory skills.
+    Install {
+        #[arg(long, default_value = "clyde")]
+        agent: String,
+    },
+    /// Check every link of the bridge (read-only).
+    Status {
+        #[arg(long, default_value = "clyde")]
+        agent: String,
+    },
+    /// Remove exactly what install added.
+    Uninstall,
+}
