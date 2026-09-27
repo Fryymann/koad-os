@@ -411,14 +411,29 @@ pub async fn handle_boot(
                     bootstrap_path.display(),
                     config.home.display()
                 );
-                let _ = safe_write_anchor(home.join(".gemini/GEMINI.md"), &router_content, &identity_config.name).await;
-                let _ = fs::write(PathBuf::from("GEMINI.md"), &router_content).await;
+                let _ = write_identity_anchor(
+                    &home,
+                    AnchorRuntime::Gemini,
+                    &router_content,
+                    &identity_config.name,
+                )
+                .await;
             } else if is_claude {
-                let _ = safe_write_anchor(home.join(".claude/CLAUDE.md"), &anchor_content, &identity_config.name).await;
-                let _ = fs::write(PathBuf::from("CLAUDE.md"), &anchor_content).await;
+                let _ = write_identity_anchor(
+                    &home,
+                    AnchorRuntime::Claude,
+                    &anchor_content,
+                    &identity_config.name,
+                )
+                .await;
             } else {
-                let _ = safe_write_anchor(home.join(".codex/AGENTS.md"), &anchor_content, &identity_config.name).await;
-                let _ = fs::write(PathBuf::from("AGENTS.md"), &anchor_content).await;
+                let _ = write_identity_anchor(
+                    &home,
+                    AnchorRuntime::Codex,
+                    &anchor_content,
+                    &identity_config.name,
+                )
+                .await;
             }
         } else {
             // If NO identity config, we still need a git_status for the brief below
@@ -498,6 +513,50 @@ pub async fn handle_boot(
 
 /// Safely writes an identity anchor file, ensuring it doesn't overwrite
 /// an active anchor for a DIFFERENT agent unless it is stale (>10m).
+/// Harness whose instruction file carries the generated identity anchor.
+#[derive(Debug, Clone, Copy)]
+enum AnchorRuntime {
+    Gemini,
+    Claude,
+    Codex,
+}
+
+impl AnchorRuntime {
+    /// User-level instruction file for this harness, relative to `$HOME`.
+    fn home_relative_path(self) -> &'static str {
+        match self {
+            AnchorRuntime::Gemini => ".gemini/GEMINI.md",
+            AnchorRuntime::Claude => ".claude/CLAUDE.md",
+            AnchorRuntime::Codex => ".codex/AGENTS.md",
+        }
+    }
+
+    /// Project-level file name the harness would also read; tests use it to
+    /// prove the project's copy is never touched.
+    #[cfg(test)]
+    fn file_name(self) -> &'static str {
+        match self {
+            AnchorRuntime::Gemini => "GEMINI.md",
+            AnchorRuntime::Claude => "CLAUDE.md",
+            AnchorRuntime::Codex => "AGENTS.md",
+        }
+    }
+}
+
+/// Write the identity anchor to the harness's user-level instruction file.
+///
+/// Never writes to the current directory: CLAUDE.md, AGENTS.md and GEMINI.md
+/// there belong to the project being worked on, and the user-level file
+/// already reaches the harness in every directory.
+async fn write_identity_anchor(
+    home: &Path,
+    runtime: AnchorRuntime,
+    content: &str,
+    agent_name: &str,
+) -> Result<()> {
+    safe_write_anchor(home.join(runtime.home_relative_path()), content, agent_name).await
+}
+
 async fn safe_write_anchor(path: PathBuf, content: &str, agent_name: &str) -> Result<()> {
     if path.exists() {
         if let Ok(existing) = fs::read_to_string(&path).await {
@@ -525,4 +584,62 @@ async fn safe_write_anchor(path: PathBuf, content: &str, agent_name: &str) -> Re
 
     fs::write(&path, content).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression guard: boot used to write the anchor to CLAUDE.md, AGENTS.md
+    /// and GEMINI.md in the current directory, clobbering a project's own
+    /// instruction files (survival-game on 2026-09-26, skylinks on 2026-05-02).
+    /// The anchor must only go to the user-level file under `$HOME`.
+    ///
+    /// This is the only test in the crate that changes the working directory.
+    #[tokio::test]
+    async fn anchor_is_written_to_home_and_never_to_the_project() {
+        let home = tempfile::tempdir().expect("home tempdir");
+        let project = tempfile::tempdir().expect("project tempdir");
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let runtimes = [
+            AnchorRuntime::Gemini,
+            AnchorRuntime::Claude,
+            AnchorRuntime::Codex,
+        ];
+        for runtime in runtimes {
+            let project_file = project.path().join(runtime.file_name());
+            std::fs::write(&project_file, "project instructions").expect("seed project file");
+            std::fs::create_dir_all(
+                home.path()
+                    .join(runtime.home_relative_path())
+                    .parent()
+                    .unwrap(),
+            )
+            .expect("home harness dir");
+        }
+
+        std::env::set_current_dir(project.path()).expect("enter project");
+        for runtime in runtimes {
+            let result = write_identity_anchor(home.path(), runtime, "ANCHOR", "Clyde").await;
+            assert!(result.is_ok(), "{runtime:?}: {result:?}");
+        }
+        std::env::set_current_dir(&original_cwd).expect("restore cwd");
+
+        for runtime in runtimes {
+            let project_file = project.path().join(runtime.file_name());
+            assert_eq!(
+                std::fs::read_to_string(&project_file).unwrap(),
+                "project instructions",
+                "{runtime:?} clobbered the project's {}",
+                runtime.file_name()
+            );
+            let home_file = home.path().join(runtime.home_relative_path());
+            assert_eq!(
+                std::fs::read_to_string(&home_file).unwrap(),
+                "ANCHOR",
+                "{runtime:?}"
+            );
+        }
+    }
 }
