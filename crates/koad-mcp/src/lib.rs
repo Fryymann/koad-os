@@ -98,8 +98,9 @@ impl McpServer {
     }
 
     /// Serve newline-delimited JSON-RPC from `reader`, writing responses to
-    /// `writer`. Blank lines are skipped; notifications (no `id`) get no
-    /// response, as JSON-RPC requires.
+    /// `writer`. Blank lines are skipped. Notifications — requests with no
+    /// `id` member at all — get no response, as JSON-RPC requires; an
+    /// explicit `"id": null` is still a Request and is answered.
     pub async fn serve<R, W>(&self, reader: R, mut writer: W) -> Result<()>
     where
         R: AsyncBufRead + Unpin,
@@ -110,16 +111,23 @@ impl McpServer {
             if line.trim().is_empty() {
                 continue;
             }
-            let req: JsonRpcRequest = match serde_json::from_str(&line) {
+            let value: Value = match serde_json::from_str(&line) {
+                Ok(value) => value,
+                Err(e) => {
+                    tracing::warn!("Ignoring unparseable request: {}", e);
+                    continue;
+                }
+            };
+            if value.get("id").is_none() {
+                continue;
+            }
+            let req: JsonRpcRequest = match serde_json::from_value(value) {
                 Ok(req) => req,
                 Err(e) => {
                     tracing::warn!("Ignoring unparseable request: {}", e);
                     continue;
                 }
             };
-            if req.id.is_none() {
-                continue;
-            }
             let response = self.handle_request(req).await;
             let res_str = serde_json::to_string(&response)?;
             writer.write_all(res_str.as_bytes()).await?;
@@ -364,5 +372,22 @@ mod tests {
             })
             .collect();
         assert_eq!(ids, vec![1, 2]);
+    }
+
+    /// Regression guard: per JSON-RPC 2.0, a Notification is a request that
+    /// omits the `id` member entirely. `"id": null` is a Request with a null
+    /// id, not a notification, and must be answered.
+    #[tokio::test]
+    async fn serve_answers_an_explicit_null_id() {
+        let server = server_with_tool();
+        let input = "{\"jsonrpc\":\"2.0\",\"id\":null,\"method\":\"tools/list\",\"params\":{}}\n";
+        let mut out: Vec<u8> = Vec::new();
+        server.serve(input.as_bytes(), &mut out).await.unwrap();
+
+        let text = String::from_utf8(out).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 1);
+        let res: Value = serde_json::from_str(lines[0]).unwrap();
+        assert!(res.get("result").is_some());
     }
 }
