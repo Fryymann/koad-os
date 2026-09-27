@@ -3,6 +3,7 @@
 
 pub mod backup;
 pub mod config;
+pub mod fs_mcp;
 pub mod constants;
 pub mod health;
 pub mod hierarchy;
