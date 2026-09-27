@@ -11,8 +11,21 @@ CLI memory operations against CASS. Use for direct writes and targeted reads out
 
 ```
 In a session with citadel-memory MCP? → use MCP tools (cass-recall, cass-search)
-No MCP / need to write memory?        → use koad intel CLI
+No MCP / need to write memory?        → use koad intel CLI, after verifying its active Citadel path
 ```
+
+### Jupiter scheduled-shell caveat
+
+In Hermes cron/scheduled shells, `koad intel` may resolve its database under the unrelated `~/.koad-os` tree even after a Jupiter boot and fail with `unable to open database file: /home/ideans/.koad-os/data/db/koad.db`. Do not repeat or flood logs with retries.
+
+For Jupiter Hermes, use the live partition-bound MCP bridge at `http://127.0.0.1:9745/mcp` when the native `citadel-memory` tools are not exposed:
+
+1. Check `GET /health`.
+2. Call MCP `status.citadel` and verify partition `hermes_jupiter_ideans`.
+3. Use `memory.list_topics`, `memory.recall`, or `memory.commit` through that bridge.
+4. Verify every commit by recall/search or the returned card identifier.
+
+Use direct CLI writes only when the CLI is demonstrably pointed at the intended Citadel and a live session identity exists.
 
 ## Commands
 

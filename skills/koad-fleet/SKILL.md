@@ -81,3 +81,12 @@ koad fleet issue    # Fleet atomic issue tracking
 - **Post Updates Chronologically:** Always run `koad updates post` after resolving a major task to keep the team and memory bank hydrated.
 - **Sync Before Starting:** Run `koad board sync` at session start to ensure your local state is aligned with GitHub.
 - **Run SDRs for Complex Tasks:** Before starting high-stakes milestones, execute `koad board sdr` to verify architectural design choices.
+
+## Crew Roster Cleanup Pattern
+
+When Dood declares agents dead/transferred, update all three layers:
+1. Active identity loading: move dead identity TOMLs out of top-level `$KOAD_HOME/config/identities/*.toml` into `$KOAD_HOME/config/identities/deprecated/dead/`; move transferred identities into `$KOAD_HOME/config/identities/transferred/`. The loader ignores nested folders, so `koad agent list` becomes the active roster.
+2. Human manifest: update `$KOAD_HOME/agents/crews/CITADEL_JUPITER.md` with active roster and removed/transferred table.
+3. Memory/coordination: record a `koad intel remember fact`, post `koad updates post --level citadel`, and signal only the remaining active crew.
+
+Do not delete historical KAPV vaults unless Dood explicitly authorizes vault removal.
