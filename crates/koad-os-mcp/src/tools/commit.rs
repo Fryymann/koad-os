@@ -2,7 +2,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
 use koad_mcp::{McpContent, McpTool, McpToolCallResponse, McpToolHandler};
-use koad_proto::cass::v1::memory_service_client::MemoryServiceClient;
 use koad_proto::cass::v1::FactCard;
 use koad_proto::cass::v1::{MemoryMetadata, PromptBudgetHints, RetrievalMetadata, PrivacyMetadata};
 use serde_json::{json, Value};
@@ -128,8 +127,10 @@ impl McpToolHandler for CommitTool {
             metadata: parse_metadata(&params),
         };
 
-        let mut client = MemoryServiceClient::connect(self.cass_url.clone()).await?;
-        let resp = client.commit_fact(fact).await?.into_inner();
+        let mut client = super::cass::memory(&self.cass_url).await?;
+        let resp = super::cass::call(client.commit_fact(fact))
+            .await?
+            .into_inner();
 
         let text = if resp.success {
             format!(

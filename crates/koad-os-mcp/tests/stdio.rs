@@ -56,3 +56,50 @@ fn stdio_stdout_carries_only_json_rpc() {
         "partition not derived; stderr: {stderr}"
     );
 }
+
+/// Regression guard: with CASS silent (TCP accepted, never answered) a tool
+/// call hung until the client gave up. It must fail fast with `isError`.
+#[test]
+fn tool_call_fails_fast_when_cass_does_not_answer() {
+    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", silent.local_addr().unwrap());
+    let started = std::time::Instant::now();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_koad-os-mcp"))
+        .env("MCP_TRANSPORT", "stdio")
+        .env("AGENT_NAME", "clyde")
+        .env_remove("AGENT_PARTITION")
+        .env("CASS_URL", &url)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn koad-os-mcp");
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        writeln!(stdin, r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2025-11-25"}}}}"#).unwrap();
+        writeln!(stdin, r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"memory.search_semantic","arguments":{{"query":"x","limit":1}}}}}}"#).unwrap();
+    }
+    drop(child.stdin.take());
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(15),
+        "took {:?}",
+        started.elapsed()
+    );
+
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let reply: serde_json::Value = stdout
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .find(|v| v["id"] == 2)
+        .expect("no response to the tool call");
+    assert_eq!(reply["result"]["isError"], true, "{reply}");
+    assert!(
+        reply["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("CASS unreachable"),
+        "{reply}"
+    );
+    drop(silent);
+}

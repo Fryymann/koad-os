@@ -1,7 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use koad_mcp::{McpContent, McpTool, McpToolCallResponse, McpToolHandler};
-use koad_proto::cass::v1::memory_service_client::MemoryServiceClient;
 use koad_proto::cass::v1::FactQuery;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -32,16 +31,15 @@ impl McpToolHandler for ListTopicsTool {
     }
 
     async fn call(&self, _params: Value) -> Result<McpToolCallResponse> {
-        let mut client = MemoryServiceClient::connect(self.cass_url.clone()).await?;
-        let resp = client
-            .query_facts(FactQuery {
-                domain: self.partition.clone(),
-                tags: vec![],
-                limit: 200,
-                min_level: 0,
-            })
-            .await?
-            .into_inner();
+        let mut client = super::cass::memory(&self.cass_url).await?;
+        let resp = super::cass::call(client.query_facts(FactQuery {
+            domain: self.partition.clone(),
+            tags: vec![],
+            limit: 200,
+            min_level: 0,
+        }))
+        .await?
+        .into_inner();
 
         let topics: BTreeSet<String> = resp.facts.iter().map(|f| f.domain.clone()).collect();
 
