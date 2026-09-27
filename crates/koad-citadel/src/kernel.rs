@@ -8,7 +8,6 @@ use crate::services::admin::AdminService;
 use crate::services::bay::PersonalBayService;
 use crate::services::sector::SectorService;
 use crate::services::session::CitadelSessionService;
-use crate::services::xp::CitadelXpService;
 use crate::state::bay_store::BayStore;
 use crate::state::storage_bridge::CitadelStorageBridge;
 use crate::workspace::manager::WorkspaceManager;
@@ -24,7 +23,6 @@ use koad_proto::citadel::v5::admin_server::AdminServer;
 use koad_proto::citadel::v5::citadel_session_server::CitadelSessionServer;
 use koad_proto::citadel::v5::personal_bay_server::PersonalBayServer;
 use koad_proto::citadel::v5::sector_server::SectorServer;
-use koad_proto::citadel::v5::xp_service_server::XpServiceServer;
 use koad_sandbox::Sandbox;
 
 use std::path::PathBuf;
@@ -184,7 +182,6 @@ impl KernelBuilder {
             koad_db,
             config.network.cass_grpc_addr.clone(),
         );
-        let xp_svc_impl = CitadelXpService::new(storage.sqlite.clone(), config.clone()).await?;
 
         // 0. Hydrate active sessions from Redis
         if let Err(e) = session_svc_impl.hydrate_sessions().await {
@@ -235,8 +232,7 @@ impl KernelBuilder {
             .add_service(SectorServer::with_interceptor(
                 sector_svc_impl.clone(),
                 auth_interceptor,
-            ))
-            .add_service(XpServiceServer::new(xp_svc_impl.clone()));
+            ));
 
         let mut rx_tcp = shutdown_rx.clone();
         tasks.spawn(async move {
@@ -265,8 +261,7 @@ impl KernelBuilder {
                 .add_service(AdminServer::with_interceptor(admin_svc_impl, AdminInterceptor::new(&config)))
                 // Also serve core services on UDS without interceptor for emergency maintenance
                 .add_service(CitadelSessionServer::new(session_svc_impl))
-                .add_service(SectorServer::new(sector_svc_impl))
-                .add_service(XpServiceServer::new(xp_svc_impl));
+                .add_service(SectorServer::new(sector_svc_impl));
 
             let mut rx_admin = shutdown_rx.clone();
             let admin_path_clone = admin_uds_path.clone();

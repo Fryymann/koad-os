@@ -1,36 +1,15 @@
 use anyhow::Result;
 use koad_core::config::KoadConfig;
-use koad_proto::citadel::v5::xp_service_client::XpServiceClient;
-use koad_proto::citadel::v5::*;
 
 pub async fn show_motd(agent_name: &str, config: &KoadConfig) -> Result<()> {
-    let context = Some(crate::utils::get_trace_context(agent_name, 3));
-
-    // 1. Fetch XP Stats
-    let xp_client = XpServiceClient::connect(config.network.citadel_grpc_addr.clone())
-        .await
-        .ok();
-    let xp_status = if let Some(mut client) = xp_client {
-        client
-            .get_status(XpStatusRequest {
-                context: context.clone(),
-                agent_name: agent_name.to_string(),
-            })
-            .await
-            .ok()
-            .map(|r| r.into_inner())
-    } else {
-        None
-    };
-
-    // 2. Pending inbox items (file-based agent handoff)
+    // 1. Pending inbox items (file-based agent handoff)
     let inbox =
         koad_core::inbox::pending_for(&koad_core::inbox::inbox_dir(&config.home), agent_name);
 
-    // 3. Get Identity Info from Config
+    // 2. Get Identity Info from Config
     let identity = config.identities.get(agent_name);
 
-    // 4. Fetch Subsystem Status
+    // 3. Fetch Subsystem Status
     let systems = koad_core::health::HealthRegistry::check_subsystems(config).await;
 
     // --- Render MOTD ---
@@ -56,32 +35,6 @@ pub async fn show_motd(agent_name: &str, config: &KoadConfig) -> Result<()> {
     } else {
         println!("\x1b[1;37m[ IDENTITY ]\x1b[0m");
         println!("  \x1b[1mAgent:\x1b[0m      {}", agent_name);
-    }
-
-    // Section: Stats
-    println!();
-    println!("\x1b[1;37m[ STATS ]\x1b[0m");
-    if let Some(xp) = xp_status {
-        let progress = (xp.total_xp as f32 / xp.next_level_xp as f32).min(1.0);
-        let bars = (progress * 20.0) as usize;
-        let bar_str = format!(
-            "\x1b[32m{}\x1b[0m{}",
-            "█".repeat(bars),
-            "░".repeat(20 - bars)
-        );
-
-        println!(
-            "  \x1b[1mTier:\x1b[0m       \x1b[32m{}\x1b[0m (Level {})",
-            xp.tier_name, xp.level
-        );
-        println!(
-            "  \x1b[1mProgress:\x1b[0m   {}  {:.1}%",
-            bar_str,
-            progress * 100.0
-        );
-        println!("  \x1b[1mTotal XP:\x1b[0m   {}", xp.total_xp);
-    } else {
-        println!("  \x1b[33m[OFFLINE]\x1b[0m XP service unreachable.");
     }
 
     // Section: Intelligence (Inbox/Notes)

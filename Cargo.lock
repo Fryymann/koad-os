@@ -2137,7 +2137,6 @@ dependencies = [
  "koad-agent",
  "koad-board",
  "koad-bridge-notion",
- "koad-codegraph",
  "koad-core",
  "koad-intelligence",
  "koad-proto",
@@ -2176,7 +2175,6 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
- "koad-codegraph",
  "koad-core",
  "koad-intelligence",
  "koad-proto",
@@ -2233,7 +2231,6 @@ dependencies = [
  "fred",
  "futures",
  "koad-bridge-notion",
- "koad-codegraph",
  "koad-core",
  "koad-intelligence",
  "koad-plugins",
@@ -2281,22 +2278,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
-]
-
-[[package]]
-name = "koad-codegraph"
-version = "3.2.0"
-dependencies = [
- "anyhow",
- "koad-core",
- "rusqlite",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tree-sitter",
- "tree-sitter-rust",
- "walkdir",
 ]
 
 [[package]]
@@ -4753,26 +4734,6 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-serde",
-]
-
-[[package]]
-name = "tree-sitter"
-version = "0.22.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df7cc499ceadd4dcdf7ec6d4cbc34ece92c3fa07821e287aedecd4416c516dca"
-dependencies = [
- "cc",
- "regex",
-]
-
-[[package]]
-name = "tree-sitter-rust"
-version = "0.21.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "277690f420bf90741dea984f3da038ace46c4fe6047cba57a66822226cde1c93"
-dependencies = [
- "cc",
- "tree-sitter",
 ]
 
 [[package]]
