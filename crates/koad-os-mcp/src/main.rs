@@ -67,7 +67,7 @@ async fn main() -> Result<()> {
                 .route("/health", axum::routing::get(|| async { "ok" }))
                 .with_state(state);
 
-            let addr = SocketAddr::from(([0, 0, 0, 0], port));
+            let addr = bind_addr(std::env::var("MCP_BIND").ok().as_deref(), port)?;
             tracing::info!(%addr, "Transport: HTTP");
             let listener = TcpListener::bind(addr).await?;
             axum::serve(listener, app).await?;
@@ -113,5 +113,50 @@ async fn handle_mcp(
             json_body,
         )
             .into_response()
+    }
+}
+
+/// Address the HTTP transport listens on. `MCP_BIND` overrides the default
+/// loopback address; it must be an IP address.
+fn bind_addr(bind: Option<&str>, port: u16) -> anyhow::Result<SocketAddr> {
+    let ip: std::net::IpAddr = match bind {
+        Some(b) => b
+            .parse()
+            .map_err(|_| anyhow::anyhow!("MCP_BIND must be an IP address, got {b:?}"))?,
+        None => std::net::Ipv4Addr::LOCALHOST.into(),
+    };
+    Ok(SocketAddr::new(ip, port))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression guard: the listener was hardcoded to 0.0.0.0, exposing
+    /// unauthenticated agent memory to every network the host joins
+    /// (including a tailnet when Tailscale runs in the same WSL instance).
+    #[test]
+    fn defaults_to_loopback() {
+        assert_eq!(
+            bind_addr(None, 9744).unwrap(),
+            "127.0.0.1:9744".parse().unwrap()
+        );
+    }
+
+    #[test]
+    fn honours_an_explicit_bind_address() {
+        assert_eq!(
+            bind_addr(Some("0.0.0.0"), 9745).unwrap(),
+            "0.0.0.0:9745".parse().unwrap()
+        );
+        assert_eq!(
+            bind_addr(Some("::1"), 9745).unwrap(),
+            "[::1]:9745".parse().unwrap()
+        );
+    }
+
+    #[test]
+    fn rejects_a_non_ip_bind_address() {
+        assert!(bind_addr(Some("localhost"), 9744).is_err());
     }
 }

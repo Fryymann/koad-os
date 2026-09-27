@@ -127,7 +127,7 @@ async fn main() -> Result<()> {
     });
 
     let grpc_port = std::env::var("CASS_GRPC_PORT").unwrap_or_else(|_| "50052".to_string());
-    let addr = format!("0.0.0.0:{}", grpc_port).parse()?;
+    let addr = grpc_bind_addr(std::env::var("CASS_BIND").ok().as_deref(), &grpc_port)?;
     info!("CASS: gRPC server listening on {}", addr);
 
     Server::builder()
@@ -141,4 +141,43 @@ async fn main() -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+/// Address the CASS gRPC server listens on. Defaults to loopback: the memory
+/// service is unauthenticated, and binding 0.0.0.0 exposed it to every
+/// network the host joins. `CASS_BIND` overrides (the container sets 0.0.0.0).
+fn grpc_bind_addr(bind: Option<&str>, port: &str) -> anyhow::Result<std::net::SocketAddr> {
+    let ip: std::net::IpAddr = match bind {
+        Some(b) => b
+            .parse()
+            .map_err(|_| anyhow::anyhow!("CASS_BIND must be an IP address, got {b:?}"))?,
+        None => std::net::Ipv4Addr::LOCALHOST.into(),
+    };
+    let port: u16 = port
+        .parse()
+        .map_err(|_| anyhow::anyhow!("CASS_GRPC_PORT must be a port number, got {port:?}"))?;
+    Ok(std::net::SocketAddr::new(ip, port))
+}
+
+#[cfg(test)]
+mod bind_tests {
+    use super::grpc_bind_addr;
+
+    #[test]
+    fn defaults_to_loopback() {
+        assert_eq!(
+            grpc_bind_addr(None, "50052").unwrap(),
+            "127.0.0.1:50052".parse().unwrap()
+        );
+    }
+
+    #[test]
+    fn honours_cass_bind_and_rejects_bad_input() {
+        assert_eq!(
+            grpc_bind_addr(Some("0.0.0.0"), "50052").unwrap(),
+            "0.0.0.0:50052".parse().unwrap()
+        );
+        assert!(grpc_bind_addr(Some("localhost"), "50052").is_err());
+        assert!(grpc_bind_addr(None, "not-a-port").is_err());
+    }
 }

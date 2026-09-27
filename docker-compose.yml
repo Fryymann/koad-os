@@ -5,8 +5,8 @@ services:
     image: redis/redis-stack:7.2.0-v10 # Pinned version
     container_name: koad-redis-stack
     ports:
-      - "6379:6379"
-      - "8001:8001" # RedisInsight UI
+      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:8001:8001" # RedisInsight UI
     volumes:
       - redis_data:/data
     restart: unless-stopped
@@ -15,8 +15,8 @@ services:
     image: qdrant/qdrant:v1.11.0 # Pinned version
     container_name: koad-qdrant
     ports:
-      - "6333:6333" # HTTP / REST + Web UI
-      - "6334:6334" # gRPC
+      - "127.0.0.1:6333:6333" # HTTP / REST + Web UI
+      - "127.0.0.1:6334:6334" # gRPC
     volumes:
       - qdrant_data:/qdrant/storage
     restart: unless-stopped
@@ -30,10 +30,13 @@ services:
       - citadel-redis
       - qdrant
     ports:
-      - "50052:50052"
+      - "127.0.0.1:50052:50052"
     environment:
       - KOADOS_URL_REDIS=redis://citadel-redis:6379
       - KOADOS_URL_QDRANT=http://qdrant:6333
+      # Inside the container CASS must listen on all interfaces; the host
+      # side is still published on 127.0.0.1 only (see ports above).
+      - CASS_BIND=0.0.0.0
     volumes:
       - cass_data:/app/data
     restart: unless-stopped
