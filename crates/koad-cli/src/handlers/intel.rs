@@ -6,7 +6,6 @@ use anyhow::{Context, Result};
 use koad_core::config::KoadConfig;
 use koad_proto::citadel::v5::admin_client::AdminClient;
 use koad_proto::citadel::v5::*;
-use rusqlite::params;
 use std::env;
 
 pub async fn handle_intel_action(
@@ -144,26 +143,6 @@ pub async fn handle_intel_action(
         }
         IntelAction::Scan { path: _ } => {
             feature_gate("koad scan", None);
-        }
-        IntelAction::Mind { action } => {
-            let conn = db.get_conn()?;
-            match action {
-                crate::cli::MindAction::Status => {
-                    println!("Mind status checked.");
-                }
-                crate::cli::MindAction::Learn {
-                    domain,
-                    summary,
-                    detail,
-                } => {
-                    conn.execute("INSERT INTO learnings (domain, summary, detail, source, status, origin_agent) VALUES (?1, ?2, ?3, 'cli', 'active', ?4)", 
-                        params![domain, summary, detail, agent_name])?;
-                    println!(
-                        "\x1b[32m[LEARNED]\x1b[0m New {} insight integrated into mind.",
-                        domain
-                    );
-                }
-            }
         }
     }
     Ok(())
