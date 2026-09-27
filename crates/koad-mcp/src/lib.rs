@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
 /// Protocol revisions this server implements, oldest first. 2026-07-28 is
 /// deliberately absent: it removes the initialize handshake and requires
@@ -93,25 +93,39 @@ impl McpServer {
     }
 
     pub async fn run(&self) -> Result<()> {
-        let mut lines = BufReader::new(tokio::io::stdin()).lines();
-        let mut stdout = tokio::io::stdout();
+        self.serve(BufReader::new(tokio::io::stdin()), tokio::io::stdout())
+            .await
+    }
 
+    /// Serve newline-delimited JSON-RPC from `reader`, writing responses to
+    /// `writer`. Blank lines are skipped; notifications (no `id`) get no
+    /// response, as JSON-RPC requires.
+    pub async fn serve<R, W>(&self, reader: R, mut writer: W) -> Result<()>
+    where
+        R: AsyncBufRead + Unpin,
+        W: AsyncWrite + Unpin,
+    {
+        let mut lines = reader.lines();
         while let Some(line) = lines.next_line().await? {
+            if line.trim().is_empty() {
+                continue;
+            }
             let req: JsonRpcRequest = match serde_json::from_str(&line) {
                 Ok(req) => req,
                 Err(e) => {
-                    tracing::error!("Failed to parse request: {}", e);
+                    tracing::warn!("Ignoring unparseable request: {}", e);
                     continue;
                 }
             };
-
+            if req.id.is_none() {
+                continue;
+            }
             let response = self.handle_request(req).await;
             let res_str = serde_json::to_string(&response)?;
-            stdout.write_all(res_str.as_bytes()).await?;
-            stdout.write_all(b"\n").await?;
-            stdout.flush().await?;
+            writer.write_all(res_str.as_bytes()).await?;
+            writer.write_all(b"\n").await?;
+            writer.flush().await?;
         }
-
         Ok(())
     }
 
@@ -322,5 +336,33 @@ mod tests {
 
         assert!(res.result.is_none());
         assert_eq!(res.error.expect("expected an error")["code"], -32601);
+    }
+
+    /// Regression guard: blank input lines logged a parse error, and
+    /// notifications (no `id`, e.g. `notifications/initialized`) were
+    /// answered with an error response carrying `id: null`, which strict MCP
+    /// clients reject.
+    #[tokio::test]
+    async fn serve_skips_blank_lines_and_never_answers_notifications() {
+        let server = server_with_tool();
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\"}}\n",
+            "\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n",
+        );
+        let mut out: Vec<u8> = Vec::new();
+        server.serve(input.as_bytes(), &mut out).await.unwrap();
+
+        let text = String::from_utf8(out).unwrap();
+        let ids: Vec<i64> = text
+            .lines()
+            .map(|l| {
+                serde_json::from_str::<Value>(l).unwrap()["id"]
+                    .as_i64()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(ids, vec![1, 2]);
     }
 }
