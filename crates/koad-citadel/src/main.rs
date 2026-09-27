@@ -1,6 +1,7 @@
 //! Citadel Kernel Entry Point
 
 use anyhow::{Context, Result};
+use koad_citadel::kernel::wait_for_shutdown;
 use koad_citadel::KernelBuilder;
 use koad_core::config::KoadConfig;
 
@@ -21,9 +22,11 @@ async fn main() -> Result<()> {
         .start()
         .await?;
 
-    // Wait for shutdown signal
-    tokio::signal::ctrl_c().await?;
-    info!("Citadel: Ctrl-C received, initiating shutdown...");
+    let reason = wait_for_shutdown(kernel.shutdown_requested()).await?;
+    info!(
+        ?reason,
+        "Citadel: Shutdown requested, draining and stopping..."
+    );
     kernel.shutdown().await;
 
     Ok(())

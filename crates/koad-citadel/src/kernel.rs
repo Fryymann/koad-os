@@ -46,7 +46,41 @@ pub struct Kernel {
     tasks: JoinSet<()>,
 }
 
+/// Why the Citadel is shutting down.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShutdownReason {
+    /// Ctrl-C (SIGINT).
+    Interrupt,
+    /// SIGTERM, which `systemctl stop` and `restart` send.
+    Terminate,
+    /// The admin `Shutdown` RPC.
+    AdminRequest,
+}
+
+/// Wait until the process should shut down: SIGINT, SIGTERM, or an admin
+/// shutdown request arriving on `admin_rx`.
+///
+/// The admin RPC stops the listeners through the shared watch channel, so
+/// `main` must also wake on it. Otherwise the process stays alive with
+/// nothing serving and never runs the final drain.
+pub async fn wait_for_shutdown(
+    mut admin_rx: watch::Receiver<bool>,
+) -> anyhow::Result<ShutdownReason> {
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    tokio::select! {
+        r = tokio::signal::ctrl_c() => { r?; Ok(ShutdownReason::Interrupt) }
+        _ = sigterm.recv() => Ok(ShutdownReason::Terminate),
+        _ = admin_rx.wait_for(|requested| *requested) => Ok(ShutdownReason::AdminRequest),
+    }
+}
+
 impl Kernel {
+    /// Receiver that flips to `true` when shutdown has been requested,
+    /// for example through the admin `Shutdown` RPC.
+    pub fn shutdown_requested(&self) -> watch::Receiver<bool> {
+        self.shutdown_tx.subscribe()
+    }
+
     /// Initiates a graceful shutdown of all kernel services and listeners.
     pub async fn shutdown(mut self) {
         info!("Kernel: Initiating graceful shutdown...");
@@ -188,6 +222,11 @@ impl KernelBuilder {
             shutdown_tx.clone(),
             koad_db,
             config.network.cass_grpc_addr.clone(),
+            koad_db_path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| home_dir.clone()),
+            home_dir.join("backups"),
         );
         let xp_svc_impl = CitadelXpService::new(storage.sqlite.clone(), config.clone()).await?;
 
@@ -301,5 +340,25 @@ impl KernelBuilder {
             admin_uds_path: self.admin_uds_path,
             tasks,
         })
+    }
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::*;
+
+    /// Regression guard: an admin Shutdown used to stop the listeners while
+    /// main kept waiting for Ctrl-C, leaving a live process serving nothing.
+    #[tokio::test]
+    async fn admin_request_wakes_the_shutdown_wait() {
+        let (tx, rx) = watch::channel(false);
+        let waiter = tokio::spawn(wait_for_shutdown(rx));
+        tx.send(true).unwrap();
+        let reason = tokio::time::timeout(std::time::Duration::from_secs(2), waiter)
+            .await
+            .expect("wait_for_shutdown did not wake on the admin request")
+            .unwrap()
+            .unwrap();
+        assert_eq!(reason, ShutdownReason::AdminRequest);
     }
 }
