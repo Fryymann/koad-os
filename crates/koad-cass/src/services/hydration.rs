@@ -6,7 +6,6 @@
 //! distillation into a single, high-density markdown packet.
 
 use crate::storage::{MemoryTier, PulseTier};
-use koad_codegraph::CodeGraph;
 use koad_core::hierarchy::HierarchyManager;
 use koad_core::utils::tokens::count_tokens;
 use koad_proto::cass::v1::hydration_service_server::HydrationService;
@@ -21,21 +20,15 @@ use tracing::info;
 pub struct CassHydrationService {
     storage: Arc<dyn MemoryTier>,
     hierarchy: Arc<HierarchyManager>,
-    codegraph: Arc<CodeGraph>,
     pulse_store: Option<Arc<dyn PulseTier>>,
 }
 
 impl CassHydrationService {
     /// Creates a new `CassHydrationService`.
-    pub fn new(
-        storage: Arc<dyn MemoryTier>,
-        hierarchy: Arc<HierarchyManager>,
-        codegraph: Arc<CodeGraph>,
-    ) -> Self {
+    pub fn new(storage: Arc<dyn MemoryTier>, hierarchy: Arc<HierarchyManager>) -> Self {
         Self {
             storage,
             hierarchy,
-            codegraph,
             pulse_store: None,
         }
     }
@@ -353,43 +346,7 @@ impl HydrationService for CassHydrationService {
             }
         }
 
-        // 4. Ghost API Summaries (Upgrade 1)
-        let mut api_header = "## Ⅳ. Crate API Maps (Ghost Summaries)\n".to_string();
-        api_header.push_str("The following public items are available in your current workspace members. Use these to find symbols without reading files.\n");
-
-        let header_tokens = count_tokens(&api_header);
-        if tokens_used + header_tokens < budget {
-            packet.push_str(&api_header);
-            tokens_used += header_tokens;
-
-            // We'll summarize the current crate and core
-            let crate_list = vec![
-                current_path.to_string_lossy().to_string(),
-                current_path
-                    .join("crates/koad-core")
-                    .to_string_lossy()
-                    .to_string(),
-            ];
-
-            for c_path in crate_list {
-                if let Ok(summary) = self.codegraph.get_crate_summary(&c_path) {
-                    if !summary.is_empty() {
-                        let c_name = Path::new(&c_path)
-                            .file_name()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("unknown");
-                        let block = format!("\n### Crate: {}\n{}\n", c_name, summary);
-                        let block_tokens = count_tokens(&block);
-                        if tokens_used + block_tokens < budget {
-                            packet.push_str(&block);
-                            tokens_used += block_tokens;
-                        }
-                    }
-                }
-            }
-        }
-
-        // 5. Global Pulses
+        // 4. Global Pulses
         if let Some(pulse_store) = &self.pulse_store {
             let agent_role = "global"; // In future, derive from agent identity
             if let Ok(pulses) = pulse_store.get_active_pulses(agent_role).await {
@@ -437,8 +394,7 @@ mod tests {
             .unwrap()
         });
         let hierarchy = Arc::new(HierarchyManager::new(config));
-        let codegraph = Arc::new(CodeGraph::new_with_memory()?);
-        let service = CassHydrationService::new(storage, hierarchy, codegraph);
+        let service = CassHydrationService::new(storage, hierarchy);
 
         let request = Request::new(HydrationRequest {
             agent_name: "test-agent".to_string(),
@@ -470,7 +426,6 @@ mod tests {
             .unwrap()
         });
         let hierarchy = Arc::new(HierarchyManager::new(config));
-        let codegraph = Arc::new(CodeGraph::new_with_memory()?);
         let pulse_store = Arc::new(MockPulseStore::new());
         pulse_store
             .seed(Pulse {
@@ -483,8 +438,7 @@ mod tests {
             })
             .await;
 
-        let service = CassHydrationService::new(storage, hierarchy, codegraph)
-            .with_pulse_store(pulse_store);
+        let service = CassHydrationService::new(storage, hierarchy).with_pulse_store(pulse_store);
 
         let request = Request::new(HydrationRequest {
             agent_name: "test-agent".to_string(),
@@ -545,8 +499,7 @@ mod tests {
             .unwrap()
         });
         let hierarchy = Arc::new(HierarchyManager::new(config));
-        let codegraph = Arc::new(CodeGraph::new_with_memory()?);
-        let service = CassHydrationService::new(storage, hierarchy, codegraph);
+        let service = CassHydrationService::new(storage, hierarchy);
 
         // Budget large enough for the TCH header + fact header + the concise fact,
         // but far too small for the ~400-token verbose fact.
@@ -617,8 +570,7 @@ mod tests {
             .unwrap()
         });
         let hierarchy = Arc::new(HierarchyManager::new(config));
-        let codegraph = Arc::new(CodeGraph::new_with_memory()?);
-        let service = CassHydrationService::new(storage, hierarchy, codegraph);
+        let service = CassHydrationService::new(storage, hierarchy);
 
         let make_request = || {
             Request::new(HydrationRequest {

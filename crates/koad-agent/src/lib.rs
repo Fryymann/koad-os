@@ -42,14 +42,6 @@ pub enum Commands {
         /// Description of the task or path to a task manifest.
         task: String,
     },
-    /// Generate a high-density context packet for a crate.
-    Context {
-        /// Name of the crate (e.g. "koad-core", "koad-cass").
-        crate_name: String,
-        /// Output path (defaults to ./<crate_name>.context.md).
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-    },
     /// Validate and register a task manifest for the current agent.
     Task {
         /// Path to the task manifest (.md or .toml file).
@@ -81,9 +73,6 @@ pub async fn run() -> Result<()> {
         }
         Commands::Brief { task } => {
             commands::handle_brief(&config, &task).await?;
-        }
-        Commands::Context { crate_name, output } => {
-            commands::handle_context(&config, &crate_name, output).await?;
         }
         Commands::Task { manifest, done } => {
             commands::handle_task(&config, manifest, done).await?;

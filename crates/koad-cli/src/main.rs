@@ -16,7 +16,7 @@ use koad_core::db::KoadDB;
 use std::env;
 use std::path::PathBuf;
 
-use crate::cli::{AgentAction, Cli, Commands, SystemAction, UpdatesAction, XpCommands};
+use crate::cli::{AgentAction, Cli, Commands, SystemAction, UpdatesAction};
 // use crate::db::KoadDB;
 use crate::handlers::boot::handle_boot_command;
 use crate::handlers::bridge::handle_bridge_action;
@@ -24,7 +24,6 @@ use crate::handlers::fleet::handle_fleet_action;
 use crate::handlers::intel::handle_intel_action;
 use crate::handlers::status::{handle_doctor_command, handle_status_command};
 use crate::handlers::system::handle_system_action;
-use crate::handlers::xp::handle_xp_command;
 use crate::utils::{detect_model_tier, feature_gate, pre_flight, PreFlightStatus};
 use std::collections::HashMap;
 
@@ -186,9 +185,6 @@ async fn main() -> Result<()> {
         }
         Commands::Guide { topic } => {
             crate::handlers::guide::handle_guide_action(topic, &config).await?
-        }
-        Commands::Xp { action } => {
-            handle_xp_command(action, &config).await?;
         }
         Commands::Version => {
             println!("KoadOS CLI v{}", env!("CARGO_PKG_VERSION"));

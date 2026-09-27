@@ -22,4 +22,3 @@ pub mod pulse;
 pub mod sandbox;
 pub mod updates;
 pub mod whoami;
-pub mod xp;
