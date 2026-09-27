@@ -235,6 +235,7 @@ impl PluginRegistry {
 
             let host_path = path.to_string_lossy().to_string();
             let container_path = "/plugin.wasm".to_string();
+            let cmd = container_invoke_command(&container_path, topic, payload);
 
             let config = ContainerConfig {
                 image,
@@ -245,12 +246,6 @@ impl PluginRegistry {
                 read_only_mounts: vec![(host_path, container_path)],
                 timeout: Duration::from_secs(30),
             };
-
-            let cmd = format!(
-                "wasmtime run /plugin.wasm --invoke on_signal -- '{}' '{}'",
-                topic.replace('\'', "\\'"),
-                payload.replace('\'', "\\'")
-            );
 
             let start = Instant::now();
             let result = ContainerSandbox::new(config).execute(&cmd).await?;
@@ -281,15 +276,111 @@ impl PluginRegistry {
     }
 }
 
+/// Build the `sh -c` command that runs a plugin's `invoke` export with the
+/// wasmtime CLI. Components take a WAVE call expression, so topic and payload
+/// are escaped twice: as WAVE strings, then as one shell single-quoted word.
+fn container_invoke_command(wasm_path: &str, topic: &str, payload: &str) -> String {
+    let call = format!("invoke({}, {})", wave_string(topic), wave_string(payload));
+    format!(
+        "wasmtime run --invoke {} {}",
+        shell_quote(&call),
+        shell_quote(wasm_path)
+    )
+}
+
+/// Encode `s` as a WAVE string literal.
+fn wave_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{{{:x}}}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Quote `s` as a single POSIX shell word. Inside single quotes nothing is
+/// special, so the only thing to handle is `'` itself: close, emit `\'`, reopen.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    /// Committed hello-plugin component fixture. Tests fail rather than skip
+    /// when it is missing, so a broken runtime cannot pass silently.
+    /// Run `word` through a real shell and return what the shell hands on.
+    fn shell_roundtrip(word: &str) -> String {
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("printf '%s' {}", word))
+            .output()
+            .expect("sh must be available");
+        String::from_utf8(out.stdout).expect("utf8")
+    }
+
+    /// Regression guard: the old quoting escaped `'` as `\'`, which does not
+    /// work inside single quotes, so a payload could break out and run commands.
+    #[test]
+    fn shell_quote_survives_hostile_input() {
+        for input in [
+            "plain",
+            "it's",
+            "'; touch /tmp/pwned; echo '",
+            "$(id) `id` $HOME \\ \" ;|&<>",
+            "",
+        ] {
+            assert_eq!(
+                shell_roundtrip(&shell_quote(input)),
+                input,
+                "input: {input}"
+            );
+        }
+    }
+
+    #[test]
+    fn wave_string_escapes_quotes_backslashes_and_controls() {
+        assert_eq!(wave_string("plain"), r#""plain""#);
+        assert_eq!(wave_string(r#"{"k":"v"}"#), r#""{\"k\":\"v\"}""#);
+        assert_eq!(wave_string(r"a\b"), r#""a\\b""#);
+        assert_eq!(wave_string("l1\nl2\t"), r#""l1\nl2\t""#);
+        assert_eq!(wave_string("\u{1}"), r#""\u{1}""#);
+    }
+
+    #[test]
+    fn container_command_calls_the_invoke_export() {
+        let cmd = container_invoke_command("/plugin.wasm", "t", "{\"a\":1}");
+        // After the shell strips quoting, wasmtime must see a WAVE call to the
+        // world's `invoke` export (not the old core-module `on_signal`).
+        let args = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "printf '%s\\n' {}",
+                cmd.trim_start_matches("wasmtime run ")
+            ))
+            .output()
+            .expect("sh must be available");
+        let args = String::from_utf8(args.stdout).expect("utf8");
+        let args: Vec<&str> = args.lines().collect();
+        assert_eq!(
+            args,
+            ["--invoke", r#"invoke("t", "{\"a\":1}")"#, "/plugin.wasm"]
+        );
+    }
+
     fn component_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "examples/hello-plugin/target/wasm32-unknown-unknown/release/hello_plugin.component.wasm",
-        )
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit/hello-plugin.component.wasm")
     }
 
     #[tokio::test]
@@ -354,10 +445,6 @@ mod tests {
     #[tokio::test]
     async fn test_registry_invoke_hello_plugin() {
         let path = component_path();
-        if !path.exists() {
-            eprintln!("SKIP: hello-plugin component not found. See lib.rs test docs.");
-            return;
-        }
 
         let registry = PluginRegistry::new().expect("registry init");
         registry.register("hello", path).await;
@@ -368,17 +455,22 @@ mod tests {
             .expect("invocation should succeed");
 
         assert_eq!(result.plugin_name, "hello");
-        // Duration should be non-zero (wasmtime init takes some time)
-        // We just assert it's a valid u64, not zero (timing is environment-dependent)
-        let _ = result.metrics.duration_ms;
+        // Proves the guest actually ran and received its arguments.
+        assert!(
+            result.output.contains("Hello from WASM!"),
+            "output: {}",
+            result.output
+        );
+        assert!(
+            result.output.contains("\"topic\": \"test.topic\""),
+            "output: {}",
+            result.output
+        );
     }
 
     #[tokio::test]
     async fn test_registry_concurrency() {
         let path = component_path();
-        if !path.exists() {
-            return;
-        }
 
         let registry = PluginRegistry::new().expect("registry init");
         registry.register("hello", path).await;
