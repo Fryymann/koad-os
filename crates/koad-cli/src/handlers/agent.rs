@@ -20,7 +20,6 @@
 //! - `AGENTS.md`                  — Agent-specific system prompt / identity lock
 //! - `config/IDENTITY.toml`       — Local structured identity mirror
 //! - `identity/IDENTITY.md`       — Concise identity anchor (boot step 3)
-//! - `identity/XP_LEDGER.md`      — XP tracking table
 //! - `instructions/RULES.md`      — Hard operating constraints
 //! - `instructions/GUIDES.md`     — Boot sequence + working pattern guidance
 //! - `memory/WORKING_MEMORY.md`   — Current session context (seeded empty)
@@ -572,21 +571,6 @@ async fn scaffold_kapv(spec: KapvScaffoldSpec<'_>, config: &KoadConfig) -> Resul
     )
     .await?;
 
-    // identity/XP_LEDGER.md
-    write_file(
-        spec.vault,
-        "identity/XP_LEDGER.md",
-        &format!(
-            "# {name} — XP Ledger\n\n\
-         | Date | Task / Issue ID | Event | Delta | Running Total | Level |\n\
-         | :--- | :--- | :--- | :--- | :--- | :--- |\n\
-         | {today} | — | Opening Balance | +0 | 0 | Initiate (1) |\n",
-            name = spec.name,
-            today = spec.today,
-        ),
-    )
-    .await?;
-
     // instructions/RULES.md
     write_file(
         spec.vault,
@@ -609,7 +593,7 @@ async fn scaffold_kapv(spec: KapvScaffoldSpec<'_>, config: &KoadConfig) -> Resul
          ## Saveup Protocol\n\n\
          - Log significant decisions to `memory/WORKING_MEMORY.md` during sessions.\n\
          - On session close, distill to `memory/LEARNINGS.md` and `memory/SAVEUPS.md`.\n\
-         - XP events must be recorded in `identity/XP_LEDGER.md`.\n",
+",
             name = spec.name,
             vault_path = vault_path_str,
         ),
@@ -894,7 +878,6 @@ async fn handle_agent_verify(agent: &str, config: &KoadConfig) -> Result<()> {
     let required_files = [
         "AGENTS.md",
         "identity/IDENTITY.md",
-        "identity/XP_LEDGER.md",
         "instructions/RULES.md",
         "instructions/GUIDES.md",
         "memory/WORKING_MEMORY.md",
