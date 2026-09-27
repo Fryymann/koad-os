@@ -28,13 +28,19 @@ pub struct AnchorIdentity<'a> {
     pub bio: &'a str,
 }
 
+/// Timeout for anchor's CASS connect. Matches boot's `BOOT_SERVICE_TIMEOUT`
+/// (crates/koad-agent/src/commands/boot.rs): bounded so a down CASS prints
+/// the offline line instead of stalling the Windows SessionStart hook.
+const ANCHOR_CASS_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// `\\wsl.localhost\<distro>\…` form of a Linux path.
 pub fn wsl_unc(distro: &str, linux_path: &str) -> String {
-    format!(
-        r"\\wsl.localhost\{}{}",
-        distro,
-        linux_path.replace('/', r"\")
-    )
+    let win_path = linux_path.replace('/', r"\");
+    if linux_path.starts_with('/') {
+        format!(r"\\wsl.localhost\{distro}{win_path}")
+    } else {
+        format!(r"\\wsl.localhost\{distro}\{win_path}")
+    }
 }
 
 /// Render the Windows-body anchor. `cass_packet` is `None` when CASS was
@@ -77,7 +83,10 @@ pub fn render_windows_anchor(
     s
 }
 
-/// Ask CASS for the agent's hydration packet. `None` when CASS is unreachable.
+/// Ask CASS for the agent's hydration packet. `None` when CASS is
+/// unreachable; each failure writes one reasoned line to stderr so the
+/// Windows SessionStart hook (whose stdout becomes session context) stays
+/// diagnosable without polluting the anchor itself.
 pub async fn fetch_cass_packet(
     cass_addr: &str,
     agent: &str,
@@ -86,14 +95,26 @@ pub async fn fetch_cass_packet(
 ) -> Option<String> {
     // Bounded: on WSL mirrored networking a down CASS drops packets, and an
     // unbounded connect would stall the SessionStart hook.
-    let endpoint = Endpoint::from_shared(cass_addr.to_string())
-        .ok()?
-        .connect_timeout(timeout)
-        .timeout(timeout);
-    let channel = tokio::time::timeout(timeout, endpoint.connect())
-        .await
-        .ok()?
-        .ok()?;
+    let endpoint = match Endpoint::from_shared(cass_addr.to_string()) {
+        Ok(e) => e.connect_timeout(timeout).timeout(timeout),
+        Err(e) => {
+            eprintln!("koad-agent anchor: CASS unreachable at {cass_addr}: invalid endpoint: {e}");
+            return None;
+        }
+    };
+    let channel = match tokio::time::timeout(timeout, endpoint.connect()).await {
+        Ok(Ok(channel)) => channel,
+        Ok(Err(e)) => {
+            eprintln!("koad-agent anchor: CASS unreachable at {cass_addr}: {e}");
+            return None;
+        }
+        Err(_) => {
+            eprintln!(
+                "koad-agent anchor: CASS unreachable at {cass_addr}: connect timed out after {timeout:?}"
+            );
+            return None;
+        }
+    };
     let mut client = HydrationServiceClient::new(channel);
     let req = tonic::Request::new(HydrationRequest {
         agent_name: agent.to_string(),
@@ -102,21 +123,12 @@ pub async fn fetch_cass_packet(
         token_budget: 4000,
         task_id: String::new(),
     });
-    client
-        .hydrate(req)
-        .await
-        .ok()
-        .map(|r| r.into_inner().markdown_packet)
-}
-
-fn expand_home(path: &str) -> String {
-    match path.strip_prefix("~/") {
-        Some(rest) => format!(
-            "{}/{}",
-            dirs::home_dir().unwrap_or_default().display(),
-            rest
-        ),
-        None => path.to_string(),
+    match client.hydrate(req).await {
+        Ok(resp) => Some(resp.into_inner().markdown_packet),
+        Err(e) => {
+            eprintln!("koad-agent anchor: CASS unreachable at {cass_addr}: hydrate failed: {e}");
+            None
+        }
     }
 }
 
@@ -129,17 +141,26 @@ pub async fn handle_anchor(config: &KoadConfig, agent: &str, body: AnchorBody) -
         .get(&key)
         .with_context(|| format!("Unknown agent '{agent}'"))?;
     let koad_home = config.home.to_string_lossy().to_string();
-    let vault = identity
-        .vault
-        .clone()
-        .unwrap_or_else(|| format!("{koad_home}/agents/KAPVs/{key}"));
-    let distro = std::env::var("WSL_DISTRO_NAME").unwrap_or_else(|_| "Ubuntu".to_string());
-    let vault_unc = wsl_unc(&distro, &expand_home(&vault));
+
+    // Resolve the vault exactly as boot does (crates/koad-core/src/config.rs
+    // resolve_vault_uri: KOAD_VAULT_URI env, then identity vault_uri, then
+    // identity vault, then agent_dir()), but without requiring the path to
+    // exist — this only needs to render a UNC path, not open the vault.
+    let vault_uri = config
+        .resolve_vault_uri(agent)
+        .with_context(|| format!("Could not resolve vault URI for agent '{agent}'"))?;
+    let vault_path = config.resolve_vault_path_unchecked(&vault_uri)?;
+
+    let distro = std::env::var("WSL_DISTRO_NAME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "Ubuntu".to_string());
+    let vault_unc = wsl_unc(&distro, &vault_path.to_string_lossy());
     let packet = fetch_cass_packet(
         &config.network.cass_grpc_addr,
         &identity.name,
         &koad_home,
-        Duration::from_secs(5),
+        ANCHOR_CASS_TIMEOUT,
     )
     .await;
     let id = AnchorIdentity {
@@ -185,6 +206,24 @@ mod tests {
     }
 
     #[test]
+    fn unc_path_keeps_a_trailing_slash() {
+        assert_eq!(
+            wsl_unc("Ubuntu", "/home/ideans/"),
+            r"\\wsl.localhost\Ubuntu\home\ideans\"
+        );
+    }
+
+    /// A relative path has no leading `/` to become the separator after the
+    /// distro name, so `wsl_unc` must insert one itself.
+    #[test]
+    fn unc_path_for_a_relative_path_gets_a_separator() {
+        assert_eq!(
+            wsl_unc("Ubuntu", "relative/path"),
+            r"\\wsl.localhost\Ubuntu\relative\path"
+        );
+    }
+
+    #[test]
     fn windows_anchor_has_identity_body_and_memory_tools() {
         let a = render_windows_anchor(
             &clyde(),
@@ -222,5 +261,30 @@ mod tests {
         let a = render_windows_anchor(&clyde(), "T", "/k", VAULT, None);
         assert!(a.contains("Memory: offline (CASS unreachable)"), "{a}");
         assert!(!a.contains("Temporal Context Packet"));
+    }
+
+    /// `Some("")` means CASS answered with an empty packet — distinct from
+    /// `None` (unreachable). Neither the offline line nor a packet section
+    /// belongs in the anchor for this case.
+    #[test]
+    fn empty_cass_packet_prints_neither_offline_nor_packet_section() {
+        let a = render_windows_anchor(&clyde(), "T", "/k", VAULT, Some(""));
+        assert!(!a.contains("Memory: offline"), "{a}");
+        assert!(!a.contains("Temporal Context Packet"), "{a}");
+    }
+
+    /// An unparseable CASS address must fail before any network I/O, so this
+    /// returns well within the timeout rather than waiting it out.
+    #[tokio::test]
+    async fn fetch_cass_packet_with_invalid_uri_returns_none_quickly() {
+        let start = std::time::Instant::now();
+        let result =
+            fetch_cass_packet("not a uri", "agent", "/root", Duration::from_millis(500)).await;
+        assert!(result.is_none());
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "invalid URI should fail fast, took {:?}",
+            start.elapsed()
+        );
     }
 }
