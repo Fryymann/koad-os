@@ -71,7 +71,8 @@ pub fn render_windows_anchor(
          `intel.get`, `status.citadel`.\n\
          - **KoadOS CLI:** runs only in WSL. From PowerShell, cmd or Git Bash, when truly needed: \
          `wsl.exe -d {distro} -e {env_wrapper} koad <command>` (the leading `//` is deliberate: \
-         it stops Git Bash path conversion).\n\
+         it stops Git Bash path conversion; from Git Bash, prefix `MSYS_NO_PATHCONV=1` when \
+         passing Linux paths as arguments).\n\
          - **Vault:** `{vault_unc}`\n\
          - **Handoffs:** inbox files in the Citadel home in WSL (see the `koad-inbox` skill).\n"
     ));
