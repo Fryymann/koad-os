@@ -5,7 +5,7 @@
 # so the skills are recorded in ~/.agents/.skill-lock.json and `npx skills update`
 # refreshes them. Local-path installs are not lock-tracked.
 #
-# Targets Claude Code and Codex. Hermes Agent is not a target yet: Hermes runs
+# Targets Claude Code (Codex CLI is not in use). Hermes Agent is not a target yet: Hermes runs
 # tailored forks (docs/reviews/2026-09-26-skills-standardization-review.md, step 4).
 #
 # Override the source for testing: KOAD_SKILLS_SOURCE=/path/to/repo scripts/install-skills.sh
@@ -14,7 +14,7 @@ set -euo pipefail
 
 SKILLS_CLI="skills@1.7.0"
 SKILLS_SOURCE="${KOAD_SKILLS_SOURCE:-https://github.com/Fryymann/koad-os/tree/nightly/skills}"
-SKILLS_AGENTS=(claude-code codex)
+SKILLS_AGENTS=(claude-code)
 
 cmd=(npx -y "$SKILLS_CLI" add "$SKILLS_SOURCE" -g -a "${SKILLS_AGENTS[@]}" -s '*' -y)
 

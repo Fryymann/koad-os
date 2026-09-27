@@ -4,15 +4,12 @@ Use for: mid-session re-hydration, scoped subagent spawn, CI context.
 
 ## Steps
 
-1. Mint session + persist env:
+1. Mint the session and persist the env (SKILL.md step 1). The token count must be `1`.
+
+2. Verify the tether:
 
 ```bash
-SESSFILE="$KOAD_VAULT_PATH/sessions/current.env"
-"$KOAD_BIN/koad-agent" boot "$KOAD_AGENT_NAME" 2>/dev/null | grep -E '^export ' | sed 's/;$//' > "$SESSFILE"
-chmod 600 "$SESSFILE"
-grep SESSION_ID "$SESSFILE"
+source "$KOAD_VAULT_PATH/sessions/current.env"; koad system heartbeat
 ```
 
-2. Confirm a real session ID printed — `SID-<agent>-<hash>`. A `local-fallback-<uuid>` ID means no Citadel tether; re-run step 1.
-
-3. Stop. Await user direction — do not orient or summarize.
+3. Stop. Await user direction; do not orient or summarize.

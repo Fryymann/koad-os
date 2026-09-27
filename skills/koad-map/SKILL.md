@@ -1,47 +1,21 @@
 ---
 name: koad-map
-description: Use when orienting to a new directory, navigating the Citadel workspace, finding related configs or tasks nearby, or fast-traveling to a pinned location.
+description: Use when you want a quick KoadOS-aware summary of the current directory (level, notable files, pinned locations). Optional; your harness's own file listing is usually enough.
+license: MIT
+compatibility: Requires a KoadOS Citadel install (koad CLI, $KOAD_HOME, running Citadel and CASS services).
+metadata:
+  author: koados
+  version: "2.0.0"
 ---
 
 # koad map
 
-Navigation HUD for KoadOS agents. Use at session start and whenever context or location shifts.
-
-## Core Commands
-
-| Command | Purpose |
-|---|---|
-| `koad map look` | Describe current directory, community, and nearby POIs |
-| `koad map exits` | Show parent, siblings, and connected paths |
-| `koad map nearby` | Surface contextually relevant tasks, KAPVs, and configs |
-| `koad map goto <alias>` | Fast-travel to a pinned location |
-| `koad map pins` | List all bookmarked locations |
-| `koad map pin` | Bookmark current location |
-| `koad map where <target>` | Locate a file, agent, or service |
-| `koad map history` | Breadcrumb trail of recent locations |
-| `koad map legend` | Symbol reference |
-
-## Session Start Sequence
-
-Run these three in order after `agent-boot`:
+Optional orientation helper.
 
 ```bash
-koad map look     # orient: where am I, what's here
-koad map nearby   # surface: what tasks/configs are relevant
-koad map exits    # scope: what paths exist
+koad map look      # current directory, its KoadOS level (Citadel/Station/Outpost), notable items
+koad map pins      # bookmarked locations
+koad map pin       # bookmark the current directory
 ```
 
-## When to Use Each
-
-- **Unfamiliar directory** → `look` first
-- **Looking for related files/tasks** → `nearby`
-- **Switching projects** → `goto <alias>`
-- **Can't find a file/agent** → `where <target>`
-
-## Common Mistakes
-
-| Mistake | Fix |
-|---|---|
-| Skipping map at session start | Run `look` + `nearby` before any work |
-| Using `find` or `ls` for orientation | `koad map look` gives richer context |
-| Hard-coding paths | Use `goto <alias>` for pinned locations |
+`koad map goto <alias>` changes directory only in an interactive shell; under a harness each command runs in a fresh shell, so use the printed path instead. `koad map nearby` rebuilds the code-review-graph index as a side effect and can take a while.

@@ -1,0 +1,25 @@
+name: skills
+
+on:
+  pull_request:
+    paths: ["skills/**", ".github/workflows/skills.yml"]
+  push:
+    branches: [nightly, main]
+    paths: ["skills/**", ".github/workflows/skills.yml"]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate every skill against the Agent Skills spec
+        run: |
+          pip install --quiet skills-ref
+          status=0
+          for dir in skills/*/; do
+            agentskills validate "$dir" || status=1
+          done
+          exit $status

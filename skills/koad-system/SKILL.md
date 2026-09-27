@@ -1,64 +1,67 @@
 ---
 name: koad-system
-description: Use when starting, stopping, or restarting Citadel services, checking system health, triggering a save/backup, or recovering from a disconnected session.
+description: Use when checking KoadOS service health, starting/stopping/restarting the Citadel and CASS, backing up memory databases, keeping a session alive, or recovering from a disconnected session.
+license: MIT
+compatibility: Requires a KoadOS Citadel install (koad CLI, $KOAD_HOME, running Citadel and CASS services).
+metadata:
+  author: koados
+  version: "2.0.0"
 ---
 
 # koad system
 
-Core Citadel lifecycle and ops management. Required knowledge for any agent running infrastructure.
+Health and lifecycle for the Citadel (control plane, gRPC 50051) and CASS (memory service, gRPC 50052).
 
-## Service Lifecycle
-
-```bash
-koad system start      # start Citadel kernel + CASS + all services
-koad system stop       # graceful shutdown
-koad system restart    # restart all services
-koad system status     # real-time service telemetry
-```
-
-Run `koad system start` when CASS or Citadel show OFFLINE at boot.
-
-## Health & Recovery
+## Health
 
 ```bash
-koad doctor            # comprehensive health check + self-healing sweep
-koad system reconnect  # re-establish neural link after disconnection/reboot
-koad system logs       # tail or filter KoadOS logs
+koad system status     # Redis, Citadel, CASS, SQLite — probes the real gRPC ports
+koad doctor            # full health board; `koad doctor -f` also cleans stale sockets/PIDs
 ```
 
-Run `koad doctor` before reporting a service as broken. It self-heals many common issues.
+`[FAIL] Not responding at ...` includes the restart command to run. Check health before reporting a service as broken.
 
-## State & Safety
+## Start / stop / restart
 
 ```bash
-koad system save       # Sovereign Save Protocol — full state checkpoint
-koad system backup     # manual memory sector backup
-koad system lock <sector>    # acquire distributed lock
-koad system unlock <sector>  # release distributed lock
+koad system start
+koad system restart
+koad system stop --confirm
 ```
 
-Always run `save` before risky operations (migrations, bulk deletes, schema changes).
+On hosts where systemd supervises the Citadel (Jupiter), these run `sudo -n systemctl <verb> koad-citadel.service koad-cass.service`. When sudo needs a password they stop and print the exact command — **ask the user to run it in a terminal**; you cannot enter a sudo password from a harness. Per-agent memory MCP servers (`clyde-mcp`, `hermes-cass-mcp`) are separate user services and are never touched; restart one with `systemctl --user restart <unit>`.
 
-## Config & Auth
+## Sessions
 
 ```bash
-koad system config     # inspect or modify global config
-koad system auth       # show active credentials and PAT mapping
-koad system tokenaudit # 5-pass cognitive efficiency audit
+koad system heartbeat  # validate the current session and keep it alive
 ```
 
-## Destructive (confirm before running)
+Any authenticated `koad` call also counts as activity. A session idle for about 5 minutes is purged; re-mint it with the `agent-boot` skill when a call fails with `Session not found or expired`.
+
+## Backups and checkpoints
 
 ```bash
-koad system scrub      # removes local state, logs, DBs — prep for distribution
+koad system backup     # WAL-safe snapshot of every database -> $KOAD_HOME/backups/<timestamp>/
+koad saveup            # identity checkpoint; `koad saveup --full` also backs up every database
 ```
 
-**Warning:** `scrub` is irreversible. Run `save` first.
+Back up before risky operations (migrations, bulk deletes, schema changes). Neither command interrupts running services.
 
-## Common Mistakes
+## Other
 
-| Mistake | Fix |
-|---|---|
-| Reporting CASS offline without trying to start | Run `koad system start` first |
-| Skipping `save` before schema changes | Always checkpoint before risky ops |
-| Using `restart` to fix config issues | Use `koad doctor` first — it self-heals |
+```bash
+koad system locks                        # list distributed locks
+koad system lock <sector> / unlock <sector>
+koad system logs                         # tail or filter KoadOS logs
+koad system config                       # print the loaded configuration
+koad system auth                         # show which credentials are configured
+```
+
+## Destructive
+
+`koad system scrub` removes local state, logs and databases (prep for distribution). Irreversible: back up first and get explicit approval.
+
+## After deploying new binaries
+
+`install.sh --update` restarts user services itself and, for system services still on old code, ends with "still running the old binaries" plus the exact `sudo systemctl restart ...` command. Relay that command to the user; the update is not live until it runs.

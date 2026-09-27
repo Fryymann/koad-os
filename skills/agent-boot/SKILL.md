@@ -1,6 +1,11 @@
 ---
 name: agent-boot
 description: Use when starting a KoadOS agent session, re-hydrating mid-session, or booting a named agent for the first time. Accepts an agent name and optional level flag (--quick, --full). Default level is standard.
+license: MIT
+compatibility: Requires a KoadOS Citadel install (koad CLI, $KOAD_HOME, running Citadel and CASS services).
+metadata:
+  author: koados
+  version: "2.0.0"
 ---
 
 # Agent Boot
@@ -18,73 +23,65 @@ agent-boot [name] --full    # boot + orient + tasks + Condition Green
 
 ## Identity Rules
 
-The session environment variables (`KOAD_AGENT_NAME`, `KOAD_AGENT_ROLE`, `KOAD_AGENT_RANK`, `KOAD_AGENT_BIO`) are the absolute source of truth. Establish persona from them.
+The session environment variables (`KOAD_AGENT_NAME`, `KOAD_AGENT_ROLE`, `KOAD_AGENT_RANK`, `KOAD_AGENT_BIO`) are the source of truth. Establish persona from them.
 
-- **NEVER** run `agent-prep` (or `--agentprep`), and never edit these variables to change identity.
-- Always boot without a name argument — rely on `$KOAD_AGENT_NAME`.
-- Do **not** hand-edit `CLAUDE.md` / `GEMINI.md` / `AGENTS.md` identity anchors. `koad-agent boot` regenerates all three (`.claude/CLAUDE.md`, `.gemini/GEMINI.md`, `.codex/AGENTS.md`) on every boot. Hand edits are overwritten.
+- **Never** run `agent-prep` (or `--agentprep`), and never edit these variables to change identity.
+- Boot without a name argument; rely on `$KOAD_AGENT_NAME`.
+- Do not hand-edit the generated identity anchor (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` or `~/.gemini/GEMINI.md`, depending on runtime). Boot regenerates it. Boot never writes to a project's own instruction files.
 
-## CRITICAL: Env Does Not Survive Between Tool Calls
+## Env does not survive between tool calls
 
-Under Claude Code (and any harness that runs each Bash invocation in a fresh shell), `agent-boot` hydrates a shell that **dies when the call returns**. The `KOAD_SESSION_ID` / `KOAD_SESSION_TOKEN` it exports are lost, and every later `koad` call fails with:
-
-```
-Error: status: Unauthenticated, message: "Missing x-session-id header"
-```
-
-Boot MUST therefore persist the session env to a file and every later call MUST source it.
+Under a harness that runs each shell command in a fresh shell (Claude Code, Hermes Agent), the exports from boot die when the call returns, and later `koad` calls fail with `Unauthenticated: Missing x-session-id header`. Boot must persist the session env to a file, and every later call must source it.
 
 ## How to Execute
 
-**Step 1 — mint session and persist env:**
+**Step 1 — mint the session and persist the env:**
 
 ```bash
 SESSFILE="$KOAD_VAULT_PATH/sessions/current.env"
 "$KOAD_BIN/koad-agent" boot "$KOAD_AGENT_NAME" 2>/dev/null | grep -E '^export ' | sed 's/;$//' > "$SESSFILE"
 chmod 600 "$SESSFILE"
-grep -E 'SESSION_ID|AGENT_NAME' "$SESSFILE"
+grep -c KOAD_SESSION_TOKEN "$SESSFILE"
 ```
 
-`koad-agent boot` normalizes the agent name, so `Clyde` and `clyde` both work here.
+The count must be `1`. `0` means no session was minted: run the same boot command without `2>/dev/null` and read stderr. `[OFFLINE] KoadOS Citadel is not reachable` means the Citadel is down (see the `koad-system` skill). The `[QUICK-RESTORE]` banner is only a cached brief and proves nothing.
 
-**Step 2 — verify the tether (do not skip):**
+**Step 2 — verify the tether:**
 
 ```bash
-source "$KOAD_VAULT_PATH/sessions/current.env"; koad signal list
+source "$KOAD_VAULT_PATH/sessions/current.env"; koad system heartbeat
 ```
 
-Any answer other than `Unauthenticated` means the session is live. `Unauthenticated` means step 1 failed — re-run it, do not proceed.
+`[OK] Heartbeat transmitted` means the Citadel accepted the session. Anything else: re-run step 1.
 
-**Step 3 — prefix every later koad/CASS call:**
+**Step 3 — prefix every later koad call:**
 
 ```bash
 source "$KOAD_VAULT_PATH/sessions/current.env"; koad <command>
 ```
 
-In an interactive terminal (not a harness) the classic form still works and needs none of the above:
+Any authenticated call keeps the session alive. After about 5 minutes without one, the session is purged; when a call fails with `Session not found or expired`, repeat step 1.
+
+In an interactive terminal the classic form works directly:
 
 ```bash
 source "$KOAD_HOME/bin/koad-functions.sh" && agent-boot
 ```
 
-**Clean/scheduled environment exception:** cron and other non-interactive shells may have empty `KOAD_HOME` and `KOAD_AGENT_NAME`. Never expand an empty `KOAD_HOME` into `/bin/koad-functions.sh`. If the harness/project's trusted identity anchor explicitly provides the Citadel home and current identity, source that absolute `koad-functions.sh` and boot that same identity explicitly (e.g. Jupiter Hermes: `source /home/ideans/.citadel-jupiter/bin/koad-functions.sh && agent-boot hermes`). Never infer or switch identity from an unrelated repository anchor. If no trusted identity is available, stop rather than guessing.
+**Clean/scheduled environments:** cron and other non-interactive shells may have empty `KOAD_HOME` and `KOAD_AGENT_NAME`. Never expand an empty `KOAD_HOME` into `/bin/koad-functions.sh`. If a trusted identity anchor provides the Citadel home and identity, source that absolute `koad-functions.sh` and boot that same identity explicitly (for example Jupiter Hermes: `source /home/ideans/.citadel-jupiter/bin/koad-functions.sh && agent-boot hermes`). Never infer or switch identity from an unrelated repository anchor. If no trusted identity is available, stop rather than guess.
 
-## Known Traps (verified 2026-08-18)
+## Known Traps (verified 2026-09-26)
 
 | Trap | Reality |
 |---|---|
-| `koad boot -a <name> --export-env` | Does **not** mint a real session. Returns `local-fallback-<uuid>` with no token, plus `Session token is invalid or missing`. Use `koad-agent boot` instead. |
-| `koad boot -a Clyde` | Rejects capitalized names: `Agent 'Clyde' is not a registered Sovereign KAI`. `koad-agent boot Clyde` accepts it. |
-| `koad whoami` says `[NOT_TETHERED]` | Session lease (Redis hash `koad:state`, field `koad:session:<SID>`) has a 90s TTL and `koad system heartbeat` returns `[OK]` **without extending `expires_at`** — a server-side bug in the Citadel heartbeat handler. Read paths (signals, intel query, CASS recall) keep working past expiry because they validate the token only. **Writes do not** — `koad intel remember` fails with `Commit failed / Unauthenticated: Session not found or expired`. Re-run step 1 to re-mint before any memory write in a long session. |
-| `koad signal inbox` | No such subcommand. Use `koad signal list`. |
-| `koad signal send` / `list` | **The Citadel signal service is a stub** (`crates/koad-citadel/src/services/signal.rs:121-142`): `send_signal` discards the payload and returns `Signal sent (stub)`, which the CLI reports as `Signal dispatched to <agent>.`; `get_signals` always returns an empty vec. Nothing is ever delivered or received. Use `$KOAD_HOME/agents/inbox/<slug>.<type>.<agent>.md` files or a CASS fact card for agent-to-agent handoff. |
-| `agent-boot <name> --quick` | Some deployed wrappers delegate straight to `koad-agent boot` and reject level flags as an unexpected argument. If a flag is rejected, drop it and run the level procedure manually — never swap the agent name to work around it. |
-| Boot prints `[QUICK-RESTORE]` only | This is not proof of authentication. Confirm that `$SESSFILE` contains non-empty `KOAD_SESSION_ID` and `KOAD_SESSION_TOKEN`, then run the tether check. If a scheduled Jupiter shell resolves `KOAD_HOME`/`KOAD_VAULT_PATH` into `~/.koad-os` or the session file lacks credentials, stop using direct `koad` calls; do not retry blindly or claim boot success. Use the partition-bound CASS MCP for memory work and report the boot-path defect. |
+| `koad boot -a <name>` | Legacy path. Rejects capitalized names and refuses to run while any session is active in the body. Use `koad-agent boot` (step 1). |
+| Level flag rejected (`--quick`, `--full`) | Some deployed wrappers pass straight through to `koad-agent boot`, which rejects them. Drop the flag and follow the level file manually; never swap the agent name to work around it. |
+| Session file has no token | Boot could not reach the Citadel. Do not retry blindly or claim success; check `koad system status`. Use the partition-bound CASS MCP for memory work meanwhile. |
 
 ## Boot Levels
 
-- **`--quick`:** Boot only. Follow `quick.md`.
-- **`standard` (default):** Boot + orient. Follow `standard.md`.
-- **`--full`:** Boot + orient + tasks + Condition Green. Follow `full.md`.
+- **`--quick`:** boot only. Follow `quick.md`.
+- **`standard` (default):** boot and orient. Follow `standard.md`.
+- **`--full`:** boot, orient, tasks, Condition Green. Follow `full.md`.
 
-Read the appropriate level file and follow it exactly.
+Read the level file and follow it.

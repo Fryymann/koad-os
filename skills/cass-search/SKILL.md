@@ -1,6 +1,11 @@
 ---
 name: cass-search
 description: Use when about to reconstruct knowledge about a specific topic, answering "have we done this before", or looking up a known domain — before generating an answer from scratch.
+license: MIT
+compatibility: Requires a KoadOS Citadel install (koad CLI, $KOAD_HOME, running Citadel and CASS services).
+metadata:
+  author: koados
+  version: "2.0.0"
 ---
 
 # CASS Search

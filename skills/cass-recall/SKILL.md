@@ -1,6 +1,11 @@
 ---
 name: cass-recall
 description: Use when starting a session with citadel-memory MCP available, re-orienting mid-session, or when lacking context about prior work — before rebuilding knowledge from scratch.
+license: MIT
+compatibility: Requires a KoadOS Citadel install (koad CLI, $KOAD_HOME, running Citadel and CASS services).
+metadata:
+  author: koados
+  version: "2.0.0"
 ---
 
 # CASS Recall
