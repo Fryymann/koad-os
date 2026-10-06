@@ -9,6 +9,24 @@ use rusqlite::{params, Connection};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// Filter and order for the facts that go into a hydration packet. Nearly
+/// every card has confidence 1.0, so ordering by confidence alone fell back to
+/// insertion order: the oldest cards filled the limit and new ones, including
+/// `critical` ones, never appeared. Order by prompt priority (ranked as in
+/// hydration's `priority_rank`), then newest. `never_auto` cards are never
+/// rendered, so they do not take a slot.
+const AGENT_FACT_SELECTION: &str = "
+    AND COALESCE(json_extract(metadata_json, '$.prompt_budget.injection_mode'), '') != 'never_auto'
+    ORDER BY CASE json_extract(metadata_json, '$.prompt_budget.priority')
+                WHEN 'critical' THEN 0
+                WHEN 'high' THEN 1
+                WHEN 'low' THEN 3
+                WHEN 'archive' THEN 4
+                ELSE 2
+             END,
+             created_at DESC,
+             confidence DESC";
+
 pub struct SqliteTier {
     conn: Arc<Mutex<Connection>>,
 }
@@ -228,11 +246,11 @@ impl MemoryTier for SqliteTier {
         let conn = self.conn.lock().await;
         let mut facts = Vec::new();
         if let Some(tid) = task_id.filter(|t| !t.is_empty()) {
-            let mut stmt = conn.prepare(
+            let mut stmt = conn.prepare(&format!(
                 "SELECT id, source_agent, session_id, domain, content, confidence, tags, metadata_json
                  FROM fact_cards WHERE source_agent = ?1 AND task_ids LIKE '%' || ?2 || '%'
-                 ORDER BY confidence DESC LIMIT ?3",
-            )?;
+                 {AGENT_FACT_SELECTION} LIMIT ?3"
+            ))?;
             let rows = stmt.query_map(params![agent_name, tid, limit], |row| {
                 Ok(FactCard {
                     id: row.get(0)?,
@@ -254,10 +272,10 @@ impl MemoryTier for SqliteTier {
                 facts.push(row?);
             }
         } else {
-            let mut stmt = conn.prepare(
+            let mut stmt = conn.prepare(&format!(
                 "SELECT id, source_agent, session_id, domain, content, confidence, tags, metadata_json
-                 FROM fact_cards WHERE source_agent = ?1 ORDER BY confidence DESC LIMIT ?2",
-            )?;
+                 FROM fact_cards WHERE source_agent = ?1 {AGENT_FACT_SELECTION} LIMIT ?2"
+            ))?;
             let rows = stmt.query_map(params![agent_name, limit], |row| {
                 Ok(FactCard {
                     id: row.get(0)?,
@@ -576,6 +594,73 @@ mod tests {
         let all = storage.query_recent_episodes("tyr", 10, None).await?;
         assert_eq!(all.len(), 2);
 
+        Ok(())
+    }
+
+    fn fact_with(id: &str, priority: &str, injection_mode: &str) -> FactCard {
+        use koad_proto::cass::v1::{MemoryMetadata, PromptBudgetHints};
+        let mut f = fact(id, "hermes_jupiter_ideans", "general", id);
+        f.metadata = Some(MemoryMetadata {
+            prompt_budget: Some(PromptBudgetHints {
+                priority: priority.into(),
+                injection_mode: injection_mode.into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        f
+    }
+
+    /// Nearly every card has confidence 1.0, so ordering by confidence alone
+    /// returned the oldest cards and a new `critical` card never reached the
+    /// hydration packet. Selection is priority first, then newest.
+    #[tokio::test]
+    async fn test_agent_facts_select_by_priority_then_recency() -> Result<()> {
+        let storage = SqliteTier::new(":memory:")?;
+        for i in 0..12 {
+            storage.commit_fact(fact(&format!("old-{i:02}"), "hermes_jupiter_ideans", "general", "old")).await?;
+        }
+        storage.commit_fact(fact_with("self", "critical", "verbatim")).await?;
+        storage.commit_fact(fact_with("handoff", "high", "verbatim")).await?;
+        storage.commit_fact(fact_with("archived", "archive", "verbatim")).await?;
+
+        let got = storage.query_agent_facts("hermes", 10, None).await?;
+        let ids: Vec<_> = got.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids.len(), 10, "{ids:?}");
+        assert_eq!(&ids[..2], ["self", "handoff"], "{ids:?}");
+        // The rest are the newest normal cards, newest first; archive and the
+        // oldest normals fall outside the limit.
+        let expected: Vec<String> = (4..12).rev().map(|i| format!("old-{i:02}")).collect();
+        assert_eq!(&ids[2..], expected, "{ids:?}");
+        Ok(())
+    }
+
+    /// `never_auto` cards are dropped by the hydration renderer, so selecting
+    /// them would only waste slots under the limit.
+    #[tokio::test]
+    async fn test_agent_facts_skip_never_auto() -> Result<()> {
+        let storage = SqliteTier::new(":memory:")?;
+        storage.commit_fact(fact_with("hidden", "critical", "never_auto")).await?;
+        storage.commit_fact(fact("plain", "hermes_jupiter_ideans", "general", "x")).await?;
+        let got = storage.query_agent_facts("hermes", 10, None).await?;
+        let ids: Vec<_> = got.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids, ["plain"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_agent_facts_with_task_use_the_same_ordering() -> Result<()> {
+        let storage = SqliteTier::new(":memory:")?;
+        storage.commit_fact(fact("normal", "hermes_jupiter_ideans", "general", "x")).await?;
+        storage.commit_fact(fact_with("crit", "critical", "verbatim")).await?;
+        // Task filtering matches task_ids; tag both rows with the task.
+        {
+            let conn = storage.conn.lock().await;
+            conn.execute("UPDATE fact_cards SET task_ids = 't1'", [])?;
+        }
+        let got = storage.query_agent_facts("hermes", 10, Some("t1")).await?;
+        let ids: Vec<_> = got.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids, ["crit", "normal"]);
         Ok(())
     }
 
