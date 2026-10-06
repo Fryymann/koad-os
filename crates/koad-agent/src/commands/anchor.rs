@@ -2,16 +2,15 @@
 //!
 //! The Windows body bridge runs this from a Claude Code for Windows
 //! SessionStart hook through `wsl.exe`; its stdout becomes session context.
-//! It writes no files and mints no Citadel session: memory goes to CASS
-//! directly over MCP.
+//! It mints no Citadel session: memory goes to CASS directly over MCP. The
+//! only file it touches is `$KOAD_HOME/logs/anchor.log`, when hydration fails.
 
+use super::self_anchor::{
+    fetch_cass_packet, latest_journal, log_cass_miss, read_self, render_self_section, CassMiss,
+    CASS_CONNECT_TIMEOUT, CASS_HYDRATE_TIMEOUT,
+};
 use anyhow::{Context, Result};
 use koad_core::config::KoadConfig;
-use koad_proto::cass::v1::hydration_service_client::HydrationServiceClient;
-use koad_proto::cass::v1::HydrationRequest;
-use koad_proto::citadel::v5::WorkspaceLevel;
-use std::time::Duration;
-use tonic::transport::Endpoint;
 
 /// Where the anchored session runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -28,11 +27,6 @@ pub struct AnchorIdentity<'a> {
     pub bio: &'a str,
 }
 
-/// Timeout for anchor's CASS connect. Matches boot's `BOOT_SERVICE_TIMEOUT`
-/// (crates/koad-agent/src/commands/boot.rs): bounded so a down CASS prints
-/// the offline line instead of stalling the Windows SessionStart hook.
-const ANCHOR_CASS_TIMEOUT: Duration = Duration::from_secs(3);
-
 /// `\\wsl.localhost\<distro>\…` form of a Linux path.
 pub fn wsl_unc(distro: &str, linux_path: &str) -> String {
     let win_path = linux_path.replace('/', r"\");
@@ -43,15 +37,16 @@ pub fn wsl_unc(distro: &str, linux_path: &str) -> String {
     }
 }
 
-/// Render the Windows-body anchor. `cass_packet` is `None` when CASS was
-/// unreachable.
+/// Render the Windows-body anchor. `self_section` comes from
+/// `render_self_section` and follows the bio.
 pub fn render_windows_anchor(
     id: &AnchorIdentity,
     timestamp: &str,
     koad_home: &str,
     distro: &str,
     vault_unc: &str,
-    cass_packet: Option<&str>,
+    self_section: &str,
+    cass: Result<&str, &CassMiss>,
 ) -> String {
     // Leading `//`: Git Bash leaves it alone instead of rewriting a POSIX path
     // into `C:/Program Files/Git/...`; PowerShell, cmd and WSL accept it too.
@@ -63,6 +58,7 @@ pub fn render_windows_anchor(
          ## Identity\nName: {}\nRole: {}\nRank: {}\n\n## Bio\n{}\n",
         id.name, id.role, id.rank, id.bio
     );
+    s.push_str(self_section);
     s.push_str(&format!(
         "\n## Working Environment (Windows body)\n\
          - **Memory:** use the `citadel-memory` MCP tools. Recall with \
@@ -76,66 +72,19 @@ pub fn render_windows_anchor(
          - **Vault:** `{vault_unc}`\n\
          - **Handoffs:** inbox files in the Citadel home in WSL (see the `koad-inbox` skill).\n"
     ));
-    match cass_packet {
-        None => s.push_str(
-            "\nMemory: offline (CASS unreachable). Memory tools will return errors until CASS is back.\n",
-        ),
-        Some(p) if !p.is_empty() => {
+    match cass {
+        Err(miss) => {
+            s.push('\n');
+            s.push_str(&miss.anchor_line());
+            s.push('\n');
+        }
+        Ok(p) if !p.is_empty() => {
             s.push_str("\n## 🧠 Temporal Context Packet (CASS)\n");
             s.push_str(p);
         }
-        Some(_) => {}
+        Ok(_) => {}
     }
     s
-}
-
-/// Ask CASS for the agent's hydration packet. `None` when CASS is
-/// unreachable; each failure writes one reasoned line to stderr so the
-/// Windows SessionStart hook (whose stdout becomes session context) stays
-/// diagnosable without polluting the anchor itself.
-pub async fn fetch_cass_packet(
-    cass_addr: &str,
-    agent: &str,
-    project_root: &str,
-    timeout: Duration,
-) -> Option<String> {
-    // Bounded: on WSL mirrored networking a down CASS drops packets, and an
-    // unbounded connect would stall the SessionStart hook.
-    let endpoint = match Endpoint::from_shared(cass_addr.to_string()) {
-        Ok(e) => e.connect_timeout(timeout).timeout(timeout),
-        Err(e) => {
-            eprintln!("koad-agent anchor: CASS unreachable at {cass_addr}: invalid endpoint: {e}");
-            return None;
-        }
-    };
-    let channel = match tokio::time::timeout(timeout, endpoint.connect()).await {
-        Ok(Ok(channel)) => channel,
-        Ok(Err(e)) => {
-            eprintln!("koad-agent anchor: CASS unreachable at {cass_addr}: {e}");
-            return None;
-        }
-        Err(_) => {
-            eprintln!(
-                "koad-agent anchor: CASS unreachable at {cass_addr}: connect timed out after {timeout:?}"
-            );
-            return None;
-        }
-    };
-    let mut client = HydrationServiceClient::new(channel);
-    let req = tonic::Request::new(HydrationRequest {
-        agent_name: agent.to_string(),
-        project_root: project_root.to_string(),
-        level: WorkspaceLevel::LevelUnspecified as i32,
-        token_budget: 4000,
-        task_id: String::new(),
-    });
-    match client.hydrate(req).await {
-        Ok(resp) => Some(resp.into_inner().markdown_packet),
-        Err(e) => {
-            eprintln!("koad-agent anchor: CASS unreachable at {cass_addr}: hydrate failed: {e}");
-            None
-        }
-    }
 }
 
 /// Print the identity anchor for `agent` running in `body`.
@@ -162,13 +111,24 @@ pub async fn handle_anchor(config: &KoadConfig, agent: &str, body: AnchorBody) -
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "Ubuntu".to_string());
     let vault_unc = wsl_unc(&distro, &vault_path.to_string_lossy());
+    let cass_addr = &config.network.cass_grpc_addr;
     let packet = fetch_cass_packet(
-        &config.network.cass_grpc_addr,
+        cass_addr,
         &key,
         &koad_home,
-        ANCHOR_CASS_TIMEOUT,
+        CASS_CONNECT_TIMEOUT,
+        CASS_HYDRATE_TIMEOUT,
     )
     .await;
+    // Stdout becomes session context, so the reason goes to stderr and, since
+    // the hook keeps no stderr, to the anchor log.
+    if let Err(miss) = &packet {
+        let line = miss.log_line(cass_addr);
+        eprintln!("koad-agent anchor: {line}");
+        log_cass_miss(&config.home, &key, "windows", &line);
+    }
+    let journal = latest_journal(&vault_path).map(|p| wsl_unc(&distro, &p.to_string_lossy()));
+    let self_section = render_self_section(read_self(&vault_path).as_deref(), journal.as_deref());
     let id = AnchorIdentity {
         name: &identity.name,
         role: &identity.role,
@@ -183,6 +143,7 @@ pub async fn handle_anchor(config: &KoadConfig, agent: &str, body: AnchorBody) -
             &koad_home,
             &distro,
             &vault_unc,
+            &self_section,
             packet.as_deref()
         )
     );
@@ -238,7 +199,8 @@ mod tests {
             "/home/ideans/.citadel-jupiter",
             "Ubuntu",
             VAULT,
-            Some("## Ⅰ. Episodes\n- x\n"),
+            "",
+            Ok("## Ⅰ. Episodes\n- x\n"),
         );
         assert!(a.starts_with("# KoadOS Agent Identity Anchor\n"), "{a}");
         assert!(a.contains("Name: Clyde"));
@@ -256,7 +218,7 @@ mod tests {
     /// The WSL-body session instructions do not apply on Windows.
     #[test]
     fn windows_anchor_has_no_wsl_session_instructions() {
-        let a = render_windows_anchor(&clyde(), "T", "/k", "Ubuntu", VAULT, Some("p"));
+        let a = render_windows_anchor(&clyde(), "T", "/k", "Ubuntu", VAULT, "", Ok("p"));
         for wsl_only in [
             "agent-boot",
             "current.env",
@@ -269,7 +231,7 @@ mod tests {
 
     #[test]
     fn cli_line_uses_the_given_distro_and_a_double_slash_path() {
-        let a = render_windows_anchor(&clyde(), "T", "/k", "Ubuntu-24.04", VAULT, Some("p"));
+        let a = render_windows_anchor(&clyde(), "T", "/k", "Ubuntu-24.04", VAULT, "", Ok("p"));
         assert!(
             a.contains("wsl.exe -d Ubuntu-24.04 -e //k/bin/koad-wsl-env koad"),
             "{a}"
@@ -279,33 +241,50 @@ mod tests {
 
     #[test]
     fn offline_cass_is_stated_not_hidden() {
-        let a = render_windows_anchor(&clyde(), "T", "/k", "Ubuntu", VAULT, None);
+        let a = render_windows_anchor(
+            &clyde(),
+            "T",
+            "/k",
+            "Ubuntu",
+            VAULT,
+            "",
+            Err(&CassMiss::Unreachable("refused".into())),
+        );
         assert!(a.contains("Memory: offline (CASS unreachable)"), "{a}");
         assert!(!a.contains("Temporal Context Packet"));
     }
 
-    /// `Some("")` means CASS answered with an empty packet — distinct from
-    /// `None` (unreachable). Neither the offline line nor a packet section
-    /// belongs in the anchor for this case.
+    /// `Ok("")` means CASS answered with an empty packet — distinct from a
+    /// miss. Neither a memory warning nor a packet section belongs in the
+    /// anchor for this case.
     #[test]
     fn empty_cass_packet_prints_neither_offline_nor_packet_section() {
-        let a = render_windows_anchor(&clyde(), "T", "/k", "Ubuntu", VAULT, Some(""));
+        let a = render_windows_anchor(&clyde(), "T", "/k", "Ubuntu", VAULT, "", Ok(""));
         assert!(!a.contains("Memory: offline"), "{a}");
         assert!(!a.contains("Temporal Context Packet"), "{a}");
     }
 
-    /// An unparseable CASS address must fail before any network I/O, so this
-    /// returns well within the timeout rather than waiting it out.
-    #[tokio::test]
-    async fn fetch_cass_packet_with_invalid_uri_returns_none_quickly() {
-        let start = std::time::Instant::now();
-        let result =
-            fetch_cass_packet("not a uri", "agent", "/root", Duration::from_millis(500)).await;
-        assert!(result.is_none());
+    /// A slow CASS is not reported as offline: that false report is what
+    /// this anchor used to give whenever hydrate took longer than 3s.
+    #[test]
+    fn slow_cass_is_not_called_offline() {
+        let miss = CassMiss::Slow(std::time::Duration::from_secs(15));
+        let a = render_windows_anchor(&clyde(), "T", "/k", "Ubuntu", VAULT, "", Err(&miss));
         assert!(
-            start.elapsed() < Duration::from_millis(500),
-            "invalid URI should fail fast, took {:?}",
-            start.elapsed()
+            a.contains("CASS is up but hydration timed out after 15s"),
+            "{a}"
         );
+        assert!(!a.contains("offline"), "{a}");
+    }
+
+    #[test]
+    fn self_section_sits_between_bio_and_working_environment() {
+        let section = render_self_section(Some("# SELF — Clyde\nI'm Clyde."), Some(r"\\v\j.md"));
+        let a = render_windows_anchor(&clyde(), "T", "/k", "Ubuntu", VAULT, &section, Ok("p"));
+        let bio = a.find("## Bio").expect("bio");
+        let me = a.find("# SELF — Clyde").expect("self");
+        let env = a.find("## Working Environment").expect("env");
+        assert!(bio < me && me < env, "{a}");
+        assert!(a.contains(r"Read it before starting: `\\v\j.md`"), "{a}");
     }
 }
