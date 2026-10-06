@@ -38,6 +38,12 @@ Under a harness that runs each shell command in a fresh shell (Claude Code, Herm
 **Step 1 — mint the session and persist the env:**
 
 ```bash
+# Fresh harness shells don't inherit KOAD_RUNTIME. Detect it like koad-functions.sh; never force it.
+if [ -z "$KOAD_RUNTIME" ]; then
+  if [ -n "$CLAUDE_CODE_ENTRYPOINT" ]; then export KOAD_RUNTIME=claude
+  elif [ -n "$GEMINI_API_KEY$GOOGLE_GEMINI_API_KEY$ANTIGRAVITY_AGENT" ]; then export KOAD_RUNTIME=gemini
+  fi
+fi
 SESSFILE="$KOAD_VAULT_PATH/sessions/current.env"
 "$KOAD_BIN/koad-agent" boot "$KOAD_AGENT_NAME" 2>/dev/null | grep -E '^export ' | sed 's/;$//' > "$SESSFILE"
 chmod 600 "$SESSFILE"
@@ -76,6 +82,7 @@ source "$KOAD_HOME/bin/koad-functions.sh" && agent-boot
 |---|---|
 | `koad boot -a <name>` | Legacy path. Rejects capitalized names and refuses to run while any session is active in the body. Use `koad-agent boot` (step 1). |
 | Level flag rejected (`--quick`, `--full`) | Some deployed wrappers pass straight through to `koad-agent boot`, which rejects them. Drop the flag and follow the level file manually; never swap the agent name to work around it. |
+| `[BOOT DENIED] No agent body detected` | `KOAD_RUNTIME` doesn't match the identity's `runtime`. Step 1 detects Claude Code and Gemini. Any other harness has to export its own runtime. Never set a runtime your harness isn't, because that defeats the body check. |
 | Session file has no token | Boot could not reach the Citadel. Do not retry blindly or claim success; check `koad system status`. Use the partition-bound CASS MCP for memory work meanwhile. |
 
 ## Boot Levels
