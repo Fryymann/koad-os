@@ -26,7 +26,7 @@ agent-boot [name] --full    # boot + orient + tasks + Condition Green
 The session environment variables (`KOAD_AGENT_NAME`, `KOAD_AGENT_ROLE`, `KOAD_AGENT_RANK`, `KOAD_AGENT_BIO`) are the source of truth. Establish persona from them.
 
 - **Never** run `agent-prep` (or `--agentprep`), and never edit these variables to change identity.
-- Boot without a name argument; rely on `$KOAD_AGENT_NAME`.
+- Boot without a name argument; rely on `$KOAD_AGENT_NAME`. If a fresh harness shell leaves it empty, use the skill's name argument or the Name in your trusted identity anchor, never a guess.
 - Do not hand-edit the generated identity anchor (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` or `~/.gemini/GEMINI.md`, depending on runtime). Boot regenerates it. Boot never writes to a project's own instruction files.
 
 ## Env does not survive between tool calls
@@ -38,24 +38,33 @@ Under a harness that runs each shell command in a fresh shell (Claude Code, Herm
 **Step 1 — mint the session and persist the env:**
 
 ```bash
+# Fresh harness shells may have no identity env. Replace NAME with the skill's name argument,
+# or the Name in your trusted identity anchor. Never guess.
+: "${KOAD_HOME:?KOAD_HOME is unset - see Clean/scheduled environments}"
+KOAD_BIN="${KOAD_BIN:-$KOAD_HOME/bin}"
+KOAD_AGENT_NAME="${KOAD_AGENT_NAME:-NAME}"
 # Fresh harness shells don't inherit KOAD_RUNTIME. Detect it like koad-functions.sh; never force it.
 if [ -z "$KOAD_RUNTIME" ]; then
   if [ -n "$CLAUDE_CODE_ENTRYPOINT" ]; then export KOAD_RUNTIME=claude
   elif [ -n "$GEMINI_API_KEY$GOOGLE_GEMINI_API_KEY$ANTIGRAVITY_AGENT" ]; then export KOAD_RUNTIME=gemini
   fi
 fi
-SESSFILE="$KOAD_VAULT_PATH/sessions/current.env"
-"$KOAD_BIN/koad-agent" boot "$KOAD_AGENT_NAME" 2>/dev/null | grep -E '^export ' | sed 's/;$//' > "$SESSFILE"
-chmod 600 "$SESSFILE"
+BOOT_ENV="$("$KOAD_BIN/koad-agent" boot "$KOAD_AGENT_NAME" 2>/dev/null | grep -E '^export ' | sed 's/;$//')"
+# The vault path comes from boot itself, not from the (possibly empty) shell.
+VAULT="$(printf '%s\n' "$BOOT_ENV" | sed -n 's/^export KOAD_VAULT_PATH="\(.*\)"$/\1/p')"
+SESSFILE="${VAULT:?no session minted - boot exported no KOAD_VAULT_PATH}/sessions/current.env"
+mkdir -p "$VAULT/sessions"
+(umask 077; printf '%s\n' "$BOOT_ENV" > "$SESSFILE")
 grep -c KOAD_SESSION_TOKEN "$SESSFILE"
+echo "SESSFILE=$SESSFILE"
 ```
 
-The count must be `1`. `0` means no session was minted: run the same boot command without `2>/dev/null` and read stderr. `[OFFLINE] KoadOS Citadel is not reachable` means the Citadel is down (see the `koad-system` skill). The `[QUICK-RESTORE]` banner is only a cached brief and proves nothing.
+The count must be `1`. Note the printed `SESSFILE` path. Later commands run in fresh shells where `$KOAD_VAULT_PATH` is empty, so they must use that literal path. `no session minted` or a count of `0` means no session was minted: run the boot command without `2>/dev/null` and read stderr. `[OFFLINE] KoadOS Citadel is not reachable` means the Citadel is down (see the `koad-system` skill). The `[QUICK-RESTORE]` banner is only a cached brief and proves nothing.
 
 **Step 2 — verify the tether:**
 
 ```bash
-source "$KOAD_VAULT_PATH/sessions/current.env"; koad system heartbeat
+source "<SESSFILE>"; koad system heartbeat   # <SESSFILE> = the absolute path step 1 printed
 ```
 
 `[OK] Heartbeat transmitted` means the Citadel accepted the session. Anything else: re-run step 1.
@@ -63,7 +72,7 @@ source "$KOAD_VAULT_PATH/sessions/current.env"; koad system heartbeat
 **Step 3 — prefix every later koad call:**
 
 ```bash
-source "$KOAD_VAULT_PATH/sessions/current.env"; koad <command>
+source "<SESSFILE>"; koad <command>
 ```
 
 Any authenticated call keeps the session alive. After about 5 minutes without one, the session is purged; when a call fails with `Session not found or expired`, repeat step 1.

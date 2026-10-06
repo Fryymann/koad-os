@@ -4,7 +4,7 @@ Use for: the start of a major session, post-incident recovery, inter-agent hando
 
 ## Steps
 
-1. Run every step of `standard.md`. All commands below assume `source "$KOAD_VAULT_PATH/sessions/current.env";` is prefixed.
+1. Run every step of `standard.md`. All commands below assume `source "<SESSFILE>";` is prefixed, using the absolute path SKILL.md step 1 printed.
 
 2. Read open tasks from the agent vault:
 

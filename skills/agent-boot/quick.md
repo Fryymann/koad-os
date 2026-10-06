@@ -9,7 +9,7 @@ Use for: mid-session re-hydration, scoped subagent spawn, CI context.
 2. Verify the tether:
 
 ```bash
-source "$KOAD_VAULT_PATH/sessions/current.env"; koad system heartbeat
+source "<SESSFILE>"; koad system heartbeat   # <SESSFILE> = the absolute path SKILL.md step 1 printed
 ```
 
 3. Stop. Await user direction; do not orient or summarize.
