@@ -729,6 +729,31 @@ fn default_sandbox() -> SandboxConfig {
 mod tests {
     use super::*;
 
+    /// Harness agents (Claude Code, Codex, Hermes) run no heartbeat daemon, so a session only
+    /// stays alive through authenticated calls. They routinely wait 20-30 minutes for the
+    /// user, and a purge in that gap fails their next call with "Session not found or expired".
+    #[test]
+    fn test_default_purge_timeout_survives_a_long_wait_for_the_user() {
+        assert_eq!(DEFAULT_PURGE_TIMEOUT_SECS, 2 * 60 * 60);
+        assert!(DEFAULT_PURGE_TIMEOUT_SECS > DEFAULT_LEASE_DURATION_SECS);
+    }
+
+    /// Every tracked kernel.toml must agree with the compiled default, or an install from one
+    /// of them quietly purges sessions on a different schedule.
+    #[test]
+    fn test_shipped_kernel_tomls_match_default_purge_timeout() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for rel in ["config/defaults/kernel.toml", "docker/citadel/kernel.toml"] {
+            let text =
+                std::fs::read_to_string(root.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
+            let value: toml::Value = toml::from_str(&text).unwrap_or_else(|e| panic!("{rel}: {e}"));
+            let purge = value["sessions"]["purge_timeout_secs"]
+                .as_integer()
+                .unwrap_or_else(|| panic!("{rel}: no sessions.purge_timeout_secs"));
+            assert_eq!(purge as u64, DEFAULT_PURGE_TIMEOUT_SECS, "{rel}");
+        }
+    }
+
     /// `resolve_vault_path_unchecked` must expand `~` like `resolve_vault_path`
     /// does, but must not require the resolved path to exist — callers that
     /// only render the path (e.g. `koad-agent anchor`) need it for a vault

@@ -10,7 +10,7 @@ pub const DEFAULT_GITHUB_PROJECT_NUMBER: u32 = 2;
 pub const DEFAULT_REAPER_INTERVAL_SECS: u64 = 10;
 pub const DEFAULT_LEASE_DURATION_SECS: u64 = 90;
 pub const DEFAULT_DARK_TIMEOUT_SECS: u64 = 60;
-pub const DEFAULT_PURGE_TIMEOUT_SECS: u64 = 300;
+pub const DEFAULT_PURGE_TIMEOUT_SECS: u64 = 7200; // 2h: harness agents idle while the user is away
 pub const DEFAULT_DEADMAN_TIMEOUT_SECS: u64 = 45;
 
 /// Backup Paths (Relative to KOAD_HOME)
