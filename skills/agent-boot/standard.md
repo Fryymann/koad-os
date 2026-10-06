@@ -4,7 +4,7 @@ Use for: a normal session open.
 
 ## Steps
 
-1. **Mint the session and persist the env** (SKILL.md step 1). Every command below assumes `source "$KOAD_VAULT_PATH/sessions/current.env";` is prefixed.
+1. **Mint the session and persist the env** (SKILL.md step 1). Every command below assumes `source "<SESSFILE>";` is prefixed, using the absolute path SKILL.md step 1 printed.
 
 2. **Health and tether in one pass:**
 
