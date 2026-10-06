@@ -7,12 +7,14 @@ use tokio::fs;
 use tokio::process::Command;
 use std::time::Duration;
 
-use koad_proto::cass::v1::hydration_service_client::HydrationServiceClient;
-use koad_proto::cass::v1::HydrationRequest;
 use koad_proto::citadel::v5::citadel_session_client::CitadelSessionClient;
 use koad_proto::citadel::v5::{LeaseRequest, TraceContext, WorkspaceLevel};
 use tonic::transport::Endpoint;
 
+use crate::commands::self_anchor::{
+    fetch_cass_packet, latest_journal, log_cass_miss, read_self, render_self_section,
+    CASS_CONNECT_TIMEOUT, CASS_HYDRATE_TIMEOUT,
+};
 use crate::commands::verify::verify_kapv;
 
 /// Timeout for boot-path gRPC connections to local Citadel/CASS services.
@@ -228,34 +230,17 @@ pub async fn handle_boot(
                 }
             });
 
+            // Hydrate gets its own budget: with BOOT_SERVICE_TIMEOUT on the
+            // request too, a healthy but busy CASS was reported as failed.
             let hydration_task = tokio::spawn(async move {
-                let cass_addr_display = cass_addr.clone();
-                match Endpoint::from_shared(cass_addr)
-                    .unwrap()
-                    .connect_timeout(BOOT_SERVICE_TIMEOUT)
-                    .timeout(BOOT_SERVICE_TIMEOUT)
-                    .connect()
-                    .await
-                {
-                    Ok(channel) => {
-                        let mut cass_client = HydrationServiceClient::new(channel);
-                        let hydration_req = tonic::Request::new(HydrationRequest {
-                            agent_name: agent_name_hydra,
-                            project_root: project_root_hydra,
-                            level: WorkspaceLevel::LevelUnspecified as i32,
-                            token_budget: 4000,
-                            task_id: String::new(),
-                        });
-                        cass_client.hydrate(hydration_req).await.ok()
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "{}",
-                            koad_core::utils::errors::map_connect_err("KoadOS CASS", &cass_addr_display, e)
-                        );
-                        None
-                    }
-                }
+                fetch_cass_packet(
+                    &cass_addr,
+                    &agent_name_hydra,
+                    &project_root_hydra,
+                    CASS_CONNECT_TIMEOUT,
+                    CASS_HYDRATE_TIMEOUT,
+                )
+                .await
             });
 
             let git_task = tokio::spawn(async move {
@@ -309,11 +294,20 @@ pub async fn handle_boot(
                 println!("export KOAD_SESSION_TOKEN=\"{}\";", res.token);
             }
 
-            if let Ok(Some(h_res)) = hydration_res {
-                cass_packet = h_res.into_inner().markdown_packet;
-                cass_packet_size = cass_packet.len();
-            } else {
-                boot_status = "FAIL (CASS/Hydration)";
+            let mut cass_miss = None;
+            match hydration_res {
+                Ok(Ok(packet)) => {
+                    cass_packet = packet;
+                    cass_packet_size = cass_packet.len();
+                }
+                Ok(Err(miss)) => {
+                    let line = miss.log_line(&config.network.cass_grpc_addr);
+                    eprintln!("koad-agent boot: {line}");
+                    log_cass_miss(&config.home, &agent_key, "wsl", &line);
+                    cass_miss = Some(miss);
+                    boot_status = "FAIL (CASS/Hydration)";
+                }
+                Err(_) => boot_status = "FAIL (CASS/Hydration)",
             }
 
             let active_pulses = pulse_res.unwrap_or_default().unwrap_or_default();
@@ -344,6 +338,13 @@ pub async fn handle_boot(
             timestamp, identity_config.name, identity_config.role, identity_config.rank, identity_config.bio, config.home.display(), agent_key
         );
 
+            // Who I am comes from the vault, so it survives a CASS outage.
+            let journal = latest_journal(&vault_path).map(|p| p.display().to_string());
+            anchor_content.push_str(&render_self_section(
+                read_self(&vault_path).as_deref(),
+                journal.as_deref(),
+            ));
+
             // --- [AIS: Live Awareness Section] ---
             if !active_pulses.is_empty() {
                 anchor_content.push_str("\n## 🛜 Live Awareness (Global Pulses)\n");
@@ -354,7 +355,11 @@ pub async fn handle_boot(
 
             anchor_content.push_str(operating_guidance());
 
-            if !cass_packet.is_empty() {
+            if let Some(miss) = &cass_miss {
+                anchor_content.push('\n');
+                anchor_content.push_str(&miss.anchor_line());
+                anchor_content.push('\n');
+            } else if !cass_packet.is_empty() {
                 anchor_content.push_str("\n## 🧠 Temporal Context Packet (CASS)\n");
                 anchor_content.push_str(&cass_packet);
             }

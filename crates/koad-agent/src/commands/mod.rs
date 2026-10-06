@@ -1,4 +1,5 @@
 pub mod anchor;
+pub mod self_anchor;
 pub mod boot;
 pub mod verify;
 pub mod info;
