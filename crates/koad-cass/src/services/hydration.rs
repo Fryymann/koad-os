@@ -234,10 +234,14 @@ impl HydrationService for CassHydrationService {
             });
 
             // Pack a slice of facts into a section under the shared running budget.
+            // Returns how many renderable facts were dropped for budget.
             let mut emit_section = |header: &str,
                                     facts_slice: &[koad_proto::cass::v1::FactCard],
-                                    tokens_used: &mut usize| {
+                                    tokens_used: &mut usize|
+             -> usize {
                 let mut body = String::new();
+                let mut kept = 0usize;
+                let mut dropped = 0usize;
                 let header_tokens = count(header) as usize;
                 for fact in facts_slice {
                     if let Some(line) = render_line(fact) {
@@ -248,9 +252,11 @@ impl HydrationService for CassHydrationService {
                         if *tokens_used + header_tokens + (count(&body) as usize) + line_tokens + 1
                             >= budget
                         {
+                            dropped += 1;
                             continue;
                         }
                         body.push_str(&line);
+                        kept += 1;
                     }
                 }
                 if !body.is_empty() {
@@ -259,18 +265,35 @@ impl HydrationService for CassHydrationService {
                     if *tokens_used + section_tokens < budget {
                         packet.push_str(&section);
                         *tokens_used += section_tokens;
+                    } else {
+                        dropped += kept;
                     }
                 }
+                dropped
             };
 
             // Ⅱ-A first (cache-stable prefix region), then Ⅱ-B. When no fact is
             // cache_stable (e.g. legacy un-backfilled DBs), Ⅱ-A is omitted and
             // everything renders under Ⅱ-B, preserving single-section behavior.
             // Ⅱ-B keeps the literal "Active Fact Cards" substring for back-compat.
+            let mut omitted = 0usize;
             if !stable.is_empty() {
-                emit_section("## Ⅱ-A. Stable Fact Cards\n", &stable, &mut tokens_used);
+                omitted += emit_section("## Ⅱ-A. Stable Fact Cards\n", &stable, &mut tokens_used);
             }
-            emit_section("## Ⅱ. Active Fact Cards\n", &volatile, &mut tokens_used);
+            omitted += emit_section("## Ⅱ. Active Fact Cards\n", &volatile, &mut tokens_used);
+
+            // A dropped card must not vanish silently: the reader would take the
+            // packet as complete. The notice is emitted even if it overruns the
+            // budget by its own few tokens.
+            if omitted > 0 {
+                let notice = format!(
+                    "_{omitted} fact card{} omitted for token budget. Search CASS to find {}._\n\n",
+                    if omitted == 1 { "" } else { "s" },
+                    if omitted == 1 { "it" } else { "them" },
+                );
+                tokens_used += count(&notice) as usize;
+                packet.push_str(&notice);
+            }
         }
 
         // 2.5 Pending Inbox (New)
@@ -611,6 +634,99 @@ mod tests {
                 .join("\n")
         };
         assert_eq!(extract_stable(&packet1), extract_stable(&packet2));
+        Ok(())
+    }
+
+    fn test_service(storage: Arc<MockStorage>) -> CassHydrationService {
+        let config = koad_core::config::KoadConfig::load().unwrap_or_else(|_| {
+            koad_core::config::KoadConfig::from_json(
+                r#"{
+                "home": "/tmp",
+                "system": { "version": "test" },
+                "network": { "citadel_grpc_port": 0, "citadel_grpc_addr": "", "cass_grpc_port": 0, "cass_grpc_addr": "", "redis_socket": "", "citadel_socket": "" },
+                "storage": { "db_name": "", "drain_interval_secs": 0 }
+            }"#,
+            )
+            .unwrap()
+        });
+        CassHydrationService::new(storage, Arc::new(HierarchyManager::new(config)))
+    }
+
+    fn budget_request(token_budget: u32) -> Request<HydrationRequest> {
+        Request::new(HydrationRequest {
+            agent_name: "test-agent".to_string(),
+            project_root: "/tmp".to_string(),
+            level: 0,
+            token_budget,
+            task_id: "".to_string(),
+        })
+    }
+
+    #[tokio::test]
+    async fn test_hydration_reports_facts_omitted_for_budget() -> anyhow::Result<()> {
+        use koad_proto::cass::v1::FactCard;
+        let storage = Arc::new(MockStorage::new());
+        storage
+            .commit_fact(FactCard {
+                id: "concise".into(),
+                source_agent: "test-agent".into(),
+                domain: "p:identity".into(),
+                content: "Key fact alpha.".into(),
+                confidence: 1.0,
+                ..Default::default()
+            })
+            .await?;
+        for id in ["verbose-1", "verbose-2"] {
+            storage
+                .commit_fact(FactCard {
+                    id: id.into(),
+                    source_agent: "test-agent".into(),
+                    domain: "p:trivia".into(),
+                    content: format!("{} zulu", "filler ".repeat(400)),
+                    confidence: 0.3,
+                    ..Default::default()
+                })
+                .await?;
+        }
+
+        let packet = test_service(storage)
+            .hydrate(budget_request(60))
+            .await?
+            .into_inner()
+            .markdown_packet;
+
+        assert!(packet.contains("Key fact alpha."));
+        assert!(!packet.contains("filler filler"));
+        assert!(
+            packet.contains("2 fact cards omitted for token budget"),
+            "a budget-dropped card must be reported, not silently skipped; packet:\n{packet}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_hydration_no_omitted_notice_when_all_facts_fit() -> anyhow::Result<()> {
+        use koad_proto::cass::v1::FactCard;
+        let storage = Arc::new(MockStorage::new());
+        storage
+            .commit_fact(FactCard {
+                id: "concise".into(),
+                source_agent: "test-agent".into(),
+                domain: "p:identity".into(),
+                content: "Key fact alpha.".into(),
+                confidence: 1.0,
+                ..Default::default()
+            })
+            .await?;
+
+        let packet = test_service(storage)
+            .hydrate(budget_request(10000))
+            .await?
+            .into_inner()
+            .markdown_packet;
+
+        assert!(packet.contains("Key fact alpha."));
+        assert!(!packet.contains("omitted for token budget"));
         Ok(())
     }
 }
