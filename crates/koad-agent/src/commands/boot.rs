@@ -416,7 +416,8 @@ pub async fn handle_boot(
                     bootstrap_path.display(),
                     config.home.display()
                 );
-                let _ = write_identity_anchor(
+                let _ = write_harness_anchor(
+                    identity_config.harness_anchor,
                     &home,
                     AnchorRuntime::Gemini,
                     &router_content,
@@ -424,7 +425,8 @@ pub async fn handle_boot(
                 )
                 .await;
             } else if is_claude {
-                let _ = write_identity_anchor(
+                let _ = write_harness_anchor(
+                    identity_config.harness_anchor,
                     &home,
                     AnchorRuntime::Claude,
                     &anchor_content,
@@ -432,7 +434,8 @@ pub async fn handle_boot(
                 )
                 .await;
             } else {
-                let _ = write_identity_anchor(
+                let _ = write_harness_anchor(
+                    identity_config.harness_anchor,
                     &home,
                     AnchorRuntime::Codex,
                     &anchor_content,
@@ -560,6 +563,22 @@ async fn write_identity_anchor(
     agent_name: &str,
 ) -> Result<()> {
     safe_write_anchor(home.join(runtime.home_relative_path()), content, agent_name).await
+}
+
+/// Write the harness-level anchor unless the identity opted out with
+/// `harness_anchor = false`. An opted-out agent is loaded on request from its
+/// vault, and the harness's own instruction file is left exactly as it is.
+async fn write_harness_anchor(
+    enabled: bool,
+    home: &Path,
+    runtime: AnchorRuntime,
+    content: &str,
+    agent_name: &str,
+) -> Result<()> {
+    if !enabled {
+        return Ok(());
+    }
+    write_identity_anchor(home, runtime, content, agent_name).await
 }
 
 /// Operating guidance written into every identity anchor.
@@ -693,5 +712,35 @@ mod tests {
                 "{runtime:?}"
             );
         }
+    }
+
+    /// An identity with `harness_anchor = false` loads on request: boot must
+    /// leave the harness's user-level instruction file exactly as it found it,
+    /// so sessions that never boot the agent stay plain.
+    #[tokio::test]
+    async fn opted_out_identity_leaves_the_harness_file_alone() {
+        let home = tempfile::tempdir().expect("home tempdir");
+        let runtime = AnchorRuntime::Claude;
+        let harness_file = home.path().join(runtime.home_relative_path());
+        std::fs::create_dir_all(harness_file.parent().unwrap()).expect("home harness dir");
+
+        // Absent file stays absent.
+        let result = write_harness_anchor(false, home.path(), runtime, "ANCHOR", "Clyde").await;
+        assert!(result.is_ok(), "{result:?}");
+        assert!(!harness_file.exists(), "opt-out created the harness file");
+
+        // The user's own content stays untouched, even when it names the agent.
+        std::fs::write(&harness_file, "Name: Clyde\nmy own notes").expect("seed harness file");
+        let result = write_harness_anchor(false, home.path(), runtime, "ANCHOR", "Clyde").await;
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(
+            std::fs::read_to_string(&harness_file).unwrap(),
+            "Name: Clyde\nmy own notes"
+        );
+
+        // Default behaviour is unchanged: an identity that has not opted out is written.
+        let result = write_harness_anchor(true, home.path(), runtime, "ANCHOR", "Clyde").await;
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(std::fs::read_to_string(&harness_file).unwrap(), "ANCHOR");
     }
 }

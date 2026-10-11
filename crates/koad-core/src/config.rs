@@ -275,10 +275,20 @@ pub struct AgentIdentityConfig {
     /// Skills this agent has equipped, keyed to blueprint IDs.
     #[serde(default)]
     pub skills: Vec<SkillInstance>,
+    /// Whether boot also writes the identity anchor to the harness's user-level
+    /// instruction file (`~/.claude/CLAUDE.md` and its Codex and Gemini equivalents).
+    /// Set to `false` for an agent that loads on request, so harness sessions that
+    /// never boot the agent stay plain. The vault's `bootstrap` file is always written.
+    #[serde(default = "default_harness_anchor")]
+    pub harness_anchor: bool,
 }
 
 fn default_agent_tier() -> u32 {
     3
+}
+
+fn default_harness_anchor() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -766,6 +776,24 @@ mod tests {
         assert_eq!(bp.capabilities, vec!["fs_read"]);
     }
 
+    /// `harness_anchor` defaults to true so existing identity files keep
+    /// their behaviour; only an explicit `false` opts an agent out.
+    #[test]
+    fn harness_anchor_defaults_to_true_and_can_be_disabled() {
+        let base = r#"
+            name = "Test"
+            role = "Tester"
+            rank = "Crew"
+            bio = "A test agent"
+        "#;
+        let default: AgentIdentityConfig = toml::from_str(base).expect("parse default");
+        assert!(default.harness_anchor);
+
+        let opted_out: AgentIdentityConfig =
+            toml::from_str(&format!("{base}\nharness_anchor = false")).expect("parse opt-out");
+        assert!(!opted_out.harness_anchor);
+    }
+
     #[test]
     fn test_skill_instance_equip_round_trip() {
         use std::collections::HashMap;
@@ -789,6 +817,7 @@ mod tests {
             tier: 3,
             xp: 0,
             skills: vec![instance],
+            harness_anchor: true,
         };
         let serialized = toml::to_string(&agent).expect("should serialize");
         let deserialized: AgentIdentityConfig =

@@ -402,6 +402,7 @@ mod tests {
             tier: 3,
             xp: 0,
             skills,
+            harness_anchor: true,
         }
     }
 
